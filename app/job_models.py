@@ -18,6 +18,10 @@ class JobRecord(BaseModel):
     image_count: int = 0
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
+    image_sample_url: str | None = Field(
+        default=None,
+        description="Public URL of the first uploaded image for this job (preview thumbnail). Derived per response; not persisted.",
+    )
 
     @computed_field  # type: ignore[misc]
     @property

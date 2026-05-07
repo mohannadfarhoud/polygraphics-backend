@@ -70,6 +70,37 @@ def _effective_model_base_url(settings: RuntimeSettings) -> str:
     return base
 
 
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+
+def _uploads_base_url() -> str:
+    """Public URL prefix for files under uploads/. Defaults to deriving from the
+    model base URL by swapping the trailing /output for /uploads, so a single
+    APP_MODEL_BASE_URL configures both."""
+    v = os.getenv("APP_UPLOADS_BASE_URL", "").strip()
+    if v:
+        return v.rstrip("/")
+    base = _effective_model_base_url(settings_store.load())
+    if base.endswith("/output"):
+        return base[: -len("/output")] + "/uploads"
+    return "http://127.0.0.1:8000/uploads"
+
+
+def _image_sample_url(job_id: str) -> str | None:
+    job_dir = UPLOAD_DIR / job_id
+    if not job_dir.is_dir():
+        return None
+    for p in sorted(job_dir.glob("input_*")):
+        if p.is_file() and p.suffix.lower() in _IMAGE_EXTS:
+            return f"{_uploads_base_url()}/{job_id}/{p.name}"
+    return None
+
+
+def _attach_sample(job: JobRecord) -> JobRecord:
+    job.image_sample_url = _image_sample_url(job.job_id)
+    return job
+
+
 def _build_pipeline_for_job(
     settings: RuntimeSettings,
     job_repo: JobRepository,
@@ -153,7 +184,7 @@ def server_status() -> dict:
 
 @app.get("/jobs", response_model=list[JobRecord])
 def list_jobs() -> list[JobRecord]:
-    return job_manager.list_jobs()
+    return [_attach_sample(j) for j in job_manager.list_jobs()]
 
 
 @app.get("/jobs/{job_id}", response_model=JobRecord)
@@ -161,13 +192,13 @@ def get_job(job_id: str) -> JobRecord:
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return _attach_sample(job)
 
 
 @app.post("/jobs/{job_id}/stop", response_model=JobRecord)
 def stop_job(job_id: str) -> JobRecord:
     try:
-        return job_manager.request_stop(job_id)
+        return _attach_sample(job_manager.request_stop(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
 
@@ -175,7 +206,7 @@ def stop_job(job_id: str) -> JobRecord:
 @app.post("/jobs/{job_id}/continue", response_model=JobRecord)
 def continue_job(job_id: str) -> JobRecord:
     try:
-        return job_manager.continue_job(job_id)
+        return _attach_sample(job_manager.continue_job(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
@@ -185,7 +216,7 @@ def continue_job(job_id: str) -> JobRecord:
 @app.post("/jobs/{job_id}/reprocess", response_model=JobRecord)
 def reprocess_job(job_id: str) -> JobRecord:
     try:
-        return job_manager.reprocess_job(job_id)
+        return _attach_sample(job_manager.reprocess_job(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
@@ -214,14 +245,14 @@ async def create_job_from_uploads(
     use_job_id = job_id or str(uuid.uuid4())
     _assert_upload_allowed(use_job_id)
     await _save_job_files(use_job_id, files)
-    return job_manager.create_job_pending(use_job_id, len(files))
+    return _attach_sample(job_manager.create_job_pending(use_job_id, len(files)))
 
 
 @app.post("/jobs/{job_id}/start", response_model=JobRecord)
 def start_job(job_id: str) -> JobRecord:
     """Begin processing for a PENDING job (requires at least 2 images on disk)."""
     try:
-        return job_manager.start_job(job_id)
+        return _attach_sample(job_manager.start_job(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
@@ -244,7 +275,7 @@ async def reconstruct(
     _assert_upload_allowed(use_job_id)
     await _save_job_files(use_job_id, files)
     try:
-        return job_manager.enqueue_new_job(use_job_id, len(files))
+        return _attach_sample(job_manager.enqueue_new_job(use_job_id, len(files)))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
@@ -256,4 +287,9 @@ def _mount_output_static() -> None:
     app.mount("/output", StaticFiles(directory=str(out)), name="output_glb")
 
 
+def _mount_uploads_static() -> None:
+    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+
+
 _mount_output_static()
+_mount_uploads_static()
