@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# App data (generated at runtime)
+uploads/
+masked/
+output/
+data/
+config/jobs.json
+config/jobs.json.bak
+config/runtime_settings.json
+
+# Logs
+logs/
+*.log
+
+# Large model artifacts (never commit)
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+*.h5
+
+# Generated 3D outputs
+*.glb
+*.ply
+*.splat
+
+# Build / packaging
+build/
+dist/
+*.spec

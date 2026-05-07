@@ -1,0 +1,24 @@
+# Optional: real SAM, DUSt3R, and Gaussian Splatting (large). Install after base requirements:
+#   pip install -r requirements.txt
+#   pip install -r requirements-ml.txt
+#
+# DUSt3R (mesh path): install from the official repo (not on PyPI):
+#   git clone https://github.com/naver/dust3r
+#   cd dust3r && pip install -e .
+#
+# Gaussian Splatting (3DGS path):
+#   git clone --recursive https://github.com/graphdeco-inria/gaussian-splatting
+#   cd gaussian-splatting
+#   conda env create -f environment.yml         # recommended; ships pinned torch/cuda
+#   # or build CUDA submodules manually with the same Python you point gs_python_executable to:
+#   #   pip install submodules/diff-gaussian-rasterization submodules/simple-knn submodules/fused-ssim
+#   # Then set settings.gs_repo_path to this clone and (optionally) settings.gs_python_executable
+#   # to the env's python.exe.
+#
+# Also install COLMAP (https://colmap.github.io) and set settings.colmap_binary_path
+# (used by `gs_init_source="colmap"`).
+
+torch
+torchvision
+segment-anything
+plyfile

@@ -1,0 +1,9 @@
+numpy
+opencv-python
+open3d
+trimesh
+fastapi
+uvicorn
+pydantic
+python-multipart
+psutil
