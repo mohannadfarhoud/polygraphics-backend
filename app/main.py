@@ -4,6 +4,15 @@ import os
 import uuid
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv  # type: ignore[import-not-found]
+
+    _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+    if _ENV_PATH.is_file():
+        load_dotenv(_ENV_PATH, override=False)
+except ImportError:
+    pass
+
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
