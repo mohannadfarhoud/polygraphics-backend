@@ -37,6 +37,17 @@ If **`allow_placeholder_pipeline` is `true`**, the API uses a **fake center mask
 - HTTP job API, meshing (Open3D), GLB export, and model URL handling are implemented.
 - With **`allow_placeholder_pipeline=false`**, SAM runs via **`segment_anything`** when installed; DUSt3R runs via **`dust3r`** when installed.
 
+### One-shot ML install (Windows)
+
+After the base `setup_windows.ps1` has created `.venv`, run:
+
+```powershell
+.\scripts\install_ml_windows.ps1            # SAM vit_b + DUSt3R 224_linear (CPU-friendly)
+.\scripts\install_ml_windows.ps1 -SamModel vit_h -Dust3rModel 512_dpt   # GPU-class
+```
+
+The script installs PyTorch (CPU build), `segment-anything`, clones and `pip install -e .` DUSt3R into `C:\polyGraphics\third_party\dust3r`, and downloads the checkpoints into `C:\polyGraphics\models\{sam,dust3r}`. It is idempotent — re-running only re-does missing steps. After it finishes, push the suggested paths via `PUT /settings` and `Restart-Service polygraphics`.
+
 ## Run
 
 ```bash
