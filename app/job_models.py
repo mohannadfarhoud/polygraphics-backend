@@ -19,11 +19,13 @@ class JobRecord(BaseModel):
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
 
-    @computed_field
+    @computed_field  # type: ignore[misc]
+    @property
     def created_at_iso(self) -> str:
         return datetime.fromtimestamp(self.created_at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    @computed_field
+    @computed_field  # type: ignore[misc]
+    @property
     def updated_at_iso(self) -> str:
         return datetime.fromtimestamp(self.updated_at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -35,6 +37,7 @@ class ModelListItem(BaseModel):
     size_bytes: int
     modified_at: float
 
-    @computed_field
+    @computed_field  # type: ignore[misc]
+    @property
     def modified_at_iso(self) -> str:
         return datetime.fromtimestamp(self.modified_at, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

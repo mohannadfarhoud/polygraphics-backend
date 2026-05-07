@@ -23,6 +23,11 @@ ROOT_DIR = Path(os.getenv("APP_ROOT_DIR", Path(__file__).resolve().parents[1])).
 UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+_root_path = os.getenv("APP_ROOT_PATH", "").strip()
+if _root_path and not _root_path.startswith("/"):
+    _root_path = "/" + _root_path
+_root_path = _root_path.rstrip("/")
+
 app = FastAPI(
     title="polyGraphics 3D Backend",
     description="API for 2D-to-3D reconstruction pipeline (SAM + DUSt3R + Open3D)",
@@ -30,6 +35,7 @@ app = FastAPI(
     docs_url="/swagger",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
+    root_path=_root_path,
 )
 _settings_cors = os.getenv("APP_CORS_ORIGINS", "*").strip()
 _origins = [o.strip() for o in _settings_cors.split(",") if o.strip()]
