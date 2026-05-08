@@ -46,6 +46,10 @@ class ModelListItem(BaseModel):
     url: str = Field(
         description="Download URL for this asset (same rules as job.model_url: relative /output/... or APP_MODEL_BASE_URL).",
     )
+    image_url: str | None = Field(
+        default=None,
+        description="URL of the first uploaded input image for this job (preview). Same construction as job.image_sample_url.",
+    )
     size_bytes: int
     modified_at: float
 

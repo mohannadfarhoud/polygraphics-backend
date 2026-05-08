@@ -237,9 +237,10 @@ class JobManager:
         base = model_base_url.rstrip("/")
         for p in sorted(files, key=lambda x: x.stat().st_mtime, reverse=True):
             st = p.stat()
+            jid = p.stem
             items.append(
                 ModelListItem(
-                    job_id=p.stem,
+                    job_id=jid,
                     filename=p.name,
                     url=f"{base}/{p.name}",
                     size_bytes=st.st_size,

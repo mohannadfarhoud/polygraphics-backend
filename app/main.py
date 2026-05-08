@@ -316,7 +316,11 @@ def list_models() -> list[ModelListItem]:
     settings = settings_store.load()
     output_dir = ROOT_DIR / settings.output_dir_name
     base = _effective_model_base_url(settings)
-    return job_manager.list_models(output_dir, model_base_url=base)
+    items = job_manager.list_models(output_dir, model_base_url=base)
+    return [
+        it.model_copy(update={"image_url": _image_sample_url(it.job_id)})
+        for it in items
+    ]
 
 
 @app.post("/jobs", response_model=JobRecord)
