@@ -54,7 +54,9 @@ class ReconstructionPipeline:
                 model_url = self._run_gaussian_splatting(job_id, masked_paths, cancel_event=cancel_event)
                 return model_url
 
-            model_url = self._run_mesh_pipeline(job_id, masked_paths, cancel_event=cancel_event)
+            model_url = self._run_mesh_pipeline(
+                job_id, masked_paths, image_paths, cancel_event=cancel_event
+            )
             return model_url
         except JobCancelled:
             raise
@@ -66,6 +68,7 @@ class ReconstructionPipeline:
         self,
         job_id: str,
         masked_paths: list[Path],
+        original_paths: list[Path],
         *,
         cancel_event: threading.Event | None = None,
     ) -> str:
@@ -104,6 +107,40 @@ class ReconstructionPipeline:
         # we always transfer them from the cleaned colored cloud at the end.
         if clean_pcd.has_colors():
             mesh = transfer_vertex_colors_from_point_cloud(mesh, clean_pcd)
+
+        # Strongest colour signal: project each mesh vertex into the ORIGINAL
+        # (unmasked) photographs through the camera poses estimated upstream and
+        # average the sampled RGB. This survives any normalisation/quantisation
+        # quirks in the point-cloud colour path and yields true photo colours.
+        try:
+            from .color_baking import CameraView, bake_vertex_colors_from_views
+
+            cams = list(getattr(reconstruction, "cameras", []) or [])
+            if cams:
+                # Map masked path -> original photo path so the baker pulls from
+                # the unmasked photographs (prevents black bleed near mask edges).
+                masked_to_original: dict[str, Path] = {}
+                for masked, original in zip(masked_paths, original_paths):
+                    masked_to_original[str(masked)] = original
+                    masked_to_original[masked.name] = original
+
+                photo_views: list[CameraView] = []
+                for cam in cams:
+                    original = masked_to_original.get(str(cam.image_path)) or masked_to_original.get(
+                        Path(cam.image_path).name
+                    ) or cam.image_path
+                    photo_views.append(
+                        CameraView(
+                            image_path=original,
+                            image_size=cam.image_size,
+                            K=cam.K,
+                            w2c=cam.w2c,
+                        )
+                    )
+                bake_vertex_colors_from_views(mesh, photo_views)
+        except Exception:
+            # Baking is best-effort; never let a bad camera matrix kill the export.
+            pass
 
         self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=95)
         glb_path = self.config.output_dir / f"{job_id}.glb"

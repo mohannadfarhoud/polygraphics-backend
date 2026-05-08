@@ -26,11 +26,19 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from .runtime_settings import RuntimeSettings
+
+
+@dataclass
+class ColmapSparseResult:
+    points_xyz: np.ndarray  # (N, 3) float32
+    colors_rgb: np.ndarray  # (N, 3) uint8
+    cameras: list  # list[color_baking.CameraView]; deferred import to avoid cycle
 
 
 def run_colmap_sparse(
@@ -133,6 +141,35 @@ def run_colmap_sparse(
     return points, colors
 
 
+def run_colmap_sparse_with_cameras(
+    masked_images: list[Path],
+    settings: RuntimeSettings,
+    *,
+    workspace: Path,
+) -> ColmapSparseResult:
+    """Like :func:`run_colmap_sparse` but also returns per-view cameras (intrinsics + w2c)."""
+    points, colors = run_colmap_sparse(masked_images, settings, workspace=workspace)
+
+    sparse_dir = (workspace.resolve() / "sparse")
+    sub_dirs = [d for d in sparse_dir.iterdir() if d.is_dir() and d.name.isdigit()]
+    if not sub_dirs:
+        return ColmapSparseResult(points, colors, [])
+    chosen = max(sub_dirs, key=_count_points)
+    txt_dir = chosen.parent / f"{chosen.name}_txt"
+    if not (txt_dir / "cameras.txt").is_file() or not (txt_dir / "images.txt").is_file():
+        return ColmapSparseResult(points, colors, [])
+
+    try:
+        cameras = _read_colmap_cameras_views(
+            cameras_txt=txt_dir / "cameras.txt",
+            images_txt=txt_dir / "images.txt",
+            masked_images=masked_images,
+        )
+    except Exception:
+        cameras = []
+    return ColmapSparseResult(points, colors, cameras)
+
+
 def _count_points(model_dir: Path) -> int:
     """Cheap heuristic to pick the largest sub-model: file size of points3D.bin or .txt."""
     for name in ("points3D.bin", "points3D.txt"):
@@ -180,6 +217,123 @@ def _read_points3d_txt(path: Path) -> tuple[np.ndarray, np.ndarray]:
 def read_points3d_txt(path: Path) -> tuple[np.ndarray, np.ndarray]:
     """Public alias for sparse-point parsing (used by Gaussian Splatting CPU fallback)."""
     return _read_points3d_txt(path)
+
+
+def _quat_xyzw_to_rotmat(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
+    """COLMAP stores quaternions as (qw, qx, qy, qz). Return a 3x3 rotation matrix."""
+    n = np.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
+    if n == 0:
+        return np.eye(3, dtype=np.float64)
+    qw, qx, qy, qz = qw / n, qx / n, qy / n, qz / n
+    return np.array(
+        [
+            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
+            [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
+            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _read_colmap_cameras_views(
+    *,
+    cameras_txt: Path,
+    images_txt: Path,
+    masked_images: list[Path],
+) -> list:
+    """Parse COLMAP ``cameras.txt`` + ``images.txt`` into a list[CameraView] aligned to ``masked_images``."""
+    from .color_baking import CameraView  # local import to avoid cycle
+
+    # cameras.txt: CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]
+    cams: dict[int, dict] = {}
+    with cameras_txt.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 5:
+                continue
+            try:
+                cam_id = int(parts[0])
+                model = parts[1]
+                w = int(parts[2])
+                h = int(parts[3])
+                params = [float(p) for p in parts[4:]]
+            except ValueError:
+                continue
+            cams[cam_id] = {"model": model, "w": w, "h": h, "params": params}
+
+    # images.txt: each image is two lines; the first holds pose+camera_id+name, second holds keypoints (skip).
+    name_to_pose: dict[str, dict] = {}
+    expect_meta = True
+    with images_txt.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if expect_meta:
+                parts = line.split()
+                if len(parts) < 10:
+                    continue
+                try:
+                    qw, qx, qy, qz = (float(parts[1]), float(parts[2]), float(parts[3]), float(parts[4]))
+                    tx, ty, tz = float(parts[5]), float(parts[6]), float(parts[7])
+                    cam_id = int(parts[8])
+                    name = parts[9]
+                except ValueError:
+                    continue
+                name_to_pose[name] = {
+                    "qw": qw, "qx": qx, "qy": qy, "qz": qz,
+                    "tx": tx, "ty": ty, "tz": tz,
+                    "cam_id": cam_id,
+                }
+                expect_meta = False
+            else:
+                expect_meta = True
+
+    views: list = []
+    for img_path in masked_images:
+        meta = name_to_pose.get(img_path.name)
+        if meta is None:
+            continue
+        cam = cams.get(meta["cam_id"])
+        if cam is None:
+            continue
+
+        # Build K from supported COLMAP camera models. SIMPLE_PINHOLE/SIMPLE_RADIAL: f, cx, cy[, k];
+        # PINHOLE: fx, fy, cx, cy; OPENCV: fx, fy, cx, cy[, k1, k2, p1, p2].
+        params = cam["params"]
+        model = cam["model"]
+        try:
+            if model in ("SIMPLE_PINHOLE", "SIMPLE_RADIAL", "RADIAL"):
+                fx = fy = float(params[0])
+                cx, cy = float(params[1]), float(params[2])
+            elif model in ("PINHOLE", "OPENCV", "OPENCV_FISHEYE", "FULL_OPENCV"):
+                fx = float(params[0]); fy = float(params[1])
+                cx = float(params[2]); cy = float(params[3])
+            else:
+                fx = fy = float(params[0])
+                cx, cy = cam["w"] / 2.0, cam["h"] / 2.0
+        except (IndexError, ValueError):
+            continue
+
+        K = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=np.float64)
+        R = _quat_xyzw_to_rotmat(meta["qw"], meta["qx"], meta["qy"], meta["qz"])
+        t = np.array([meta["tx"], meta["ty"], meta["tz"]], dtype=np.float64)
+        w2c = np.eye(4, dtype=np.float64)
+        w2c[:3, :3] = R
+        w2c[:3, 3] = t
+
+        views.append(
+            CameraView(
+                image_path=img_path,
+                image_size=(int(cam["w"]), int(cam["h"])),
+                K=K,
+                w2c=w2c,
+            )
+        )
+    return views
 
 
 def load_sparse_points_from_gs_scene(scene_dir: Path, settings: RuntimeSettings) -> tuple[np.ndarray, np.ndarray]:

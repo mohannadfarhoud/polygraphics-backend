@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
 import numpy as np
 
+from .color_baking import CameraView
 from .runtime_settings import RuntimeSettings
 
 
@@ -13,6 +14,10 @@ from .runtime_settings import RuntimeSettings
 class ReconstructionResult:
     aligned_points_xyz: np.ndarray  # (N, 3) float32 in a unified frame
     aligned_colors_rgb: np.ndarray | None = None  # (N, 3) uint8 RGB; same length as points
+    cameras: list[CameraView] = field(default_factory=list)
+    # Original (UNMASKED) image paths in the same order as `cameras`. Optional —
+    # callers may supply these later to bake colours from photographs.
+    original_image_paths: list[Path] = field(default_factory=list)
 
 
 class Dust3RReconstructor:
@@ -49,19 +54,33 @@ class Dust3RReconstructor:
             from .dust3r_runner import run_dust3r_scene
 
             scene = run_dust3r_scene(masked_images, self.settings)
+            cameras: list[CameraView] = []
+            for i, masked_path in enumerate(scene.image_paths):
+                if i >= len(scene.image_sizes) or i >= len(scene.intrinsics) or i >= len(scene.poses_w2c):
+                    break
+                cameras.append(
+                    CameraView(
+                        image_path=masked_path,
+                        image_size=scene.image_sizes[i],
+                        K=np.asarray(scene.intrinsics[i], dtype=np.float64),
+                        w2c=np.asarray(scene.poses_w2c[i], dtype=np.float64),
+                    )
+                )
             return ReconstructionResult(
                 aligned_points_xyz=scene.points,
                 aligned_colors_rgb=scene.colors,
+                cameras=cameras,
             )
 
         if backend == "colmap":
-            from .colmap_runner import run_colmap_sparse
+            from .colmap_runner import run_colmap_sparse_with_cameras
 
             workspace = self._colmap_workspace(masked_images, job_id)
-            points, colors = run_colmap_sparse(masked_images, self.settings, workspace=workspace)
+            res = run_colmap_sparse_with_cameras(masked_images, self.settings, workspace=workspace)
             return ReconstructionResult(
-                aligned_points_xyz=points,
-                aligned_colors_rgb=colors,
+                aligned_points_xyz=res.points_xyz,
+                aligned_colors_rgb=res.colors_rgb,
+                cameras=list(res.cameras or []),
             )
 
         raise RuntimeError(

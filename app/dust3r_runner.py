@@ -3,9 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from .runtime_settings import RuntimeSettings
+
+
+def _read_image_resized_rgb(path: Path, width: int, height: int) -> np.ndarray | None:
+    """Read ``path`` (color), resize to ``(width, height)``, return uint8 RGB array or None."""
+    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    if (img.shape[1], img.shape[0]) != (int(width), int(height)):
+        img = cv2.resize(img, (int(width), int(height)), interpolation=cv2.INTER_AREA)
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
 @dataclass
@@ -149,13 +160,34 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
         image_sizes.append((int(W), int(H)))
 
         rgb = rgb_list[idx] if idx < len(rgb_list) else None
+        rgb_arr = None
         if rgb is not None:
-            rgb_arr = np.asarray(rgb)
-            if rgb_arr.dtype != np.uint8:
-                rgb_arr = (np.clip(rgb_arr, 0.0, 1.0) * 255.0).astype(np.uint8)
-            rgb_arr = rgb_arr.reshape(-1, 3)
-        else:
-            rgb_arr = np.full((p.shape[0], 3), 200, dtype=np.uint8)
+            rgb_np = np.asarray(rgb)
+            if rgb_np.dtype == np.uint8:
+                rgb_arr = rgb_np.reshape(-1, 3)
+            else:
+                f = rgb_np.astype(np.float32)
+                lo, hi = float(f.min()), float(f.max())
+                # DUSt3R's PointCloudOptimizer.imgs are usually [0,1] floats, but some
+                # builds keep ImageNet-normalised tensors (~[-2.1, +2.6]); detect both.
+                if lo < -0.05 or hi > 1.05:
+                    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+                    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+                    f = f * std + mean
+                rgb_arr = (np.clip(f, 0.0, 1.0) * 255.0).astype(np.uint8).reshape(-1, 3)
+
+        # Fallback / sanity: if nothing got through, sample the masked image from disk
+        # at the scene's resolution. Avoids any ImageNet/normalisation surprises.
+        if (
+            rgb_arr is None
+            or rgb_arr.shape[0] != p.shape[0]
+            or int(np.asarray(rgb_arr).max()) <= 4
+        ):
+            disk = _read_image_resized_rgb(masked_image_paths[idx], W, H)
+            if disk is not None:
+                rgb_arr = disk.reshape(-1, 3)
+            elif rgb_arr is None:
+                rgb_arr = np.full((p.shape[0], 3), 200, dtype=np.uint8)
 
         valid = np.ones(p.shape[0], dtype=bool)
         if mask is not None:
