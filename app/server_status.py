@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import importlib.metadata
 import platform
 import shutil
@@ -9,12 +10,43 @@ from pathlib import Path
 
 import psutil
 
+from .pipeline_ready import assert_pipeline_ready
+from .runtime_settings import RuntimeSettings
+
 
 def _safe_version(package_name: str) -> str | None:
     try:
         return importlib.metadata.version(package_name)
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+def _module_importable(module_name: str) -> tuple[bool, str | None]:
+    """Return (importable, error_message). Does a real ``import`` so namespace-packages
+    like ``dust3r`` (added via .pth file) are detected even when not on PyPI."""
+    try:
+        importlib.import_module(module_name)
+        return True, None
+    except Exception as exc:  # ImportError, but also misc init errors
+        return False, str(exc)
+
+
+def _path_info(p: str | None, *, must_be_file: bool = False, must_be_dir: bool = False) -> dict:
+    info: dict = {"configured": bool(p), "value": p, "exists": False}
+    if not p:
+        return info
+    path = Path(p)
+    info["exists"] = path.exists()
+    if must_be_file:
+        info["is_file"] = path.is_file()
+        if path.is_file():
+            try:
+                info["size_bytes"] = path.stat().st_size
+            except OSError:
+                pass
+    if must_be_dir:
+        info["is_dir"] = path.is_dir()
+    return info
 
 
 def _read_gpu_status() -> dict:
@@ -70,7 +102,110 @@ def _read_gpu_status() -> dict:
     return status
 
 
-def collect_server_status(root_dir: Path) -> dict:
+def _colmap_status(binary_path: str | None) -> dict:
+    info = _path_info(binary_path, must_be_file=True)
+    info["version"] = None
+    if binary_path and info.get("is_file"):
+        try:
+            proc = subprocess.run(
+                [binary_path, "--version"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+            out = (proc.stdout or proc.stderr or "").strip().splitlines()
+            info["version"] = out[0] if out else None
+        except Exception:
+            pass
+    return info
+
+
+def _pipeline_status(settings: RuntimeSettings | None) -> dict:
+    sam_importable, sam_err = _module_importable("segment_anything")
+    dust3r_importable, dust3r_err = _module_importable("dust3r")
+    torch_importable, _torch_err = _module_importable("torch")
+
+    sam = {
+        "package": "segment-anything",
+        "package_version": _safe_version("segment-anything"),
+        "importable": sam_importable,
+        "import_error": sam_err,
+        "model_type": settings.sam_model_type if settings else None,
+        "segmentation_mode": settings.sam_segmentation_mode if settings else None,
+        "checkpoint": _path_info(
+            settings.sam_checkpoint_path if settings else None,
+            must_be_file=True,
+        ),
+    }
+
+    dust3r = {
+        "package": "dust3r (naver/dust3r, source install)",
+        "importable": dust3r_importable,
+        "import_error": dust3r_err,
+        "torch": {"installed": torch_importable, "version": _safe_version("torch")},
+        "repo_path": _path_info(
+            settings.dust3r_repo_path if settings else None,
+            must_be_dir=True,
+        ),
+        "checkpoint": _path_info(
+            settings.dust3r_checkpoint_path if settings else None,
+        ),
+        "aligner": {
+            "iters": settings.dust3r_aligner_iters if settings else None,
+            "lr": settings.dust3r_aligner_lr if settings else None,
+            "confidence_threshold": settings.dust3r_confidence_threshold if settings else None,
+        },
+    }
+
+    colmap = _colmap_status(settings.colmap_binary_path if settings else None)
+
+    gs_repo = _path_info(
+        settings.gs_repo_path if settings else None,
+        must_be_dir=True,
+    )
+    gs_train_py = None
+    if gs_repo.get("is_dir") and settings and settings.gs_repo_path:
+        candidate = Path(settings.gs_repo_path) / "train.py"
+        gs_train_py = {"path": str(candidate), "exists": candidate.is_file()}
+
+    gaussian_splatting = {
+        "repo_path": gs_repo,
+        "train_py": gs_train_py,
+        "python_executable": settings.gs_python_executable if settings else None,
+        "init_source": settings.gs_init_source if settings else None,
+        "iterations": settings.gs_iterations if settings else None,
+        "sh_degree": settings.gs_sh_degree if settings else None,
+        "resolution": settings.gs_resolution if settings else None,
+        "opacity_reset_interval": settings.gs_opacity_reset_interval if settings else None,
+    }
+
+    ready_flag, ready_reason = (False, "settings unavailable")
+    if settings is not None:
+        try:
+            assert_pipeline_ready(settings)
+            ready_flag, ready_reason = True, None
+        except Exception as exc:
+            ready_flag, ready_reason = False, str(exc)
+
+    return {
+        "active_backend": settings.reconstruction_backend if settings else None,
+        "device": settings.device if settings else None,
+        "allow_placeholder_pipeline": settings.allow_placeholder_pipeline if settings else None,
+        "ready": ready_flag,
+        "ready_reason": ready_reason,
+        "sam": sam,
+        "dust3r": dust3r,
+        "colmap": colmap,
+        "gaussian_splatting": gaussian_splatting,
+    }
+
+
+def collect_server_status(
+    root_dir: Path,
+    *,
+    settings: RuntimeSettings | None = None,
+) -> dict:
     vm = psutil.virtual_memory()
     disk = psutil.disk_usage(str(root_dir))
     boot_ts = psutil.boot_time()
@@ -118,7 +253,11 @@ def collect_server_status(root_dir: Path) -> dict:
             "trimesh": _safe_version("trimesh"),
             "numpy": _safe_version("numpy"),
             "torch": _safe_version("torch"),
+            "torchvision": _safe_version("torchvision"),
+            "segment-anything": _safe_version("segment-anything"),
+            "plyfile": _safe_version("plyfile"),
         },
+        "pipeline": _pipeline_status(settings),
     }
 
 
