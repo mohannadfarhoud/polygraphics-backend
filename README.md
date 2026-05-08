@@ -157,7 +157,7 @@ Use your real public origin in production (CDN or API host).
 
 ## Reverse proxy (Nginx)
 
-When **`APP_ROOT_PATH`** is set (e.g. `/polygraph`), this app registers **`GET`/`HEAD`** routes for **both** `/output/…`, `/uploads/…` **and** `/polygraph/output/…`, `/polygraph/uploads/…`, so downloads work **directly from Uvicorn** without Nginx. Optional snippets are still in **`deploy/`** if you terminate TLS or merge paths at the edge.
+When **`APP_ROOT_PATH`** is set (e.g. `/polygraph`), this app registers **`GET`/`HEAD`** routes for **both** `/output/…`, `/uploads/…` **and** `/polygraph/output/…`, `/polygraph/uploads/…`, so downloads work **directly from Uvicorn** without Nginx. The app does **not** set **`FastAPI(root_path=...)`** (that used to make only the prefixed URLs work). Optional snippets are still in **`deploy/`** if you terminate TLS or merge paths at the edge.
 
 Copy-and-paste snippets are in:
 

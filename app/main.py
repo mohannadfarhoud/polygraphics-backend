@@ -53,8 +53,35 @@ app = FastAPI(
     docs_url="/swagger",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
-    root_path=_root_path,
 )
+# Do not pass root_path= to FastAPI: it affects route matching so bare /output and
+# /uploads stop matching while /polygraph/output works. Use OpenAPI servers + env for docs.
+
+
+def custom_openapi() -> dict:
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+
+    servers: list[dict] = [{"url": "/", "description": "Direct Uvicorn (e.g. http://127.0.0.1:8000)"}]
+    if _root_path:
+        servers.insert(
+            0,
+            {"url": _root_path, "description": "Public URL path prefix (same value as APP_ROOT_PATH)"},
+        )
+    app.openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        openapi_version="3.1.0",
+        description=app.description,
+        routes=app.routes,
+        servers=servers,
+    )
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi  # type: ignore[method-assign]
+
 _settings_cors = os.getenv("APP_CORS_ORIGINS", "*").strip()
 _origins = [o.strip() for o in _settings_cors.split(",") if o.strip()]
 app.add_middleware(
