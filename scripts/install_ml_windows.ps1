@@ -131,3 +131,4 @@ Write-Host @"
   }
 "@ -ForegroundColor Yellow
 Write-Host "Then: Restart-Service polygraphics" -ForegroundColor Yellow
+Write-Host "Optional — Gaussian Splatting (NVIDIA + CUDA + VS Build Tools): .\\scripts\\install_gaussian_splatting_windows.ps1" -ForegroundColor DarkGray

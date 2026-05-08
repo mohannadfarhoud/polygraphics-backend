@@ -78,11 +78,42 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 
 > Real GS training officially needs a CUDA GPU. On CPU it’s impractical (or unsupported, depending on fork).
 
+### Installing Gaussian Splatting on Windows (official repo)
+
+The API runs [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) (`train.py`). That repo builds **CUDA extensions** (`diff-gaussian-rasterization`, `simple-knn`). You need:
+
+1. **NVIDIA GPU** + current driver  
+2. **CUDA Toolkit** with **`nvcc` on `PATH`** (match the PyTorch CUDA wheel, e.g. cu118 vs cu124)  
+3. **Visual Studio 2022 Build Tools** with **Desktop development with C++**  
+4. This project’s **`.venv`** (`scripts/setup_windows.ps1`)
+
+From the repo root:
+
+```powershell
+.\scripts\install_gaussian_splatting_windows.ps1
+```
+
+CUDA 11.8 toolkit example:
+
+```powershell
+.\scripts\install_gaussian_splatting_windows.ps1 -TorchCudaIndexUrl "https://download.pytorch.org/whl/cu118"
+```
+
+Clone only (skip compiling extensions):
+
+```powershell
+.\scripts\install_gaussian_splatting_windows.ps1 -SkipSubmoduleBuild
+```
+
+Then **`PUT /settings`**: `reconstruction_backend`, `gs_repo_path` (default clone: `C:\polyGraphics\third_party\gaussian-splatting`), `colmap_binary_path`, `device`: `"cuda"`, restart the API.
+
+**CPU-only machines** cannot train official 3DGS; use mesh backends (`auto` / `dust3r` / `colmap`) for `.glb`, or run GS on a GPU box.
+
 ### Mesh (`.glb`) vs Gaussian Splatting (`.ply`)
 
-The default **`reconstruction_backend` is `dust3r`**, which produces a **polygon mesh** (`.glb`). That pipeline does **not** run 3D Gaussian Splatting. If your `model_format` is `glb`, you are on the mesh path.
+The default **`reconstruction_backend` is `auto`** (DUSt3R for smaller sets, COLMAP at **`auto_dust3r_max_images`** and above). That path produces a **polygon mesh** (`.glb`). If your `model_format` is `glb`, you are on the mesh path.
 
-To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`**, **`colmap_binary_path`** (for `gs_init_source="colmap"`), and a CUDA-capable machine for practical training times. The API then outputs `.ply` and sets **`model_format`: `"ply"`**.
+To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`**, **`colmap_binary_path`** (for `gs_init_source="colmap"`), and a **CUDA GPU** with the extensions built as above. The API then outputs `.ply` and sets **`model_format`: `"ply"`**.
 
 ### SAM: mask the center subject
 
