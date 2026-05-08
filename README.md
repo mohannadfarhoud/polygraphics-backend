@@ -22,6 +22,22 @@ Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`.
 
 > Real GS training officially needs a CUDA GPU. On CPU it’s impractical (or unsupported, depending on fork).
 
+### Mesh (`.glb`) vs Gaussian Splatting (`.ply`)
+
+The default **`reconstruction_backend` is `dust3r`**, which produces a **polygon mesh** (`.glb`). That pipeline does **not** run 3D Gaussian Splatting. If your `model_format` is `glb`, you are on the mesh path.
+
+To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`**, **`colmap_binary_path`** (for `gs_init_source="colmap"`), and a CUDA-capable machine for practical training times. The API then outputs `.ply` and sets **`model_format`: `"ply"`**.
+
+### SAM: mask the center subject
+
+`PUT /settings` includes **`sam_segmentation_mode`** (default **`center_point`**): SAM is prompted with a **positive point at the image center**, which targets the object in the middle of the frame. Other modes: **`auto_masks_center_bias`** (all auto-masks, scored by size × closeness to center) and **`auto_masks_largest_area`** (legacy: largest mask only — often the background).
+
+### Improving mesh quality (DUSt3R + Open3D)
+
+- Use **20–40+ well-overlapping** photos of the same object, turntable style if possible.
+- Raise **`poisson_depth`** (e.g. 10–12) and/or increase **`decimation_target_triangles`** for a denser mesh (larger files, slower).
+- On CPU, keep **`max_image_side`** moderate (512–768) to avoid OOM; on GPU you can go higher for more detail.
+
 ## Real 3D vs demo mode
 
 By default **`allow_placeholder_pipeline` is `false`** (`PUT /settings`). In that mode:

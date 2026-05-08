@@ -13,6 +13,13 @@ class RuntimeSettings(BaseModel):
     device: Literal["auto", "cpu", "cuda"] = "auto"
     sam_checkpoint_path: str | None = None
     sam_model_type: str = "vit_h"
+    # How to pick the foreground mask (SAM). `center_point` uses a click at the image center — best for a subject in the middle.
+    # `auto_masks_center_bias` scores auto-generated masks by size × proximity to center. `auto_masks_largest_area` picks the largest mask (old behavior).
+    sam_segmentation_mode: Literal[
+        "center_point",
+        "auto_masks_center_bias",
+        "auto_masks_largest_area",
+    ] = "center_point"
     dust3r_repo_path: str | None = None
     dust3r_checkpoint_path: str | None = None
     colmap_binary_path: str | None = None
