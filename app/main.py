@@ -67,16 +67,21 @@ def _is_loopback(url: str) -> bool:
 
 
 def _relative_base(suffix: str) -> str:
-    """Path-only base, prefixed with APP_ROOT_PATH so URLs work behind a reverse proxy."""
+    """Path-only base for models and uploads (/output, /uploads).
+
+    We intentionally do **not** prepend APP_ROOT_PATH here. Many proxies mount the
+    API under a sub-path (e.g. /polygraph) while static mounts stay at /output and
+    /uploads on the upstream; returning /polygraph/output would duplicate the prefix
+    for clients that already live under /polygraph. Use APP_MODEL_BASE_URL when you
+    need an absolute or CDN URL instead.
+    """
     suffix = "/" + suffix.strip("/")
-    return f"{_root_path}{suffix}" if _root_path else suffix
+    return suffix
 
 
 def _effective_model_base_url(settings: RuntimeSettings) -> str:
-    """Prefix used in job.model_url. Defaults to a relative path (/output, prefixed
-    with APP_ROOT_PATH) so the frontend resolves on its own origin and reverse-
-    proxy setups work transparently. Set APP_MODEL_BASE_URL to a non-loopback
-    absolute URL (e.g. a CDN) to override."""
+    """Prefix used in job.model_url. Defaults to ``/output`` (relative). Set
+    APP_MODEL_BASE_URL to a non-loopback absolute URL (e.g. a CDN) to override."""
     for key in ("APP_MODEL_BASE_URL", "APP_CDN_BASE_URL"):
         v = os.getenv(key, "").strip()
         if v and not _is_loopback(v):
