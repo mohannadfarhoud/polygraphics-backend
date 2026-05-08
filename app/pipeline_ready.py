@@ -19,7 +19,9 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
             "or set allow_placeholder_pipeline=true only for local demos."
         )
 
-    if settings.reconstruction_backend == "dust3r":
+    backend = settings.reconstruction_backend
+
+    def _need_dust3r() -> None:
         ck = (settings.dust3r_checkpoint_path or "").strip()
         if not ck:
             raise RuntimeError(
@@ -27,13 +29,24 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 "or Hugging Face model id), install dust3r + torch (see README), "
                 "or set allow_placeholder_pipeline=true only for local demos."
             )
-    elif settings.reconstruction_backend == "colmap":
+
+    def _need_colmap() -> None:
         if not settings.colmap_binary_path or not Path(settings.colmap_binary_path).exists():
             raise RuntimeError(
-                "COLMAP backend selected: set colmap_binary_path to the COLMAP executable, "
-                "or switch reconstruction_backend to dust3r."
+                "COLMAP backend selected: set colmap_binary_path to the COLMAP executable "
+                "(e.g. C:\\COLMAP\\COLMAP.bat), or switch reconstruction_backend to dust3r."
             )
-    elif settings.reconstruction_backend == "gaussian_splatting":
+
+    if backend == "dust3r":
+        _need_dust3r()
+    elif backend == "colmap":
+        _need_colmap()
+    elif backend == "auto":
+        # Auto picks dust3r for small jobs and colmap for larger ones, so both
+        # need to be available; we don't know the image count at this point.
+        _need_dust3r()
+        _need_colmap()
+    elif backend == "gaussian_splatting":
         repo = Path(settings.gs_repo_path or "")
         if not settings.gs_repo_path or not repo.is_dir() or not (repo / "train.py").is_file():
             raise RuntimeError(

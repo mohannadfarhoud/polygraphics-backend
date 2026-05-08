@@ -11,16 +11,26 @@ from .runtime_settings import RuntimeSettings
 
 @dataclass
 class ReconstructionResult:
-    aligned_points_xyz: np.ndarray
+    aligned_points_xyz: np.ndarray  # (N, 3) float32 in a unified frame
+    aligned_colors_rgb: np.ndarray | None = None  # (N, 3) uint8 RGB; same length as points
 
 
 class Dust3RReconstructor:
-    """DUSt3R reconstruction; demo cloud only when allow_placeholder_pipeline is True."""
+    """Runs the active mesh-path backend (DUSt3R / COLMAP / auto).
+
+    The class name is historical; today it dispatches on
+    ``settings.reconstruction_backend`` (or ``auto`` based on image count).
+    """
 
     def __init__(self, settings: RuntimeSettings | None = None) -> None:
         self.settings = settings
 
-    def reconstruct(self, masked_images: list[Path]) -> ReconstructionResult:
+    def reconstruct(
+        self,
+        masked_images: list[Path],
+        *,
+        job_id: str | None = None,
+    ) -> ReconstructionResult:
         if len(masked_images) < 2:
             raise ValueError("Need at least 2 masked images")
 
@@ -28,19 +38,55 @@ class Dust3RReconstructor:
             raise RuntimeError("Pipeline misconfigured: runtime settings missing.")
 
         if self.settings.allow_placeholder_pipeline:
-            return ReconstructionResult(aligned_points_xyz=self._placeholder_cloud(masked_images))
-
-        if self.settings.reconstruction_backend == "colmap":
-            raise RuntimeError(
-                "COLMAP backend is not implemented in this service yet. "
-                "Use reconstruction_backend=dust3r with a DUSt3R checkpoint, "
-                "or set allow_placeholder_pipeline=true for demos only."
+            return ReconstructionResult(
+                aligned_points_xyz=self._placeholder_cloud(masked_images),
+                aligned_colors_rgb=None,
             )
 
-        from .dust3r_runner import run_dust3r_point_cloud
+        backend = self.resolve_backend(len(masked_images))
 
-        cloud = run_dust3r_point_cloud(masked_images, self.settings)
-        return ReconstructionResult(aligned_points_xyz=cloud)
+        if backend == "dust3r":
+            from .dust3r_runner import run_dust3r_scene
+
+            scene = run_dust3r_scene(masked_images, self.settings)
+            return ReconstructionResult(
+                aligned_points_xyz=scene.points,
+                aligned_colors_rgb=scene.colors,
+            )
+
+        if backend == "colmap":
+            from .colmap_runner import run_colmap_sparse
+
+            workspace = self._colmap_workspace(masked_images, job_id)
+            points, colors = run_colmap_sparse(masked_images, self.settings, workspace=workspace)
+            return ReconstructionResult(
+                aligned_points_xyz=points,
+                aligned_colors_rgb=colors,
+            )
+
+        raise RuntimeError(
+            f"Unsupported mesh backend {backend!r}. "
+            "Use 'auto', 'dust3r', or 'colmap' (or set reconstruction_backend='gaussian_splatting' for the .ply path)."
+        )
+
+    def resolve_backend(self, n_images: int) -> str:
+        """Return the concrete backend ('dust3r' or 'colmap') given current settings."""
+        if self.settings is None:
+            return "dust3r"
+        backend = self.settings.reconstruction_backend
+        if backend != "auto":
+            return backend
+        threshold = int(self.settings.auto_dust3r_max_images)
+        return "dust3r" if n_images < threshold else "colmap"
+
+    @staticmethod
+    def _colmap_workspace(masked_images: list[Path], job_id: str | None) -> Path:
+        if job_id:
+            return Path("data") / "colmap_workspace" / job_id
+        # Derive a stable workspace from the masked dir layout
+        # (masked/<job_id>/masked_NNN.<ext>) so we don't pile up temp dirs.
+        first_parent = masked_images[0].parent
+        return first_parent.parent.parent / "data" / "colmap_workspace" / first_parent.name
 
     def _placeholder_cloud(self, masked_images: list[Path]) -> np.ndarray:
         point_blocks: list[np.ndarray] = []

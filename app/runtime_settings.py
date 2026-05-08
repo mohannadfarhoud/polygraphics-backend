@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field
 
 class RuntimeSettings(BaseModel):
     # `dust3r`/`colmap` produce a meshed `.glb`; `gaussian_splatting` produces a `.ply` (3DGS).
-    reconstruction_backend: Literal["dust3r", "colmap", "gaussian_splatting"] = "dust3r"
+    # `auto` picks DUSt3R for fewer-than-`auto_dust3r_max_images` photos and COLMAP otherwise.
+    reconstruction_backend: Literal["auto", "dust3r", "colmap", "gaussian_splatting"] = "auto"
+    # When reconstruction_backend == "auto", switch to COLMAP at this image count or above.
+    auto_dust3r_max_images: int = Field(default=20, ge=2, le=10000)
     device: Literal["auto", "cpu", "cuda"] = "auto"
     sam_checkpoint_path: str | None = None
     sam_model_type: str = "vit_h"

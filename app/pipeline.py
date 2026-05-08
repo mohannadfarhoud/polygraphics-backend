@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopJobRepository, NoopWebSocketNotifier, WebSocketNotifier
-from .meshing import decimate, export_glb, poisson_mesh
+from .meshing import decimate, export_glb, poisson_mesh, transfer_vertex_colors_from_point_cloud
 from .pipeline_ready import assert_pipeline_ready
 from .point_cloud import build_point_cloud, remove_statistical_outliers
 from .reconstruction import Dust3RReconstructor
@@ -69,15 +69,18 @@ class ReconstructionPipeline:
         *,
         cancel_event: threading.Event | None = None,
     ) -> str:
-        # Phase 2 of the protocol: DUSt3R + global aligner (also applies the
-        # confidence filter from Phase 3 before merging the per-view clouds).
+        # Phase 2 of the protocol: DUSt3R/COLMAP reconstruction (also applies the
+        # confidence filter from Phase 3 before merging per-view clouds for DUSt3R).
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)
-        reconstruction = self.reconstructor.reconstruct(masked_paths)
+        reconstruction = self.reconstructor.reconstruct(masked_paths, job_id=job_id)
         self._raise_if_cancelled(cancel_event)
 
         # Phase 3 of the protocol: Statistical Outlier Removal on the unified cloud.
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_3_sanitization", progress=65)
-        pcd = build_point_cloud(reconstruction.aligned_points_xyz)
+        pcd = build_point_cloud(
+            reconstruction.aligned_points_xyz,
+            colors_rgb=reconstruction.aligned_colors_rgb,
+        )
         clean_pcd = remove_statistical_outliers(
             pcd,
             nb_neighbors=self.config.nb_neighbors,
@@ -95,6 +98,12 @@ class ReconstructionPipeline:
         self._raise_if_cancelled(cancel_event)
         mesh = decimate(mesh, self.config.decimation_target_triangles)
         self._raise_if_cancelled(cancel_event)
+
+        # Make sure photo colors actually end up on the GLB. Open3D's Poisson +
+        # decimation don't reliably propagate vertex colors across versions, so
+        # we always transfer them from the cleaned colored cloud at the end.
+        if clean_pcd.has_colors():
+            mesh = transfer_vertex_colors_from_point_cloud(mesh, clean_pcd)
 
         self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=95)
         glb_path = self.config.output_dir / f"{job_id}.glb"
