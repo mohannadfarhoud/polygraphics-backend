@@ -40,6 +40,10 @@ class RuntimeSettings(BaseModel):
     gs_resolution: int = Field(default=-1, ge=-1, le=8192)  # -1 = original
     # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000.
     gs_opacity_reset_interval: int = Field(default=3000, ge=100, le=60000)
+    # When True and PyTorch sees no CUDA device, skip official train.py and write a
+    # valid 3DGS-format .ply from sparse colored points (no GPU / no CUDA extensions).
+    gs_allow_cpu_fallback: bool = True
+    gs_cpu_max_points: int = Field(default=250_000, ge=1000, le=2_000_000)
     meshing_method: Literal["poisson", "bpa"] = "poisson"
     output_dir_name: str = "output"
     masked_dir_name: str = "masked"

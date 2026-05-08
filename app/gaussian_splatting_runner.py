@@ -1,21 +1,20 @@
 """
 Gaussian Splatting integration.
 
-Real path:
-  1. Build a COLMAP scene from masked images (cameras + sparse points), or import points from DUSt3R.
-  2. Run training via the official `gaussian-splatting` repo:
-     https://github.com/graphdeco-inria/gaussian-splatting
-     `python <gs_repo_path>/train.py -s <scene_dir> -m <model_dir> --iterations N --sh_degree D --resolution R`
-  3. Copy the resulting `point_cloud/iteration_<N>/point_cloud.ply` to `output/<job_id>.ply`.
+GPU path (CUDA + official repo):
+  1. Build a COLMAP scene from masked images, or DUSt3R → COLMAP-text bridge.
+  2. Run ``python <gs_repo_path>/train.py`` from graphdeco-inria/gaussian-splatting.
+  3. Copy ``point_cloud/iteration_<N>/point_cloud.ply`` to ``output/<job_id>.ply``.
+
+CPU path (``gs_allow_cpu_fallback=true``, default): no ``train.py``, no CUDA extensions.
+  After step (1), export a valid 3DGS-format ``.ply`` from sparse colored points — real RGB,
+  one Gaussian per point — viewable in splat viewers but **not** neural optimization.
 
 Placeholder path (allow_placeholder_pipeline=True):
-  - Writes a tiny GS-style PLY with a few thousand white Gaussians at random positions
-    so the wiring works end-to-end on machines without a GPU. NOT real geometry.
+  Random Gaussians for wiring tests only.
 
 Notes:
-  - GS training officially requires a CUDA GPU. Some forks support CPU/Metal but are slow.
-  - This runner shells out to `gs_python_executable` (or current interpreter) to allow a
-    separate environment with torch+cuda installed.
+  - Official train.py requires NVIDIA CUDA + built submodules (see scripts/install_gaussian_splatting_windows.ps1).
 """
 
 from __future__ import annotations
@@ -30,8 +29,19 @@ from typing import Callable
 import numpy as np
 
 from .runtime_settings import RuntimeSettings
+from .colmap_runner import load_sparse_points_from_gs_scene
+from .gs_ply_export import write_gaussian_ply_from_colored_points
 
 ProgressCallback = Callable[[str, int], None]
+
+
+def _torch_cuda_available() -> bool:
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
 
 
 def _emit(progress_callback: ProgressCallback | None, stage: str, progress: int) -> None:
@@ -64,12 +74,24 @@ def run_gaussian_splatting(
         _write_placeholder_gs_ply(output_ply, n_points=8000)
         return output_ply
 
-    repo = Path(settings.gs_repo_path or "")
-    if not repo.is_dir() or not (repo / "train.py").is_file():
+    cuda_ok = _torch_cuda_available()
+    cpu_fallback = (not cuda_ok) and settings.gs_allow_cpu_fallback
+
+    if not cuda_ok and not settings.gs_allow_cpu_fallback:
         raise RuntimeError(
-            "gs_repo_path must point to a clone of "
-            "https://github.com/graphdeco-inria/gaussian-splatting (where train.py lives)."
+            "No CUDA GPU detected for Gaussian Splatting training. Install NVIDIA CUDA + "
+            "graphdeco-inria/gaussian-splatting (see scripts/install_gaussian_splatting_windows.ps1), "
+            "or set gs_allow_cpu_fallback=true to export a colored CPU .ply from sparse points "
+            "(no neural optimization)."
         )
+
+    repo = Path(settings.gs_repo_path or "")
+    if cuda_ok:
+        if not repo.is_dir() or not (repo / "train.py").is_file():
+            raise RuntimeError(
+                "GPU Gaussian Splatting requires gs_repo_path pointing to "
+                "https://github.com/graphdeco-inria/gaussian-splatting (with train.py)."
+            )
 
     scene_dir = work_dir / "scene"
     model_dir = work_dir / "model"
@@ -91,6 +113,21 @@ def run_gaussian_splatting(
         raise RuntimeError(f"Unknown gs_init_source {settings.gs_init_source!r}")
 
     _emit(progress_callback, "phase_5_gaussian_splatting", 65)
+
+    if cpu_fallback:
+        xyz, rgb = load_sparse_points_from_gs_scene(scene_dir, settings)
+        if xyz.shape[0] < 8:
+            raise RuntimeError(
+                "Too few sparse 3D points for CPU Gaussian export. Try more overlapping photos "
+                "or gs_init_source=dust3r."
+            )
+        write_gaussian_ply_from_colored_points(
+            xyz,
+            rgb,
+            output_ply,
+            max_points=int(settings.gs_cpu_max_points),
+        )
+        return output_ply
 
     py = settings.gs_python_executable or sys.executable
     cmd = [

@@ -107,7 +107,11 @@ Clone only (skip compiling extensions):
 
 Then **`PUT /settings`**: `reconstruction_backend`, `gs_repo_path` (default clone: `C:\polyGraphics\third_party\gaussian-splatting`), `colmap_binary_path`, `device`: `"cuda"`, restart the API.
 
-**CPU-only machines** cannot train official 3DGS; use mesh backends (`auto` / `dust3r` / `colmap`) for `.glb`, or run GS on a GPU box.
+**CPU-only machines:** leave **`gs_allow_cpu_fallback`: `true`** (default). The API still builds the COLMAP or DUSt3R scene, then writes a **colored** 3DGS-format `.ply`: one Gaussian per sparse point with RGB in the SH DC bands — **no** official `train.py`, **no** CUDA extensions. This is **not** the same quality as GPU optimization, but **you get real colors** and most splat viewers open the file. You only need **`colmap_binary_path`** (for `gs_init_source="colmap"`) or DUSt3R settings (for `dust3r`); **`gs_repo_path` is optional** on CPU when fallback is enabled.
+
+Set **`gs_allow_cpu_fallback`: `false`** only if you install an **NVIDIA GPU**, CUDA, and **graphdeco-inria/gaussian-splatting** as described above — then full training runs.
+
+Otherwise use mesh backends (`auto` / `dust3r` / `colmap`) for `.glb` surfaces without GS.
 
 ### Mesh (`.glb`) vs Gaussian Splatting (`.ply`)
 

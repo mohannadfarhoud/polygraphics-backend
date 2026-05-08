@@ -169,6 +169,14 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
         candidate = Path(settings.gs_repo_path) / "train.py"
         gs_train_py = {"path": str(candidate), "exists": candidate.is_file()}
 
+    gs_cuda = False
+    try:
+        import torch
+
+        gs_cuda = bool(torch.cuda.is_available())
+    except Exception:
+        pass
+
     gaussian_splatting = {
         "repo_path": gs_repo,
         "train_py": gs_train_py,
@@ -178,6 +186,9 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
         "sh_degree": settings.gs_sh_degree if settings else None,
         "resolution": settings.gs_resolution if settings else None,
         "opacity_reset_interval": settings.gs_opacity_reset_interval if settings else None,
+        "torch_cuda_available": gs_cuda,
+        "allow_cpu_fallback": settings.gs_allow_cpu_fallback if settings else None,
+        "cpu_max_points": settings.gs_cpu_max_points if settings else None,
     }
 
     ready_flag, ready_reason = (False, "settings unavailable")

@@ -175,3 +175,58 @@ def _read_points3d_txt(path: Path) -> tuple[np.ndarray, np.ndarray]:
         np.asarray(xyz, dtype=np.float32),
         np.asarray(rgb, dtype=np.uint8),
     )
+
+
+def read_points3d_txt(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """Public alias for sparse-point parsing (used by Gaussian Splatting CPU fallback)."""
+    return _read_points3d_txt(path)
+
+
+def load_sparse_points_from_gs_scene(scene_dir: Path, settings: RuntimeSettings) -> tuple[np.ndarray, np.ndarray]:
+    """Read COLMAP sparse 3D points + RGB from a gaussian-splatting ``scene_dir``.
+
+    Handles both:
+      * DUSt3R bridge output: ``sparse/0/points3D.txt`` already on disk.
+      * Pure COLMAP mapper output: binary ``sparse/<id>/points3D.bin`` → run ``model_converter``.
+    """
+    scene_dir = scene_dir.resolve()
+    direct_txt = scene_dir / "sparse" / "0" / "points3D.txt"
+    if direct_txt.is_file():
+        return _read_points3d_txt(direct_txt)
+
+    colmap_bin = (settings.colmap_binary_path or "").strip()
+    if not colmap_bin or not Path(colmap_bin).exists():
+        raise RuntimeError(
+            "Reading binary COLMAP models requires colmap_binary_path (model_converter). "
+            "Set it to e.g. C:\\COLMAP\\COLMAP.bat"
+        )
+
+    sparse_root = scene_dir / "sparse"
+    sub_dirs = [d for d in sparse_root.iterdir() if d.is_dir()]
+    if not sub_dirs:
+        raise RuntimeError(f"No COLMAP sparse reconstruction under {sparse_root}")
+
+    chosen = max(sub_dirs, key=_count_points)
+    txt_dir = chosen.parent / f"{chosen.name}_txt_export"
+    txt_dir.mkdir(parents=True, exist_ok=True)
+
+    proc = subprocess.run(
+        [
+            colmap_bin,
+            "model_converter",
+            "--input_path",
+            str(chosen),
+            "--output_path",
+            str(txt_dir),
+            "--output_type",
+            "TXT",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-20:]
+        raise RuntimeError("COLMAP model_converter failed:\n" + "\n".join(tail))
+
+    return _read_points3d_txt(txt_dir / "points3D.txt")

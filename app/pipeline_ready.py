@@ -48,11 +48,13 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
         _need_colmap()
     elif backend == "gaussian_splatting":
         repo = Path(settings.gs_repo_path or "")
-        if not settings.gs_repo_path or not repo.is_dir() or not (repo / "train.py").is_file():
-            raise RuntimeError(
-                "Gaussian Splatting backend requires gs_repo_path to point at a clone of "
-                "https://github.com/graphdeco-inria/gaussian-splatting (with train.py)."
-            )
+        try:
+            import torch
+
+            cuda_ok = bool(torch.cuda.is_available())
+        except Exception:
+            cuda_ok = False
+
         if settings.gs_init_source == "colmap":
             if not settings.colmap_binary_path or not Path(settings.colmap_binary_path).exists():
                 raise RuntimeError(
@@ -62,4 +64,13 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
             if not (settings.dust3r_checkpoint_path or "").strip():
                 raise RuntimeError(
                     "Gaussian Splatting with gs_init_source='dust3r' requires dust3r_checkpoint_path."
+                )
+
+        need_repo = cuda_ok or not settings.gs_allow_cpu_fallback
+        if need_repo:
+            if not settings.gs_repo_path or not repo.is_dir() or not (repo / "train.py").is_file():
+                raise RuntimeError(
+                    "Gaussian Splatting on GPU requires gs_repo_path to a clone of "
+                    "https://github.com/graphdeco-inria/gaussian-splatting (with train.py). "
+                    "CPU-only: set gs_allow_cpu_fallback=true to skip the trainer and export a colored .ply."
                 )
