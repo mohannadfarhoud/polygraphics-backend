@@ -27,8 +27,17 @@ from .segmentation import SamSegmenter
 from .runtime_settings import RuntimeSettings, SettingsStore
 from .server_status import collect_server_status
 
+# Resolve project root reliably when running as a Windows service (CWD may be
+# System32 or arbitrary). Relative APP_ROOT_DIR is anchored to the repo directory.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_raw_root = (os.getenv("APP_ROOT_DIR") or "").strip()
+if not _raw_root:
+    ROOT_DIR = _REPO_ROOT.resolve()
+elif Path(_raw_root).is_absolute():
+    ROOT_DIR = Path(_raw_root).resolve()
+else:
+    ROOT_DIR = (_REPO_ROOT / _raw_root).resolve()
 
-ROOT_DIR = Path(os.getenv("APP_ROOT_DIR", Path(__file__).resolve().parents[1])).resolve()
 UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
