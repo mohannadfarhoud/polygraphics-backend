@@ -157,7 +157,9 @@ Use your real public origin in production (CDN or API host).
 
 ## Reverse proxy (Nginx)
 
-If the API returns relative **`/output/...`** and **`/uploads/...`**, your reverse proxy must expose those paths on your domain. Copy-and-paste snippets are in:
+When **`APP_ROOT_PATH`** is set (e.g. `/polygraph`), this app registers **`GET`/`HEAD`** routes for **both** `/output/…`, `/uploads/…` **and** `/polygraph/output/…`, `/polygraph/uploads/…`, so downloads work **directly from Uvicorn** without Nginx. Optional snippets are still in **`deploy/`** if you terminate TLS or merge paths at the edge.
+
+Copy-and-paste snippets are in:
 
 - **`deploy/nginx-output-uploads.conf`** — `/output/` and `/uploads/` → `http://127.0.0.1:8000`
 - **`deploy/nginx-polygraph-api.conf`** — `/polygraph/` → API (strip prefix)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 import os
 import uuid
 from pathlib import Path
@@ -15,8 +16,7 @@ except ImportError:
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
-from starlette.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
 
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopWebSocketNotifier, WebSocketNotifier
@@ -76,16 +76,15 @@ def _is_loopback(url: str) -> bool:
 
 
 def _relative_base(suffix: str) -> str:
-    """Path-only base for models and uploads (/output, /uploads).
+    """Path-only base for models and uploads.
 
-    We intentionally do **not** prepend APP_ROOT_PATH here. Many proxies mount the
-    API under a sub-path (e.g. /polygraph) while static mounts stay at /output and
-    /uploads on the upstream; returning /polygraph/output would duplicate the prefix
-    for clients that already live under /polygraph. Use APP_MODEL_BASE_URL when you
-    need an absolute or CDN URL instead.
+    When ``APP_ROOT_PATH`` is set (e.g. ``/polygraph``), assets are served at
+    ``{APP_ROOT_PATH}/output`` and ``{APP_ROOT_PATH}/uploads`` on this same app
+    so ``http://127.0.0.1:8000/polygraph/output/...`` works without a reverse proxy.
     """
     suffix = "/" + suffix.strip("/")
-    return suffix
+    rp = _root_path.rstrip("/") if _root_path else ""
+    return f"{rp}{suffix}" if rp else suffix
 
 
 def _effective_model_base_url(settings: RuntimeSettings) -> str:
@@ -343,16 +342,86 @@ async def reconstruct(
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
-def _mount_output_static() -> None:
-    s = settings_store.load()
-    out = ROOT_DIR / s.output_dir_name
-    out.mkdir(parents=True, exist_ok=True)
-    app.mount("/output", StaticFiles(directory=str(out)), name="output_glb")
+def _safe_file_under(root: Path, rel: str) -> Path | None:
+    """Resolve rel under root; reject path traversal; require a regular file."""
+    root = root.resolve()
+    rel_norm = rel.replace("\\", "/").strip("/")
+    if not rel_norm:
+        return None
+    if ".." in Path(rel_norm).parts:
+        return None
+    candidate = (root / rel_norm).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() else None
 
 
-def _mount_uploads_static() -> None:
-    app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+async def _serve_output_file(full_path: str) -> FileResponse:
+    settings = settings_store.load()
+    root = ROOT_DIR / settings.output_dir_name
+    root.mkdir(parents=True, exist_ok=True)
+    p = _safe_file_under(root, full_path)
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    mt, _ = mimetypes.guess_type(str(p))
+    return FileResponse(
+        str(p),
+        filename=p.name,
+        media_type=mt or "application/octet-stream",
+    )
 
 
-_mount_output_static()
-_mount_uploads_static()
+async def _serve_upload_file(full_path: str) -> FileResponse:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    p = _safe_file_under(UPLOAD_DIR, full_path)
+    if not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    mt, _ = mimetypes.guess_type(str(p))
+    return FileResponse(
+        str(p),
+        filename=p.name,
+        media_type=mt or "application/octet-stream",
+    )
+
+
+def _register_asset_file_routes() -> None:
+    """Serve generated models and uploads via explicit GET/HEAD routes (not StaticFiles).
+
+    Registers both ``/output`` / ``uploads`` and, when ``APP_ROOT_PATH`` is set,
+    ``{APP_ROOT_PATH}/output`` / ``{APP_ROOT_PATH}/uploads`` so one Uvicorn process
+    serves files correctly behind or without a reverse proxy.
+    """
+    prefixes: list[str] = [""]
+    if _root_path:
+        prefixes.append(_root_path.rstrip("/"))
+
+    for px in prefixes:
+        out_route = f"{px}/output/{{full_path:path}}" if px else "/output/{full_path:path}"
+        up_route = f"{px}/uploads/{{full_path:path}}" if px else "/uploads/{full_path:path}"
+        if not out_route.startswith("/"):
+            out_route = "/" + out_route
+        if not up_route.startswith("/"):
+            up_route = "/" + up_route
+        out_route = out_route.replace("//", "/")
+        up_route = up_route.replace("//", "/")
+
+        tag = (px.replace("/", "_") or "root").strip("_") or "root"
+        app.add_api_route(
+            out_route,
+            _serve_output_file,
+            methods=["GET", "HEAD"],
+            name=f"files_output_{tag}",
+            tags=["files"],
+        )
+        app.add_api_route(
+            up_route,
+            _serve_upload_file,
+            methods=["GET", "HEAD"],
+            name=f"files_uploads_{tag}",
+            tags=["files"],
+        )
+
+
+_register_asset_file_routes()
