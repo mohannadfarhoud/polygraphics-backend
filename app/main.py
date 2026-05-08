@@ -289,7 +289,8 @@ def reprocess_job(job_id: str) -> JobRecord:
 def list_models() -> list[ModelListItem]:
     settings = settings_store.load()
     output_dir = ROOT_DIR / settings.output_dir_name
-    return job_manager.list_models(output_dir)
+    base = _effective_model_base_url(settings)
+    return job_manager.list_models(output_dir, model_base_url=base)
 
 
 @app.post("/jobs", response_model=JobRecord)

@@ -227,20 +227,21 @@ class JobManager:
         self._start_worker(job_id)
         return self.get_job(job_id) or job
 
-    def list_models(self, output_dir: Path) -> list[ModelListItem]:
+    def list_models(self, output_dir: Path, *, model_base_url: str) -> list[ModelListItem]:
         if not output_dir.is_dir():
             return []
         files: list[Path] = []
         for ext in ("*.glb", "*.ply"):
             files.extend(output_dir.glob(ext))
         items: list[ModelListItem] = []
+        base = model_base_url.rstrip("/")
         for p in sorted(files, key=lambda x: x.stat().st_mtime, reverse=True):
             st = p.stat()
             items.append(
                 ModelListItem(
                     job_id=p.stem,
                     filename=p.name,
-                    path=str(p.resolve()),
+                    url=f"{base}/{p.name}",
                     size_bytes=st.st_size,
                     modified_at=st.st_mtime,
                 )

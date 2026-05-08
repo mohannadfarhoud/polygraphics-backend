@@ -137,7 +137,7 @@ Stop-Service polyGraphicsBackend
 - `POST /jobs/{job_id}/stop` — cooperative cancel (`STOPPED`).
 - `POST /jobs/{job_id}/continue` — resume from `STOPPED`, `FAILED`, or `PAUSED` (re-queues; needs `uploads/{job_id}/input_*`).
 - `POST /jobs/{job_id}/reprocess` — re-run from saved inputs (including after `COMPLETED`).
-- `GET /models` — list `.glb` and `.ply` files under the configured output directory.
+- `GET /models` — list `.glb` and `.ply` files under the configured output directory (`url`, `size_bytes`, … — no server filesystem paths).
 - `GET /settings` / `PUT /settings` — runtime options.
 - `GET /server/status` — hardware/software snapshot.
 

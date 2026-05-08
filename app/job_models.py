@@ -43,7 +43,9 @@ class JobRecord(BaseModel):
 class ModelListItem(BaseModel):
     job_id: str
     filename: str
-    path: str
+    url: str = Field(
+        description="Download URL for this asset (same rules as job.model_url: relative /output/... or APP_MODEL_BASE_URL).",
+    )
     size_bytes: int
     modified_at: float
 
