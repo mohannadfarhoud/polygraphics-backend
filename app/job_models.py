@@ -12,6 +12,12 @@ class JobRecord(BaseModel):
     job_id: str
     status: JobStatus
     stage: str | None = None
+    progress: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Pipeline progress in percent (0-100). Null until processing starts.",
+    )
     model_url: str | None = None
     model_format: str | None = None  # "glb" | "ply" | None
     error: str | None = None
@@ -20,7 +26,7 @@ class JobRecord(BaseModel):
     updated_at: float = Field(default_factory=time.time)
     image_sample_url: str | None = Field(
         default=None,
-        description="Public URL of the first uploaded image for this job (preview thumbnail). Derived per response; not persisted.",
+        description="URL of the first uploaded image for this job (preview thumbnail). Relative by default; absolute when APP_MODEL_BASE_URL is set to a non-loopback URL. Derived per response; not persisted.",
     )
 
     @computed_field  # type: ignore[misc]

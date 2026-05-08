@@ -58,32 +58,48 @@ app.add_middleware(
 settings_store = SettingsStore(ROOT_DIR)
 
 
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "0.0.0.0", "::1")
+
+
+def _is_loopback(url: str) -> bool:
+    u = url.lower()
+    return any(h in u for h in _LOOPBACK_HOSTS)
+
+
+def _relative_base(suffix: str) -> str:
+    """Path-only base, prefixed with APP_ROOT_PATH so URLs work behind a reverse proxy."""
+    suffix = "/" + suffix.strip("/")
+    return f"{_root_path}{suffix}" if _root_path else suffix
+
+
 def _effective_model_base_url(settings: RuntimeSettings) -> str:
-    """Prefix used in job.model_url; files are served at GET /output/{{job_id}}.glb."""
+    """Prefix used in job.model_url. Defaults to a relative path (/output, prefixed
+    with APP_ROOT_PATH) so the frontend resolves on its own origin and reverse-
+    proxy setups work transparently. Set APP_MODEL_BASE_URL to a non-loopback
+    absolute URL (e.g. a CDN) to override."""
     for key in ("APP_MODEL_BASE_URL", "APP_CDN_BASE_URL"):
         v = os.getenv(key, "").strip()
-        if v:
+        if v and not _is_loopback(v):
             return v.rstrip("/")
     base = (settings.cdn_base_url or "").strip().rstrip("/")
-    if not base or "cdn.yoursite.com" in base:
-        return "http://127.0.0.1:8000/output"
-    return base
+    if base and "cdn.yoursite.com" not in base and not _is_loopback(base):
+        return base
+    return _relative_base("output")
 
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
 def _uploads_base_url() -> str:
-    """Public URL prefix for files under uploads/. Defaults to deriving from the
-    model base URL by swapping the trailing /output for /uploads, so a single
-    APP_MODEL_BASE_URL configures both."""
+    """Public URL prefix for files under uploads/. Mirrors model base URL logic;
+    relative by default so a frontend on the same proxy resolves it correctly."""
     v = os.getenv("APP_UPLOADS_BASE_URL", "").strip()
-    if v:
+    if v and not _is_loopback(v):
         return v.rstrip("/")
     base = _effective_model_base_url(settings_store.load())
     if base.endswith("/output"):
         return base[: -len("/output")] + "/uploads"
-    return "http://127.0.0.1:8000/uploads"
+    return _relative_base("uploads")
 
 
 def _image_sample_url(job_id: str) -> str | None:

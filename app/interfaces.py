@@ -22,6 +22,8 @@ class JobRepository(Protocol):
         job_id: str,
         status: JobStatus,
         *,
+        stage: str | None = None,
+        progress: int | None = None,
         model_url: str | None = None,
         model_format: str | None = None,
         error: str | None = None,
@@ -35,6 +37,8 @@ class WebSocketNotifier(Protocol):
         job_id: str,
         status: JobStatus,
         *,
+        stage: str | None = None,
+        progress: int | None = None,
         model_url: str | None = None,
         model_format: str | None = None,
         error: str | None = None,
@@ -48,11 +52,13 @@ class NoopJobRepository:
         job_id: str,
         status: JobStatus,
         *,
+        stage: str | None = None,
+        progress: int | None = None,
         model_url: str | None = None,
         model_format: str | None = None,
         error: str | None = None,
     ) -> None:
-        print(f"[DB] {job_id} => {status} model={model_url} fmt={model_format} error={error}")
+        print(f"[DB] {job_id} => {status} stage={stage} progress={progress} model={model_url} fmt={model_format} error={error}")
 
 
 class NoopWebSocketNotifier:
@@ -61,9 +67,11 @@ class NoopWebSocketNotifier:
         job_id: str,
         status: JobStatus,
         *,
+        stage: str | None = None,
+        progress: int | None = None,
         model_url: str | None = None,
         model_format: str | None = None,
         error: str | None = None,
     ) -> None:
-        print(f"[WS] {job_id} => {status} model={model_url} fmt={model_format} error={error}")
+        print(f"[WS] {job_id} => {status} stage={stage} progress={progress} model={model_url} fmt={model_format} error={error}")
 

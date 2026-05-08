@@ -32,6 +32,8 @@ class PerJobJobRepository:
         job_id: str,
         status: JobStatus,
         *,
+        stage: str | None = None,
+        progress: int | None = None,
         model_url: str | None = None,
         model_format: str | None = None,
         error: str | None = None,
@@ -39,6 +41,8 @@ class PerJobJobRepository:
         self._manager.update_job(
             job_id,
             status,
+            stage=stage,
+            progress=progress,
             model_url=model_url,
             model_format=model_format,
             error=error,
@@ -85,6 +89,7 @@ class JobManager:
         status: JobStatus,
         *,
         stage: str | None = None,
+        progress: int | None = None,
         model_url: str | None = None,
         model_format: str | None = None,
         clear_model_url: bool = False,
@@ -98,6 +103,7 @@ class JobManager:
                     job_id=job_id,
                     status=status,
                     stage=stage,
+                    progress=progress,
                     model_url=None if clear_model_url else model_url,
                     model_format=None if clear_model_url else model_format,
                     error=None if clear_error else error,
@@ -107,6 +113,12 @@ class JobManager:
                 rec.status = status
                 if stage is not None:
                     rec.stage = stage
+                if progress is not None:
+                    rec.progress = max(0, min(100, int(progress)))
+                if status == JobStatus.COMPLETED:
+                    rec.progress = 100
+                elif status in (JobStatus.QUEUED, JobStatus.PENDING):
+                    rec.progress = 0
                 if clear_model_url:
                     rec.model_url = None
                     rec.model_format = None
@@ -124,10 +136,14 @@ class JobManager:
             notify_url = rec.model_url
             notify_fmt = rec.model_format
             notify_err = rec.error
+            notify_stage = rec.stage
+            notify_progress = rec.progress
         if self.notifier:
             self.notifier.notify_job_update(
                 job_id,
                 status,
+                stage=notify_stage,
+                progress=notify_progress,
                 model_url=notify_url,
                 model_format=notify_fmt,
                 error=notify_err,

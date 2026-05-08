@@ -42,7 +42,7 @@ class ReconstructionPipeline:
         *,
         cancel_event: threading.Event | None = None,
     ) -> str:
-        self._publish(job_id, JobStatus.PROCESSING)
+        self._publish(job_id, JobStatus.PROCESSING, stage="starting", progress=5)
 
         try:
             assert_pipeline_ready(self.runtime_settings)
@@ -69,8 +69,11 @@ class ReconstructionPipeline:
         *,
         cancel_event: threading.Event | None = None,
     ) -> str:
+        self._publish(job_id, JobStatus.PROCESSING, stage="reconstructing", progress=40)
         reconstruction = self.reconstructor.reconstruct(masked_paths)
         self._raise_if_cancelled(cancel_event)
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="cleaning", progress=70)
         pcd = build_point_cloud(reconstruction.aligned_points_xyz)
         clean_pcd = remove_statistical_outliers(
             pcd,
@@ -78,6 +81,8 @@ class ReconstructionPipeline:
             std_ratio=self.config.std_ratio,
         )
         self._raise_if_cancelled(cancel_event)
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="meshing", progress=80)
         mesh = poisson_mesh(
             clean_pcd,
             depth=self.config.poisson_depth,
@@ -86,13 +91,22 @@ class ReconstructionPipeline:
         self._raise_if_cancelled(cancel_event)
         mesh = decimate(mesh, self.config.decimation_target_triangles)
         self._raise_if_cancelled(cancel_event)
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=95)
         glb_path = self.config.output_dir / f"{job_id}.glb"
         export_glb(mesh, glb_path)
         if not glb_path.is_file() or glb_path.stat().st_size < 256:
             raise RuntimeError(f"Export produced no usable GLB at {glb_path}")
 
         model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
-        self._publish(job_id, JobStatus.COMPLETED, model_url=model_url, model_format="glb")
+        self._publish(
+            job_id,
+            JobStatus.COMPLETED,
+            stage="completed",
+            progress=100,
+            model_url=model_url,
+            model_format="glb",
+        )
         return model_url
 
     def _run_gaussian_splatting(
@@ -105,6 +119,7 @@ class ReconstructionPipeline:
         from .gaussian_splatting_runner import run_gaussian_splatting
 
         self._raise_if_cancelled(cancel_event)
+        self._publish(job_id, JobStatus.PROCESSING, stage="training_gs", progress=50)
         ply_path = self.config.output_dir / f"{job_id}.ply"
         work_dir = self.config.root_dir / "data" / "gs_workspace" / job_id
 
@@ -119,8 +134,16 @@ class ReconstructionPipeline:
         if not ply_path.is_file() or ply_path.stat().st_size < 256:
             raise RuntimeError(f"Gaussian Splatting produced no usable PLY at {ply_path}")
 
+        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=95)
         model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.ply"
-        self._publish(job_id, JobStatus.COMPLETED, model_url=model_url, model_format="ply")
+        self._publish(
+            job_id,
+            JobStatus.COMPLETED,
+            stage="completed",
+            progress=100,
+            model_url=model_url,
+            model_format="ply",
+        )
         return model_url
 
     @staticmethod
@@ -138,13 +161,23 @@ class ReconstructionPipeline:
         if not image_paths:
             raise ValueError("No input images provided")
 
+        total = max(1, len(image_paths))
         masked_paths: list[Path] = []
+        # Segmentation occupies the 10..40 progress band.
+        SEG_START, SEG_END = 10, 40
         for idx, image_path in enumerate(image_paths):
             self._raise_if_cancelled(cancel_event)
             suffix = image_path.suffix or ".png"
             output_path = self.config.masked_dir / job_id / f"masked_{idx:03d}{suffix}"
             masked_path = self.segmenter.segment_file(image_path, output_path)
             masked_paths.append(masked_path)
+            pct = SEG_START + int((SEG_END - SEG_START) * (idx + 1) / total)
+            self._publish(
+                job_id,
+                JobStatus.PROCESSING,
+                stage=f"segmenting ({idx + 1}/{total})",
+                progress=pct,
+            )
         return masked_paths
 
     def _publish(
@@ -152,10 +185,28 @@ class ReconstructionPipeline:
         job_id: str,
         status: JobStatus,
         *,
+        stage: str | None = None,
+        progress: int | None = None,
         model_url: str | None = None,
         model_format: str | None = None,
         error: str | None = None,
     ) -> None:
-        self.job_repo.set_status(job_id, status, model_url=model_url, model_format=model_format, error=error)
-        self.notifier.notify_job_update(job_id, status, model_url=model_url, model_format=model_format, error=error)
+        self.job_repo.set_status(
+            job_id,
+            status,
+            stage=stage,
+            progress=progress,
+            model_url=model_url,
+            model_format=model_format,
+            error=error,
+        )
+        self.notifier.notify_job_update(
+            job_id,
+            status,
+            stage=stage,
+            progress=progress,
+            model_url=model_url,
+            model_format=model_format,
+            error=error,
+        )
 

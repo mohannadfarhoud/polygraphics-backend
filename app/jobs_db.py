@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   job_id TEXT PRIMARY KEY NOT NULL,
   status TEXT NOT NULL,
   stage TEXT,
+  progress INTEGER,
   model_url TEXT,
   model_format TEXT,
   error TEXT,
@@ -28,6 +29,8 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
     if "model_format" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN model_format TEXT")
+    if "progress" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN progress INTEGER")
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -84,10 +87,14 @@ def init_and_migrate(db_path: Path, root_dir: Path) -> None:
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
     keys = row.keys()
+    progress: int | None = None
+    if "progress" in keys and row["progress"] is not None:
+        progress = int(row["progress"])
     return {
         "job_id": row["job_id"],
         "status": row["status"],
         "stage": row["stage"],
+        "progress": progress,
         "model_url": row["model_url"],
         "model_format": row["model_format"] if "model_format" in keys else None,
         "error": row["error"],
@@ -102,13 +109,14 @@ def _save_record_conn(conn: sqlite3.Connection, rec: JobRecord) -> None:
     conn.execute(
         """
         INSERT OR REPLACE INTO jobs
-        (job_id, status, stage, model_url, model_format, error, image_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (job_id, status, stage, progress, model_url, model_format, error, image_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             rec.job_id,
             st,
             rec.stage,
+            None if rec.progress is None else int(rec.progress),
             rec.model_url,
             rec.model_format,
             rec.error,
