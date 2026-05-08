@@ -44,9 +44,11 @@ if (-not $SkipSam) {
 }
 
 # ---------- 3. DUSt3R ----------
+# DUSt3R ships no setup.py / pyproject.toml. Make it importable by adding
+# the repo root to the venv via a .pth file in site-packages.
 $dust3rRepo = Join-Path $ThirdPartyRoot "dust3r"
 if (-not $SkipDust3r) {
-    Step "Cloning + installing DUSt3R into $dust3rRepo"
+    Step "Cloning + wiring DUSt3R at $dust3rRepo"
     if (-not (Test-Path $ThirdPartyRoot)) { New-Item -ItemType Directory -Path $ThirdPartyRoot | Out-Null }
 
     if (-not (Test-Path $dust3rRepo)) {
@@ -61,8 +63,12 @@ if (-not $SkipDust3r) {
     if (Test-Path "requirements.txt") {
         & $venvPython -m pip install -r "requirements.txt"
     }
-    & $venvPython -m pip install -e .
     Pop-Location
+
+    $sitePkgs = & $venvPython -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
+    $pthFile  = Join-Path $sitePkgs.Trim() "dust3r_repo.pth"
+    Set-Content -Path $pthFile -Value $dust3rRepo -Encoding ASCII
+    Step "Wrote $pthFile -> $dust3rRepo"
 } else {
     Step "Skipping DUSt3R package install (-SkipDust3r)"
 }
