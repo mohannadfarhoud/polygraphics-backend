@@ -117,8 +117,40 @@ def _image_sample_url(job_id: str) -> str | None:
     return None
 
 
-def _attach_sample(job: JobRecord) -> JobRecord:
+def _should_rewrite_model_url(url: str | None) -> bool:
+    if not url:
+        return True
+    u = url.strip()
+    if _is_loopback(u):
+        return True
+    # Stale relative paths that pointed at the dev server
+    if u.startswith("/") and "127.0.0.1" in u:
+        return True
+    return False
+
+
+def _decorate_job_response(job: JobRecord) -> JobRecord:
+    """Attach image_sample_url; rewrite stale loopback model_url from DB; backfill old rows."""
+    settings = settings_store.load()
     job.image_sample_url = _image_sample_url(job.job_id)
+
+    if (
+        job.model_format
+        and job.status == JobStatus.COMPLETED
+        and _should_rewrite_model_url(job.model_url)
+    ):
+        ext = job.model_format.lower().lstrip(".")
+        if ext in ("glb", "ply"):
+            base = _effective_model_base_url(settings)
+            job.model_url = f"{base.rstrip('/')}/{job.job_id}.{ext}"
+
+    # Older jobs finished before progress/stage columns were written reliably
+    if job.status == JobStatus.COMPLETED:
+        if job.progress is None:
+            job.progress = 100
+        if job.stage is None:
+            job.stage = "completed"
+
     return job
 
 
@@ -205,7 +237,7 @@ def server_status() -> dict:
 
 @app.get("/jobs", response_model=list[JobRecord])
 def list_jobs() -> list[JobRecord]:
-    return [_attach_sample(j) for j in job_manager.list_jobs()]
+    return [_decorate_job_response(j) for j in job_manager.list_jobs()]
 
 
 @app.get("/jobs/{job_id}", response_model=JobRecord)
@@ -213,13 +245,13 @@ def get_job(job_id: str) -> JobRecord:
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return _attach_sample(job)
+    return _decorate_job_response(job)
 
 
 @app.post("/jobs/{job_id}/stop", response_model=JobRecord)
 def stop_job(job_id: str) -> JobRecord:
     try:
-        return _attach_sample(job_manager.request_stop(job_id))
+        return _decorate_job_response(job_manager.request_stop(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
 
@@ -227,7 +259,7 @@ def stop_job(job_id: str) -> JobRecord:
 @app.post("/jobs/{job_id}/continue", response_model=JobRecord)
 def continue_job(job_id: str) -> JobRecord:
     try:
-        return _attach_sample(job_manager.continue_job(job_id))
+        return _decorate_job_response(job_manager.continue_job(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
@@ -237,7 +269,7 @@ def continue_job(job_id: str) -> JobRecord:
 @app.post("/jobs/{job_id}/reprocess", response_model=JobRecord)
 def reprocess_job(job_id: str) -> JobRecord:
     try:
-        return _attach_sample(job_manager.reprocess_job(job_id))
+        return _decorate_job_response(job_manager.reprocess_job(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
@@ -266,14 +298,14 @@ async def create_job_from_uploads(
     use_job_id = job_id or str(uuid.uuid4())
     _assert_upload_allowed(use_job_id)
     await _save_job_files(use_job_id, files)
-    return _attach_sample(job_manager.create_job_pending(use_job_id, len(files)))
+    return _decorate_job_response(job_manager.create_job_pending(use_job_id, len(files)))
 
 
 @app.post("/jobs/{job_id}/start", response_model=JobRecord)
 def start_job(job_id: str) -> JobRecord:
     """Begin processing for a PENDING job (requires at least 2 images on disk)."""
     try:
-        return _attach_sample(job_manager.start_job(job_id))
+        return _decorate_job_response(job_manager.start_job(job_id))
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
@@ -296,7 +328,7 @@ async def reconstruct(
     _assert_upload_allowed(use_job_id)
     await _save_job_files(use_job_id, files)
     try:
-        return _attach_sample(job_manager.enqueue_new_job(use_job_id, len(files)))
+        return _decorate_job_response(job_manager.enqueue_new_job(use_job_id, len(files)))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
