@@ -64,6 +64,30 @@ class JobManager:
         raw = os.getenv("APP_DATABASE_PATH", "").strip()
         self._db_path = Path(raw).resolve() if raw else default_db.resolve()
         jobs_db.init_and_migrate(self._db_path, self.root_dir)
+        self._recover_stuck_jobs()
+
+    def _recover_stuck_jobs(self) -> None:
+        """Mark jobs left as PROCESSING/QUEUED by a previous process as STOPPED.
+
+        The worker thread that was running them is gone (the API has restarted),
+        so they can never finish on their own. The user can ``POST /jobs/{id}/continue``
+        or ``/reprocess`` afterwards.
+        """
+        try:
+            jobs = jobs_db.list_jobs(self._db_path)
+        except Exception:
+            return
+        for j in jobs:
+            if j.status in (JobStatus.PROCESSING, JobStatus.QUEUED):
+                try:
+                    self.update_job(
+                        j.job_id,
+                        JobStatus.STOPPED,
+                        error="Stopped: API service restarted while this job was running",
+                    )
+                except Exception:
+                    # never crash startup because of one malformed row
+                    continue
 
     @property
     def upload_dir(self) -> Path:
@@ -109,6 +133,14 @@ class JobManager:
                     error=None if clear_error else error,
                 )
             else:
+                # Don't let a still-running worker resurrect a job the user has stopped.
+                # Transitioning from STOPPED back to PROCESSING/QUEUED is only allowed via
+                # continue_job/reprocess_job (those go through QUEUED with cleared events).
+                if existing.status == JobStatus.STOPPED and status in (
+                    JobStatus.PROCESSING,
+                    JobStatus.QUEUED,
+                ):
+                    return
                 rec = existing
                 rec.status = status
                 if stage is not None:
@@ -176,15 +208,43 @@ class JobManager:
         return self.start_job(job_id)
 
     def request_stop(self, job_id: str) -> JobRecord:
+        """Stop a job in any non-terminal state.
+
+        Three cases handled:
+          * **PENDING / QUEUED**: never started, so we just write STOPPED.
+          * **PROCESSING + live worker thread**: signal the cancel event so the worker
+            exits cleanly between stages, **and** write STOPPED right away so the UI
+            reflects the user's intent without waiting for the next stage boundary.
+          * **PROCESSING + no live worker** (orphan after a service restart):
+            no thread will ever read the cancel event; force the DB to STOPPED.
+        Already-terminal jobs (COMPLETED/FAILED/STOPPED) are returned unchanged.
+        """
         job = self.get_job(job_id)
         if not job:
             raise KeyError(job_id)
+
         ev = self._cancel_events.setdefault(job_id, threading.Event())
         ev.set()
-        if job.status == JobStatus.PENDING:
-            self.update_job(job_id, JobStatus.STOPPED, error="Cancelled before processing started")
-        elif job.status == JobStatus.QUEUED:
-            self.update_job(job_id, JobStatus.STOPPED, error="Cancelled before processing started")
+
+        with self._lock:
+            thread = self._active_threads.get(job_id)
+            thread_alive = thread is not None and thread.is_alive()
+
+        if job.status in (JobStatus.PENDING, JobStatus.QUEUED):
+            self.update_job(
+                job_id,
+                JobStatus.STOPPED,
+                error="Cancelled before processing started",
+            )
+        elif job.status == JobStatus.PROCESSING:
+            if thread_alive:
+                self.update_job(job_id, JobStatus.STOPPED, error="Stopped by user")
+            else:
+                self.update_job(
+                    job_id,
+                    JobStatus.STOPPED,
+                    error="Stopped (orphaned: worker thread is no longer running, likely a service restart)",
+                )
         return self.get_job(job_id) or job
 
     def continue_job(self, job_id: str) -> JobRecord:
