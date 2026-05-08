@@ -43,6 +43,11 @@ def export_glb(mesh: o3d.geometry.TriangleMesh, output_path: Path) -> Path:
         raise RuntimeError("Cannot export empty mesh")
 
     tri = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    # Poisson output has no UV map or per-vertex color; plain geometry often renders
+    # as black in glTF viewers (default PBR + minimal lighting). Neutral gray until
+    # we bake texture or vertex colors from images.
+    n = len(vertices)
+    tri.visual.vertex_colors = np.full((n, 4), [220, 220, 220, 255], dtype=np.uint8)
     tri.export(str(output_path))
     return output_path
 
