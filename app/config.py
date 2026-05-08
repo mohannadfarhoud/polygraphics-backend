@@ -9,6 +9,7 @@ class PipelineConfig:
     root_dir: Path
     output_dir_name: str = "output"
     masked_dir_name: str = "masked"
+    masks_dir_name: str = "masks"
     nb_neighbors: int = 20
     std_ratio: float = 2.0
     poisson_depth: int = 9
@@ -23,4 +24,8 @@ class PipelineConfig:
     @property
     def masked_dir(self) -> Path:
         return self.root_dir / self.masked_dir_name
+
+    @property
+    def masks_dir(self) -> Path:
+        return self.root_dir / self.masks_dir_name
 

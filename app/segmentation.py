@@ -154,7 +154,13 @@ class SamSegmenter:
         binary_mask = (mask > 0).astype(np.uint8)
         return image_bgr * binary_mask[:, :, None]
 
-    def segment_file(self, image_path: Path, output_path: Path) -> Path:
+    def segment_file(
+        self,
+        image_path: Path,
+        output_path: Path,
+        *,
+        mask_output_path: Path | None = None,
+    ) -> Path:
         image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError(f"Unable to read image: {image_path}")
@@ -162,4 +168,8 @@ class SamSegmenter:
         masked = self.apply_black_background(image, mask)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(output_path), masked)
+        if mask_output_path is not None:
+            mask_output_path.parent.mkdir(parents=True, exist_ok=True)
+            binary_mask = ((mask > 0).astype(np.uint8)) * 255
+            cv2.imwrite(str(mask_output_path), binary_mask)
         return output_path

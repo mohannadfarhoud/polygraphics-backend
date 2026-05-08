@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import mimetypes
 import os
 import uuid
 from pathlib import Path
+from typing import Any
 
 try:
     from dotenv import load_dotenv  # type: ignore[import-not-found]
@@ -200,6 +202,7 @@ def _build_pipeline_for_job(
             root_dir=ROOT_DIR,
             output_dir_name=settings.output_dir_name,
             masked_dir_name=settings.masked_dir_name,
+            masks_dir_name=settings.masks_dir_name,
             nb_neighbors=settings.nb_neighbors,
             std_ratio=settings.std_ratio,
             poisson_depth=settings.poisson_depth,
@@ -245,6 +248,9 @@ async def _save_job_files(job_id: str, files: list[UploadFile]) -> None:
             f.write(await upload.read())
 
 
+_JOB_STAGES_JSON = _REPO_ROOT / "ui" / "job-stages-progress.json"
+
+
 @app.get("/", include_in_schema=False)
 def root() -> RedirectResponse:
     return RedirectResponse(url="/swagger")
@@ -253,6 +259,14 @@ def root() -> RedirectResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/job-stages")
+def job_stages() -> dict[str, Any]:
+    """Canonical JSON mapping of pipeline stage ids to progress bands (same file as ``ui/job-stages-progress.json``)."""
+    if not _JOB_STAGES_JSON.is_file():
+        raise HTTPException(status_code=404, detail="job-stages mapping file missing on server")
+    return json.loads(_JOB_STAGES_JSON.read_text(encoding="utf-8"))
 
 
 @app.get("/settings", response_model=RuntimeSettings)

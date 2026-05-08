@@ -69,11 +69,14 @@ class ReconstructionPipeline:
         *,
         cancel_event: threading.Event | None = None,
     ) -> str:
-        self._publish(job_id, JobStatus.PROCESSING, stage="reconstructing", progress=40)
+        # Phase 2 of the protocol: DUSt3R + global aligner (also applies the
+        # confidence filter from Phase 3 before merging the per-view clouds).
+        self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)
         reconstruction = self.reconstructor.reconstruct(masked_paths)
         self._raise_if_cancelled(cancel_event)
 
-        self._publish(job_id, JobStatus.PROCESSING, stage="cleaning", progress=70)
+        # Phase 3 of the protocol: Statistical Outlier Removal on the unified cloud.
+        self._publish(job_id, JobStatus.PROCESSING, stage="phase_3_sanitization", progress=65)
         pcd = build_point_cloud(reconstruction.aligned_points_xyz)
         clean_pcd = remove_statistical_outliers(
             pcd,
@@ -82,6 +85,7 @@ class ReconstructionPipeline:
         )
         self._raise_if_cancelled(cancel_event)
 
+        # Mesh-only finishing steps (not part of the GS protocol; .glb path).
         self._publish(job_id, JobStatus.PROCESSING, stage="meshing", progress=80)
         mesh = poisson_mesh(
             clean_pcd,
@@ -119,9 +123,11 @@ class ReconstructionPipeline:
         from .gaussian_splatting_runner import run_gaussian_splatting
 
         self._raise_if_cancelled(cancel_event)
-        self._publish(job_id, JobStatus.PROCESSING, stage="training_gs", progress=50)
         ply_path = self.config.output_dir / f"{job_id}.ply"
         work_dir = self.config.root_dir / "data" / "gs_workspace" / job_id
+
+        def _on_progress(stage: str, progress: int) -> None:
+            self._publish(job_id, JobStatus.PROCESSING, stage=stage, progress=progress)
 
         run_gaussian_splatting(
             job_id=job_id,
@@ -129,6 +135,7 @@ class ReconstructionPipeline:
             work_dir=work_dir,
             output_ply=ply_path,
             settings=self.runtime_settings,
+            progress_callback=_on_progress,
         )
 
         if not ply_path.is_file() or ply_path.stat().st_size < 256:
@@ -163,19 +170,26 @@ class ReconstructionPipeline:
 
         total = max(1, len(image_paths))
         masked_paths: list[Path] = []
+        save_masks = bool(self.runtime_settings.save_raw_masks)
+        masks_root = self.config.masks_dir / job_id if save_masks else None
         # Segmentation occupies the 10..40 progress band.
         SEG_START, SEG_END = 10, 40
         for idx, image_path in enumerate(image_paths):
             self._raise_if_cancelled(cancel_event)
             suffix = image_path.suffix or ".png"
             output_path = self.config.masked_dir / job_id / f"masked_{idx:03d}{suffix}"
-            masked_path = self.segmenter.segment_file(image_path, output_path)
+            mask_path = (masks_root / f"mask_{idx:03d}.png") if masks_root is not None else None
+            masked_path = self.segmenter.segment_file(
+                image_path,
+                output_path,
+                mask_output_path=mask_path,
+            )
             masked_paths.append(masked_path)
             pct = SEG_START + int((SEG_END - SEG_START) * (idx + 1) / total)
             self._publish(
                 job_id,
                 JobStatus.PROCESSING,
-                stage=f"segmenting ({idx + 1}/{total})",
+                stage=f"phase_1_segmentation ({idx + 1}/{total})",
                 progress=pct,
             )
         return masked_paths

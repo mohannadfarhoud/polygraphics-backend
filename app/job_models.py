@@ -11,7 +11,16 @@ from .interfaces import JobStatus
 class JobRecord(BaseModel):
     job_id: str
     status: JobStatus
-    stage: str | None = None
+    stage: str | None = Field(
+        default=None,
+        description=(
+            "Current pipeline stage. UI should switch on the base value (before any space). "
+            "Lifecycle: starting | exporting | completed. "
+            "Pipeline protocol: phase_1_segmentation | phase_2_alignment | phase_3_sanitization "
+            "| phase_4_colmap_bridge | phase_4_colmap_scene | phase_5_gaussian_splatting. "
+            "Mesh-only: meshing. May include a human suffix in parens, e.g. 'phase_1_segmentation (3/27)'."
+        ),
+    )
     progress: int | None = Field(
         default=None,
         ge=0,

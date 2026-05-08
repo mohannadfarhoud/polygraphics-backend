@@ -25,10 +25,23 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
 from .runtime_settings import RuntimeSettings
+
+ProgressCallback = Callable[[str, int], None]
+
+
+def _emit(progress_callback: ProgressCallback | None, stage: str, progress: int) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(stage, progress)
+    except Exception:
+        # Progress callbacks must never break the pipeline.
+        pass
 
 
 def run_gaussian_splatting(
@@ -37,6 +50,8 @@ def run_gaussian_splatting(
     work_dir: Path,
     output_ply: Path,
     settings: RuntimeSettings,
+    *,
+    progress_callback: ProgressCallback | None = None,
 ) -> Path:
     """Train a Gaussian Splatting scene and write `output_ply`. Returns its path."""
     if len(masked_images) < 2:
@@ -62,11 +77,20 @@ def run_gaussian_splatting(
     model_dir.mkdir(parents=True, exist_ok=True)
 
     if settings.gs_init_source == "colmap":
+        _emit(progress_callback, "phase_4_colmap_scene", 50)
         _build_colmap_scene(masked_images, scene_dir, settings)
     elif settings.gs_init_source == "dust3r":
-        _build_dust3r_scene(masked_images, scene_dir, settings)
+        _emit(progress_callback, "phase_2_alignment", 45)
+        _build_dust3r_scene(
+            masked_images,
+            scene_dir,
+            settings,
+            progress_callback=progress_callback,
+        )
     else:
         raise RuntimeError(f"Unknown gs_init_source {settings.gs_init_source!r}")
+
+    _emit(progress_callback, "phase_5_gaussian_splatting", 65)
 
     py = settings.gs_python_executable or sys.executable
     cmd = [
@@ -80,6 +104,8 @@ def run_gaussian_splatting(
         str(settings.gs_iterations),
         "--sh_degree",
         str(settings.gs_sh_degree),
+        "--opacity_reset_interval",
+        str(settings.gs_opacity_reset_interval),
     ]
     if settings.gs_resolution and settings.gs_resolution > 0:
         cmd += ["--resolution", str(settings.gs_resolution)]
@@ -161,11 +187,30 @@ def _build_colmap_scene(masked_images: list[Path], scene_dir: Path, settings: Ru
         )
 
 
-def _build_dust3r_scene(masked_images: list[Path], scene_dir: Path, settings: RuntimeSettings) -> None:
-    raise RuntimeError(
-        "GS init=dust3r is scaffolded but not yet implemented. "
-        "Use gs_init_source='colmap' for now."
-    )
+def _build_dust3r_scene(
+    masked_images: list[Path],
+    scene_dir: Path,
+    settings: RuntimeSettings,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> None:
+    """Phases 2-4 of the protocol: run DUSt3R on the masked images, sanitize the cloud,
+    then write a COLMAP sparse reconstruction (text format) the gaussian-splatting
+    trainer can consume.
+
+    Layout produced::
+
+        scene_dir/
+            images/
+            sparse/0/{cameras.txt, images.txt, points3D.txt}
+    """
+    from .colmap_bridge import write_colmap_text
+    from .dust3r_runner import run_dust3r_scene
+
+    dust3r_scene = run_dust3r_scene(masked_images, settings)
+    _emit(progress_callback, "phase_3_sanitization", 55)
+    _emit(progress_callback, "phase_4_colmap_bridge", 60)
+    write_colmap_text(dust3r_scene, scene_dir=scene_dir)
 
 
 def _write_placeholder_gs_ply(path: Path, n_points: int = 8000) -> None:

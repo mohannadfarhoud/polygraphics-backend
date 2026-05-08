@@ -14,11 +14,67 @@ Backend pipeline to convert multi-view 2D images into either a meshed `.glb` (DU
 
 Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`.
 
-1. SAM segmentation (same as above).
-2. **Initial scene**: `gs_init_source = "colmap"` runs COLMAP on the masked images to produce `cameras.bin` / `images.bin` / `points3D.bin`. (`"dust3r"` init is scaffolded; not implemented yet.)
-3. **Training**: shells out to `python <gs_repo_path>/train.py -s <scene> -m <model> --iterations <gs_iterations> --sh_degree <gs_sh_degree> [--resolution <gs_resolution>]` from the official [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) repo.
+1. SAM segmentation (same as above). When **`save_raw_masks = true`** (default), 1‑channel `.png` masks are written to `masks/<job_id>/mask_NNN.png` alongside the masked colour images.
+2. **Initial scene** (Phase 4 of the pipeline protocol):
+   - `gs_init_source = "colmap"` runs COLMAP on the masked images to produce `cameras.bin` / `images.bin` / `points3D.bin`.
+   - **`gs_init_source = "dust3r"`** runs DUSt3R + `GlobalAligner` and writes a COLMAP **text** sparse reconstruction (`sparse/0/cameras.txt` / `images.txt` / `points3D.txt`). The 3D-points seed is the confidence-filtered DUSt3R cloud — exactly the “seed” described in the protocol.
+3. **Training**: shells out to `python <gs_repo_path>/train.py -s <scene> -m <model> --iterations <gs_iterations> --sh_degree <gs_sh_degree> --opacity_reset_interval <gs_opacity_reset_interval> [--resolution <gs_resolution>]` from the official [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) repo.
 4. The latest `point_cloud/iteration_<N>/point_cloud.ply` is copied to `output/<job_id>.ply`.
 5. `model_url` points to that `.ply`; `model_format = "ply"`.
+
+### Job `stage` vocabulary (for the UI)
+
+The canonical mapping (progress ranges + ordered flows) lives in **`ui/job-stages-progress.json`**. The API also exposes it at **`GET /job-stages`** so your frontend can fetch it at runtime and stay aligned with the server.
+
+`GET /jobs/{id}` and `notify_job_update` push a `stage` string (plus a `progress` 0-100). Switch on the **base** of the string (everything before the first space — the suffix in parens is human-readable):
+
+| `stage` base | Approx. progress | Meaning | Emitted on |
+|---|---:|---|---|
+| `starting` | 5 | Job picked up; settings validated. | always |
+| `phase_1_segmentation` | 10 → 40 | SAM masks per image. Suffix is `(i/total)`. | always |
+| `phase_2_alignment` | 40 → 60 | DUSt3R inference + `GlobalAligner` (epochs/lr from settings). | mesh path; GS path with `gs_init_source=dust3r` |
+| `phase_3_sanitization` | 55 → 70 | Confidence filter + Open3D SOR. | mesh path; GS path with `gs_init_source=dust3r` |
+| `phase_4_colmap_bridge` | 60 | Writing `sparse/0/{cameras,images,points3D}.txt` from DUSt3R seed. | GS path with `gs_init_source=dust3r` |
+| `phase_4_colmap_scene` | 50 | Running COLMAP (`feature_extractor` → `exhaustive_matcher` → `mapper`). | GS path with `gs_init_source=colmap` |
+| `phase_5_gaussian_splatting` | 65 → 95 | `train.py` running. | GS path |
+| `meshing` | 80 | Poisson + decimation. | mesh path only |
+| `exporting` | 95 | Writing the final `.glb` / `.ply`. | always |
+| `completed` | 100 | Job finished, `model_url` is ready. | always |
+
+The list of valid base values is also exported as `app.job_stages.ALL_STAGES`. Example UI mapping:
+
+```ts
+const STAGE_LABELS: Record<string, string> = {
+  starting: "Preparing job…",
+  phase_1_segmentation: "Masking subject (SAM)",
+  phase_2_alignment: "Aligning views (DUSt3R)",
+  phase_3_sanitization: "Cleaning point cloud",
+  phase_4_colmap_bridge: "Building COLMAP scene from DUSt3R",
+  phase_4_colmap_scene: "Building COLMAP scene",
+  phase_5_gaussian_splatting: "Training Gaussian Splatting",
+  meshing: "Meshing surface",
+  exporting: "Exporting model",
+  completed: "Done",
+};
+const base = (job.stage ?? "").split(" ")[0];
+const label = STAGE_LABELS[base] ?? job.stage ?? "Working…";
+```
+
+### Pipeline protocol settings (DUSt3R + GS)
+
+These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `PUT /settings`:
+
+| Setting | Default | Phase | Notes |
+|---|---:|---|---|
+| `save_raw_masks` | `true` | 1 | Save binary `.png` masks to `masks/<job_id>/`. |
+| `dust3r_aligner_iters` | `300` | 2 | `niter` for `compute_global_alignment` (≥ 300 for stable floors). |
+| `dust3r_aligner_lr` | `0.01` | 2 | Learning rate for the global aligner. |
+| `dust3r_confidence_threshold` | `0.5` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
+| `nb_neighbors` | `20` | 3 | Open3D SOR neighbours. |
+| `std_ratio` | `2.0` | 3 | Open3D SOR std-dev ratio (protocol range: 1.5–2.0). |
+| `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. |
+| `gs_iterations` | `7000` | 5 | `7_000` (Quick) or `30_000` (Dense). |
+| `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |
 
 > Real GS training officially needs a CUDA GPU. On CPU it’s impractical (or unsupported, depending on fork).
 

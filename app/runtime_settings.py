@@ -22,6 +22,11 @@ class RuntimeSettings(BaseModel):
     ] = "center_point"
     dust3r_repo_path: str | None = None
     dust3r_checkpoint_path: str | None = None
+    # DUSt3R global aligner (Phase 2 of the pipeline protocol).
+    dust3r_aligner_iters: int = Field(default=300, ge=10, le=5000)
+    dust3r_aligner_lr: float = Field(default=0.01, gt=0.0, le=1.0)
+    # Drop DUSt3R points below this per-pixel confidence (0..1). 0 disables (Phase 3).
+    dust3r_confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     colmap_binary_path: str | None = None
     # Gaussian Splatting (https://github.com/graphdeco-inria/gaussian-splatting)
     gs_repo_path: str | None = None
@@ -30,9 +35,15 @@ class RuntimeSettings(BaseModel):
     gs_iterations: int = Field(default=7000, ge=100, le=60000)
     gs_sh_degree: int = Field(default=3, ge=0, le=4)
     gs_resolution: int = Field(default=-1, ge=-1, le=8192)  # -1 = original
+    # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000.
+    gs_opacity_reset_interval: int = Field(default=3000, ge=100, le=60000)
     meshing_method: Literal["poisson", "bpa"] = "poisson"
     output_dir_name: str = "output"
     masked_dir_name: str = "masked"
+    # Where raw binary masks (.png) are saved alongside the masked color images.
+    masks_dir_name: str = "masks"
+    # If True, also write 1-channel mask PNGs to `<masks_dir_name>/<job_id>/mask_NNN.png`.
+    save_raw_masks: bool = True
     nb_neighbors: int = Field(default=20, ge=1)
     std_ratio: float = Field(default=2.0, gt=0)
     poisson_depth: int = Field(default=9, ge=4, le=14)

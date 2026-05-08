@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "description": "Maps job.stage (from GET /jobs/{id}) to expected progress. Take the stage id as the substring before the first space (ignore optional human suffix such as (3/27) after a space).",
+  "stage_id_rule": "const base = (job.stage ?? '').split(' ')[0];",
+  "stages": [
+    {
+      "id": "starting",
+      "progress": { "min": 5, "max": 5, "typical": 5 },
+      "label": "Preparing job"
+    },
+    {
+      "id": "phase_1_segmentation",
+      "progress": { "min": 10, "max": 40, "typical": 25 },
+      "label": "Segmentation (SAM)",
+      "note": "API may send full stage as \"phase_1_segmentation (i/total)\" while progress sweeps 10..40."
+    },
+    {
+      "id": "phase_2_alignment",
+      "progress": { "min": 40, "max": 60, "typical": 45 },
+      "label": "Global alignment (DUSt3R)"
+    },
+    {
+      "id": "phase_3_sanitization",
+      "progress": { "min": 55, "max": 70, "typical": 65 },
+      "label": "Point cloud cleaning"
+    },
+    {
+      "id": "phase_4_colmap_bridge",
+      "progress": { "min": 60, "max": 60, "typical": 60 },
+      "label": "COLMAP bridge (DUSt3R seed)",
+      "note": "Gaussian Splatting with gs_init_source=dust3r only."
+    },
+    {
+      "id": "phase_4_colmap_scene",
+      "progress": { "min": 50, "max": 50, "typical": 50 },
+      "label": "COLMAP reconstruction",
+      "note": "Gaussian Splatting with gs_init_source=colmap only."
+    },
+    {
+      "id": "phase_5_gaussian_splatting",
+      "progress": { "min": 65, "max": 95, "typical": 80 },
+      "label": "Gaussian Splatting training",
+      "note": "Long-running; progress stays at the emitted value until training ends (no per-iteration updates yet)."
+    },
+    {
+      "id": "meshing",
+      "progress": { "min": 80, "max": 80, "typical": 80 },
+      "label": "Meshing",
+      "note": "Mesh (.glb) path only, not used for Gaussian Splatting."
+    },
+    {
+      "id": "exporting",
+      "progress": { "min": 95, "max": 95, "typical": 95 },
+      "label": "Exporting model"
+    },
+    {
+      "id": "completed",
+      "progress": { "min": 100, "max": 100, "typical": 100 },
+      "label": "Done"
+    }
+  ],
+  "flows": {
+    "mesh_dust3r_glb": {
+      "reconstruction_backend": "dust3r",
+      "order": [
+        { "id": "starting", "progress": 5 },
+        { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_2_alignment", "progress": 45 },
+        { "id": "phase_3_sanitization", "progress": 65 },
+        { "id": "meshing", "progress": 80 },
+        { "id": "exporting", "progress": 95 },
+        { "id": "completed", "progress": 100 }
+      ]
+    },
+    "gaussian_splatting_init_colmap": {
+      "reconstruction_backend": "gaussian_splatting",
+      "gs_init_source": "colmap",
+      "order": [
+        { "id": "starting", "progress": 5 },
+        { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_4_colmap_scene", "progress": 50 },
+        { "id": "phase_5_gaussian_splatting", "progress": 65 },
+        { "id": "exporting", "progress": 95 },
+        { "id": "completed", "progress": 100 }
+      ]
+    },
+    "gaussian_splatting_init_dust3r": {
+      "reconstruction_backend": "gaussian_splatting",
+      "gs_init_source": "dust3r",
+      "order": [
+        { "id": "starting", "progress": 5 },
+        { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_2_alignment", "progress": 45 },
+        { "id": "phase_3_sanitization", "progress": 55 },
+        { "id": "phase_4_colmap_bridge", "progress": 60 },
+        { "id": "phase_5_gaussian_splatting", "progress": 65 },
+        { "id": "exporting", "progress": 95 },
+        { "id": "completed", "progress": 100 }
+      ]
+    }
+  }
+}
