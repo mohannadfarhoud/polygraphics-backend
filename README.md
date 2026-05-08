@@ -155,6 +155,14 @@ This API serves files at **`GET /output/<job_id>.<ext>`** (same folder as `outpu
 
 Use your real public origin in production (CDN or API host).
 
+## Reverse proxy (Nginx)
+
+If the API returns relative **`/output/...`** and **`/uploads/...`**, your reverse proxy must expose those paths on your domain. Copy-and-paste snippets are in:
+
+- **`deploy/nginx-output-uploads.conf`** — `/output/` and `/uploads/` → `http://127.0.0.1:8000`
+- **`deploy/nginx-polygraph-api.conf`** — `/polygraph/` → API (strip prefix)
+- **`deploy/README.md`** — setup A vs B (root assets vs everything under `/polygraph`)
+
 ## Database (jobs)
 
 - Jobs are stored in **SQLite**: default file **`data/jobs.sqlite`** under the app root (override with env **`APP_DATABASE_PATH`**).
