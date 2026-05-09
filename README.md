@@ -4,15 +4,18 @@ Backend pipeline to convert multi-view 2D images into either a meshed `.glb` (DU
 
 ## Free GPU demo on Google Colab
 
-Open **`colab_demo.ipynb`** in [Google Colab](https://colab.research.google.com), switch to the **T4 GPU** runtime (`Runtime > Change runtime type > T4 GPU`), then `Runtime > Run all`. The notebook:
+**Open the notebook from GitHub** (always loads latest `main`):  
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/mohannadfarhoud/polygraphics-backend/blob/main/colab_demo.ipynb)
 
-1. Clones this repo into the Colab VM,
+Switch to the **T4 GPU** runtime (`Runtime > Change runtime type > T4 GPU`), then `Runtime > Run all`. The notebook:
+
+1. Downloads this repo as a **ZIP** into the Colab VM (**no `git clone`** — avoids Colab credential / “could not read Username” errors),
 2. Runs `scripts/colab_setup.sh` (installs DUSt3R, SAM, deps, downloads the SAM checkpoint, points the API at HF for DUSt3R weights),
 3. Runs `scripts/colab_serve.sh` which starts `uvicorn` and opens a free **Cloudflare Quick Tunnel** (`trycloudflare.com`) — no account, no token.
 
 The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudflare.com`. Open `<URL>/swagger` to drive it. Limits: ~12 h max session, ~90 min idle disconnect, disk wiped on session end. Perfect for short demos with full-speed GPU DUSt3R / Gaussian Splatting.
 
-**Colab git clone error:** If `git clone` fails with `could not read Username for 'https://github.com': No such device or address`, pull the latest notebook from `main` — the clone cell sets `GIT_TERMINAL_PROMPT=0`, uses `git -c credential.helper= clone`, and falls back to downloading the `main` branch as a ZIP. If a half-finished clone left a broken folder, run `!rm -rf /content/polygraphics-backend` once, then re-run the clone cell.
+**Colab / GitHub fetch:** The notebook downloads **`main` as a ZIP** (anonymous HTTPS). If you still see old cells mentioning `git clone`, open the notebook via the badge link above — do not use an uploaded `.ipynb` copy from your laptop. If `/content/polygraphics-backend` is half-broken, run `!rm -rf /content/polygraphics-backend` once, then re-run from section 2.
 
 ## Pipeline (mesh / `.glb`)
 
