@@ -12,6 +12,8 @@ Open **`colab_demo.ipynb`** in [Google Colab](https://colab.research.google.com)
 
 The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudflare.com`. Open `<URL>/swagger` to drive it. Limits: ~12 h max session, ~90 min idle disconnect, disk wiped on session end. Perfect for short demos with full-speed GPU DUSt3R / Gaussian Splatting.
 
+**Colab git clone error:** If `git clone` fails with `could not read Username for 'https://github.com': No such device or address`, pull the latest notebook from `main` — the clone cell sets `GIT_TERMINAL_PROMPT=0`, uses `git -c credential.helper= clone`, and falls back to downloading the `main` branch as a ZIP. If a half-finished clone left a broken folder, run `!rm -rf /content/polygraphics-backend` once, then re-run the clone cell.
+
 ## Pipeline (mesh / `.glb`)
 
 1. SAM segmentation creates binary masks and forces a black background.
