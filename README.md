@@ -2,6 +2,16 @@
 
 Backend pipeline to convert multi-view 2D images into either a meshed `.glb` (DUSt3R/COLMAP path) or a Gaussian Splatting `.ply` (3DGS path).
 
+## Free GPU demo on Google Colab
+
+Open **`colab_demo.ipynb`** in [Google Colab](https://colab.research.google.com), switch to the **T4 GPU** runtime (`Runtime > Change runtime type > T4 GPU`), then `Runtime > Run all`. The notebook:
+
+1. Clones this repo into the Colab VM,
+2. Runs `scripts/colab_setup.sh` (installs DUSt3R, SAM, deps, downloads the SAM checkpoint, points the API at HF for DUSt3R weights),
+3. Runs `scripts/colab_serve.sh` which starts `uvicorn` and opens a free **Cloudflare Quick Tunnel** (`trycloudflare.com`) — no account, no token.
+
+The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudflare.com`. Open `<URL>/swagger` to drive it. Limits: ~12 h max session, ~90 min idle disconnect, disk wiped on session end. Perfect for short demos with full-speed GPU DUSt3R / Gaussian Splatting.
+
 ## Pipeline (mesh / `.glb`)
 
 1. SAM segmentation creates binary masks and forces a black background.
