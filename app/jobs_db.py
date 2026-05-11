@@ -142,6 +142,20 @@ def list_jobs(db_path: Path) -> list[JobRecord]:
         return [JobRecord.model_validate(_row_to_dict(r)) for r in cur.fetchall()]
 
 
+def list_queued_oldest_first(db_path: Path) -> list[JobRecord]:
+    """Jobs in ``QUEUED`` state, oldest ``created_at`` first (FIFO work queue)."""
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE status = ?
+            ORDER BY created_at ASC
+            """,
+            (JobStatus.QUEUED.value,),
+        )
+        return [JobRecord.model_validate(_row_to_dict(r)) for r in cur.fetchall()]
+
+
 def save_record(db_path: Path, rec: JobRecord) -> None:
     with _connect(db_path) as conn:
         _save_record_conn(conn, rec)

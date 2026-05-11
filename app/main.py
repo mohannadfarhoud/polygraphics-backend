@@ -16,13 +16,14 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
+from pydantic import BaseModel
 
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopWebSocketNotifier, WebSocketNotifier
-from .job_manager import JobManager, JobRecord, ModelListItem
+from .job_manager import JobManager, JobRecord, ModelListItem, remote_workers_enabled
 from .pipeline import ReconstructionPipeline
 from .reconstruction import Dust3RReconstructor
 from .segmentation import SamSegmenter
@@ -259,6 +260,61 @@ def root() -> RedirectResponse:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class WorkerFailBody(BaseModel):
+    error: str
+
+
+def verify_worker_token(x_worker_token: str | None = Header(default=None, alias="X-Worker-Token")) -> None:
+    secret = os.getenv("APP_WORKER_TOKEN", "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="APP_WORKER_TOKEN is not set on the API server")
+    if x_worker_token != secret:
+        raise HTTPException(status_code=403, detail="Invalid worker token")
+
+
+@app.get(
+    "/internal/worker/next",
+    dependencies=[Depends(verify_worker_token)],
+    response_model=None,
+)
+def internal_worker_next() -> dict[str, Any] | Response:
+    """GPU worker long-polls (or polls) for the next ``QUEUED`` job. Requires ``APP_REMOTE_WORKERS=true``."""
+    if not remote_workers_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Remote workers disabled. Set APP_REMOTE_WORKERS=true on the API server.",
+        )
+    payload = job_manager.claim_next_remote_job()
+    if payload is None:
+        return Response(status_code=204)
+    return payload
+
+
+@app.post("/internal/worker/jobs/{job_id}/complete", dependencies=[Depends(verify_worker_token)])
+async def internal_worker_complete(
+    job_id: str,
+    model_format: str = Form(...),
+    file: UploadFile = File(...),
+) -> JobRecord:
+    body = await file.read()
+    try:
+        return job_manager.complete_remote_job(job_id, body, model_format)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.post("/internal/worker/jobs/{job_id}/fail", dependencies=[Depends(verify_worker_token)])
+def internal_worker_fail(job_id: str, body: WorkerFailBody) -> JobRecord:
+    try:
+        return job_manager.fail_remote_job(job_id, body.error)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
 
 
 @app.get("/job-stages")

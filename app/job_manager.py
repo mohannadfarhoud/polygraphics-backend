@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -20,6 +21,32 @@ def _sorted_input_images(upload_dir: Path) -> list[Path]:
         return []
     paths = sorted(upload_dir.glob("input_*"))
     return [p for p in paths if p.is_file()]
+
+
+def remote_workers_enabled() -> bool:
+    """When True, queued jobs are not executed in-process; a GPU worker polls ``/internal/worker/next``."""
+    return os.getenv("APP_REMOTE_WORKERS", "").strip().lower() in ("1", "true", "yes")
+
+
+def _relative_path_suffix(segment: str) -> str:
+    """Same rule as ``APP_ROOT_PATH`` + segment for URL paths served by this app."""
+    rp = os.getenv("APP_ROOT_PATH", "").strip()
+    if rp and not rp.startswith("/"):
+        rp = "/" + rp
+    rp = rp.rstrip("/")
+    suffix = "/" + segment.strip("/")
+    return f"{rp}{suffix}" if rp else suffix
+
+
+def _effective_model_base_url_for_jobs(settings: RuntimeSettings) -> str:
+    for key in ("APP_MODEL_BASE_URL", "APP_CDN_BASE_URL"):
+        v = os.getenv(key, "").strip()
+        if v and "127.0.0.1" not in v and "localhost" not in v.lower():
+            return v.rstrip("/")
+    base = (settings.cdn_base_url or "").strip().rstrip("/")
+    if base and "cdn.yoursite.com" not in base and "127.0.0.1" not in base:
+        return base
+    return _relative_path_suffix("output")
 
 
 class PerJobJobRepository:
@@ -199,7 +226,8 @@ class JobManager:
             raise RuntimeError("Need at least 2 images under uploads/{job_id}/ before starting")
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
-        self._start_worker(job_id)
+        if not remote_workers_enabled():
+            self._start_worker(job_id)
         return self.get_job(job_id) or job
 
     def enqueue_new_job(self, job_id: str, image_count: int) -> JobRecord:
@@ -266,7 +294,8 @@ class JobManager:
             raise RuntimeError("Not enough input images to continue; need at least 2 images under uploads/{job_id}/")
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
-        self._start_worker(job_id)
+        if not remote_workers_enabled():
+            self._start_worker(job_id)
         return self.get_job(job_id) or job
 
     def reprocess_job(self, job_id: str) -> JobRecord:
@@ -284,7 +313,8 @@ class JobManager:
             raise RuntimeError("Not enough input images; need at least 2 images under uploads/{job_id}/")
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
-        self._start_worker(job_id)
+        if not remote_workers_enabled():
+            self._start_worker(job_id)
         return self.get_job(job_id) or job
 
     def list_models(self, output_dir: Path, *, model_base_url: str) -> list[ModelListItem]:
@@ -308,6 +338,77 @@ class JobManager:
                 )
             )
         return items
+
+    def claim_next_remote_job(self) -> dict | None:
+        """Atomically pick the oldest ``QUEUED`` job and move it to ``PROCESSING``."""
+        with self._lock:
+            queued = jobs_db.list_queued_oldest_first(self._db_path)
+            if not queued:
+                return None
+            job = queued[0]
+            self._cancel_events[job.job_id] = threading.Event()
+            self.update_job(
+                job.job_id,
+                JobStatus.PROCESSING,
+                stage="starting",
+                progress=5,
+                clear_error=True,
+            )
+        settings = self.settings_store.load()
+        paths = _sorted_input_images(self.upload_dir / job.job_id)
+        public = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
+        image_urls: list[str] = []
+        for p in paths:
+            if public:
+                image_urls.append(f"{public}/uploads/{job.job_id}/{p.name}")
+            else:
+                image_urls.append(f"/uploads/{job.job_id}/{p.name}")
+        return {
+            "job_id": job.job_id,
+            "image_count": job.image_count,
+            "settings": json.loads(settings.model_dump_json()),
+            "image_urls": image_urls,
+        }
+
+    def complete_remote_job(self, job_id: str, file_data: bytes, model_format: str) -> JobRecord:
+        job = self.get_job(job_id)
+        if not job:
+            raise KeyError(job_id)
+        if job.status != JobStatus.PROCESSING:
+            raise RuntimeError(f"Job {job_id} is not PROCESSING (got {job.status.value})")
+        ext = model_format.lower().lstrip(".")
+        if ext not in ("glb", "ply"):
+            raise ValueError("model_format must be glb or ply")
+        settings = self.settings_store.load()
+        out_dir = self.root_dir / settings.output_dir_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{job_id}.{ext}"
+        out_path.write_bytes(file_data)
+        base = _effective_model_base_url_for_jobs(settings)
+        if base.startswith("/"):
+            model_url = f"{base.rstrip('/')}/{job_id}.{ext}"
+        else:
+            model_url = f"{base.rstrip('/')}/{job_id}.{ext}"
+        self.update_job(
+            job_id,
+            JobStatus.COMPLETED,
+            stage="completed",
+            progress=100,
+            model_url=model_url,
+            model_format=ext,
+            clear_error=True,
+        )
+        result = self.get_job(job_id)
+        if not result:
+            raise RuntimeError("Job disappeared after complete")
+        return result
+
+    def fail_remote_job(self, job_id: str, error: str) -> JobRecord:
+        self.update_job(job_id, JobStatus.FAILED, error=error)
+        result = self.get_job(job_id)
+        if not result:
+            raise KeyError(job_id)
+        return result
 
     def _run_job(self, job_id: str) -> None:
         job = self.get_job(job_id)
