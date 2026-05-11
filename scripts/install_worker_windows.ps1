@@ -33,24 +33,24 @@ $example = Join-Path $ProjectRoot ".env.worker.example"
 if (-not (Test-Path $workerEnv)) {
     if (Test-Path $example) {
         Copy-Item $example $workerEnv
-        Write-Host "Created $workerEnv — set POLYGRAPH_WORKER_TOKEN to match APP_WORKER_TOKEN on the API server." -ForegroundColor Yellow
+        Write-Host ('Created ' + $workerEnv + ' - set POLYGRAPH_WORKER_TOKEN to match APP_WORKER_TOKEN on the API server.') -ForegroundColor Yellow
     }
 }
 
 Write-Host ""
 Write-Host "Worker setup complete." -ForegroundColor Green
-Write-Host "1. Edit $workerEnv (POLYGRAPH_API_BASE, POLYGRAPH_WORKER_TOKEN)." -ForegroundColor DarkGray
-Write-Host "2. Align checkpoint paths with PUT /settings or POLYGRAPH_OVERRIDE_* vars." -ForegroundColor DarkGray
-Write-Host "3. Run: .\scripts\run_worker.ps1" -ForegroundColor DarkGray
+Write-Host ('1. Edit ' + $workerEnv + ' - set POLYGRAPH_API_BASE and POLYGRAPH_WORKER_TOKEN.') -ForegroundColor DarkGray
+Write-Host '2. Align checkpoint paths with PUT /settings or POLYGRAPH_OVERRIDE_* vars.' -ForegroundColor DarkGray
+Write-Host '3. Run: .\scripts\run_worker.ps1' -ForegroundColor DarkGray
 
 if ($InstallService) {
     if (-not (Test-Path $NssmPath)) {
         throw "NSSM not found at $NssmPath. Install NSSM or pass -NssmPath."
     }
     $runScript = Join-Path $ProjectRoot "scripts\run_worker.ps1"
-    & $NssmPath install $ServiceName "powershell.exe" "-NoProfile -ExecutionPolicy Bypass -File `"$runScript`""
+    & $NssmPath install $ServiceName "powershell.exe" "-NoProfile -ExecutionPolicy Bypass -File `"$runScript`" -ProjectRoot `"$ProjectRoot`""
     & $NssmPath set $ServiceName AppDirectory $ProjectRoot
     & $NssmPath set $ServiceName Start SERVICE_AUTO_START
     & $NssmPath start $ServiceName
-    Write-Host "NSSM service '$ServiceName' installed and started." -ForegroundColor Green
+    Write-Host ('NSSM service installed and started: ' + $ServiceName) -ForegroundColor Green
 }
