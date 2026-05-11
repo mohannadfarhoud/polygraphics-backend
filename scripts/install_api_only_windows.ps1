@@ -11,16 +11,13 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
-Write-Host "API-only / split deploy — jobs run on a separate GPU worker." -ForegroundColor Cyan
+Write-Host "API-only / split deploy - jobs run on a separate GPU worker." -ForegroundColor Cyan
 Write-Host "This PC keeps the database and serves HTTPS; copy APP_WORKER_TOKEN to each worker .env.worker." -ForegroundColor DarkGray
 Write-Host ""
 
-$splat = @{
-    ProjectRoot       = $ProjectRoot
-    PublicApiBase     = $PublicApiBase
-}
+$installer = Join-Path $PSScriptRoot "install_api_server_windows.ps1"
 if ($RegenerateWorkerToken) {
-    $splat["RegenerateWorkerToken"] = $true
+    & $installer -ProjectRoot $ProjectRoot -PublicApiBase $PublicApiBase -RegenerateWorkerToken
+} else {
+    & $installer -ProjectRoot $ProjectRoot -PublicApiBase $PublicApiBase
 }
-
-& "$PSScriptRoot\install_api_server_windows.ps1" @splat
