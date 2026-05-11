@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
+from .color_baking import CameraView
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopJobRepository, NoopWebSocketNotifier, WebSocketNotifier
 from .meshing import decimate, export_glb, poisson_mesh, transfer_vertex_colors_from_point_cloud
@@ -92,7 +93,7 @@ class ReconstructionPipeline:
         self._raise_if_cancelled(cancel_event)
 
         # Mesh-only finishing steps (not part of the GS protocol; .glb path).
-        self._publish(job_id, JobStatus.PROCESSING, stage="meshing", progress=80)
+        self._publish(job_id, JobStatus.PROCESSING, stage="meshing", progress=75)
         mesh = poisson_mesh(
             clean_pcd,
             depth=self.config.poisson_depth,
@@ -108,23 +109,16 @@ class ReconstructionPipeline:
         if clean_pcd.has_colors():
             mesh = transfer_vertex_colors_from_point_cloud(mesh, clean_pcd)
 
-        # Strongest colour signal: project each mesh vertex into the ORIGINAL
-        # (unmasked) photographs through the camera poses estimated upstream and
-        # average the sampled RGB. This survives any normalisation/quantisation
-        # quirks in the point-cloud colour path and yields true photo colours.
+        # Build camera views mapped to original (unmasked) photos for baking.
+        photo_views: list[CameraView] = []
         try:
-            from .color_baking import CameraView, bake_vertex_colors_from_views
-
             cams = list(getattr(reconstruction, "cameras", []) or [])
             if cams:
-                # Map masked path -> original photo path so the baker pulls from
-                # the unmasked photographs (prevents black bleed near mask edges).
                 masked_to_original: dict[str, Path] = {}
                 for masked, original in zip(masked_paths, original_paths):
                     masked_to_original[str(masked)] = original
                     masked_to_original[masked.name] = original
 
-                photo_views: list[CameraView] = []
                 for cam in cams:
                     original = masked_to_original.get(str(cam.image_path)) or masked_to_original.get(
                         Path(cam.image_path).name
@@ -137,14 +131,53 @@ class ReconstructionPipeline:
                             w2c=cam.w2c,
                         )
                     )
-                bake_vertex_colors_from_views(mesh, photo_views)
         except Exception:
-            # Baking is best-effort; never let a bad camera matrix kill the export.
-            pass
+            photo_views = []
 
-        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=95)
+        # Strongest colour signal: project each mesh vertex into the ORIGINAL
+        # (unmasked) photographs through the camera poses estimated upstream and
+        # average the sampled RGB. This survives any normalisation/quantisation
+        # quirks in the point-cloud colour path and yields true photo colours.
+        if photo_views:
+            try:
+                from .color_baking import bake_vertex_colors_from_views
+
+                bake_vertex_colors_from_views(mesh, photo_views)
+            except Exception:
+                pass
+
+        # Phase 6: UV atlas + multi-view texture bake (better than vertex colours alone).
+        textured_tm = None
+        if (
+            bool(self.runtime_settings.mesh_texture_mapping)
+            and photo_views
+        ):
+            self._publish(job_id, JobStatus.PROCESSING, stage="phase_6_texture_mapping", progress=85)
+            try:
+                from .texture_mapping import build_textured_trimesh
+
+                textured_tm = build_textured_trimesh(
+                    mesh,
+                    photo_views,
+                    atlas_size=int(self.runtime_settings.texture_atlas_size),
+                    skip_dark_threshold=int(self.runtime_settings.texture_skip_dark_threshold),
+                    flip_uv_v=bool(self.runtime_settings.texture_flip_uv_v),
+                )
+            except Exception:
+                textured_tm = None
+            self._raise_if_cancelled(cancel_event)
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
         glb_path = self.config.output_dir / f"{job_id}.glb"
-        export_glb(mesh, glb_path)
+        if textured_tm is not None:
+            try:
+                from .texture_mapping import export_textured_glb
+
+                export_textured_glb(textured_tm, glb_path)
+            except Exception:
+                export_glb(mesh, glb_path)
+        else:
+            export_glb(mesh, glb_path)
         if not glb_path.is_file() or glb_path.stat().st_size < 256:
             raise RuntimeError(f"Export produced no usable GLB at {glb_path}")
 

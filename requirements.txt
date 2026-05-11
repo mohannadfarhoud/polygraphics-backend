@@ -2,6 +2,7 @@ numpy
 opencv-python
 open3d
 trimesh
+xatlas
 fastapi
 uvicorn
 pydantic

@@ -18,7 +18,8 @@ class JobRecord(BaseModel):
             "Lifecycle: starting | exporting | completed. "
             "Pipeline protocol: phase_1_segmentation | phase_2_alignment | phase_3_sanitization "
             "| phase_4_colmap_bridge | phase_4_colmap_scene | phase_5_gaussian_splatting. "
-            "Mesh-only: meshing. May include a human suffix in parens, e.g. 'phase_1_segmentation (3/27)'."
+            "Mesh-only: meshing | phase_6_texture_mapping. "
+            "May include a human suffix in parens, e.g. 'phase_1_segmentation (3/27)'."
         ),
     )
     progress: int | None = Field(

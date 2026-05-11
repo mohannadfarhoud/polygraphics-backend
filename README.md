@@ -23,7 +23,8 @@ The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudf
 2. DUSt3R (or COLMAP) reconstruction produces aligned 3D points.
 3. Open3D statistical outlier removal cleans noise.
 4. Poisson meshing + decimation creates a lightweight surface mesh.
-5. `.glb` export → `output/<job_id>.glb`.
+5. **Texture mapping** (optional, default on): **xatlas** UV unwrap + multi‑view diffuse bake into an atlas (better realism on CPU than vertex colours alone when GS is unavailable). Falls back to vertex‑colour GLB if unwrap fails or `mesh_texture_mapping=false`.
+6. `.glb` export → `output/<job_id>.glb`.
 
 ## Pipeline (Gaussian Splatting / `.ply`)
 
@@ -52,8 +53,9 @@ The canonical mapping (progress ranges + ordered flows) lives in **`ui/job-stage
 | `phase_4_colmap_bridge` | 60 | Writing `sparse/0/{cameras,images,points3D}.txt` from DUSt3R seed. | GS path with `gs_init_source=dust3r` |
 | `phase_4_colmap_scene` | 50 | Running COLMAP (`feature_extractor` → `exhaustive_matcher` → `mapper`). | GS path with `gs_init_source=colmap` |
 | `phase_5_gaussian_splatting` | 65 → 95 | `train.py` running. | GS path |
-| `meshing` | 80 | Poisson + decimation. | mesh path only |
-| `exporting` | 95 | Writing the final `.glb` / `.ply`. | always |
+| `meshing` | 75 | Poisson + decimation. | mesh path only |
+| `phase_6_texture_mapping` | 85 | UV unwrap + multi‑view texture bake (`xatlas`). | mesh path when cameras exist |
+| `exporting` | 94 | Writing the final `.glb` / `.ply`. | always |
 | `completed` | 100 | Job finished, `model_url` is ready. | always |
 
 The list of valid base values is also exported as `app.job_stages.ALL_STAGES`. Example UI mapping:
@@ -68,6 +70,7 @@ const STAGE_LABELS: Record<string, string> = {
   phase_4_colmap_scene: "Building COLMAP scene",
   phase_5_gaussian_splatting: "Training Gaussian Splatting",
   meshing: "Meshing surface",
+  phase_6_texture_mapping: "Texture mapping",
   exporting: "Exporting model",
   completed: "Done",
 };
@@ -87,6 +90,8 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `dust3r_confidence_threshold` | `0.5` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
 | `nb_neighbors` | `20` | 3 | Open3D SOR neighbours. |
 | `std_ratio` | `2.0` | 3 | Open3D SOR std-dev ratio (protocol range: 1.5–2.0). |
+| `mesh_texture_mapping` | `true` | 6 | UV atlas + multi‑view diffuse bake (`pip install xatlas`). Disable for fastest CPU jobs. |
+| `texture_atlas_size` | `2048` | 6 | Atlas side length (512–4096). Lower = faster bake. |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. |
 | `gs_iterations` | `7000` | 5 | `7_000` (Quick) or `30_000` (Dense). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |

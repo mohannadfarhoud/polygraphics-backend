@@ -56,6 +56,13 @@ class RuntimeSettings(BaseModel):
     poisson_depth: int = Field(default=9, ge=4, le=14)
     poisson_density_quantile: float = Field(default=0.02, ge=0.0, le=1.0)
     decimation_target_triangles: int = Field(default=120_000, ge=1000)
+    # Mesh path only: UV atlas + multi-view texture baking (CPU; uses ``xatlas``). Improves GLB
+    # realism when Gaussian Splatting is unavailable. Falls back to vertex colours if disabled
+    # or if ``xatlas`` / baking fails.
+    mesh_texture_mapping: bool = True
+    texture_atlas_size: int = Field(default=2048, ge=512, le=4096)
+    texture_skip_dark_threshold: int = Field(default=8, ge=0, le=255)
+    texture_flip_uv_v: bool = True  # match glTF image origin vs xatlas UVs
     # Public URL prefix for generated model files (must match where this API serves /output/…).
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)
