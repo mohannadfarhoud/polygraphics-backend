@@ -102,11 +102,27 @@ settings_store = SettingsStore(ROOT_DIR)
 @app.on_event("startup")
 async def _startup_worker_hub() -> None:
     import asyncio
+    import logging
 
     hub = WorkerHub()
     hub.set_loop(asyncio.get_running_loop())
     init_hub(hub)
     app.state.worker_hub = hub
+
+    log = logging.getLogger("uvicorn.error")
+    ws_extra = f", {_root_path}/internal/worker/ws" if _root_path else ""
+    log.info(
+        "Worker WebSocket endpoints registered: /internal/worker/ws%s (APP_ROOT_PATH=%r)",
+        ws_extra,
+        _root_path or "",
+    )
+    if remote_workers_enabled() and not _root_path:
+        log.warning(
+            "APP_ROOT_PATH is empty but remote workers are enabled. If clients use "
+            "https://host/polygraph/..., set APP_ROOT_PATH=/polygraph on this API, "
+            "or configure nginx to strip /polygraph before forwarding so only "
+            "/internal/worker/ws is needed.",
+        )
 
 
 _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "0.0.0.0", "::1")

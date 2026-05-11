@@ -5,6 +5,7 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_API_BASE`` — HTTP API root, e.g. ``https://host/polygraph``
 * ``POLYGRAPH_WORKER_TOKEN`` — must match ``APP_WORKER_TOKEN`` on the API server
 * ``POLYGRAPH_USE_WEBSOCKET`` — ``1``/``true`` to subscribe to ``wss://.../internal/worker/ws`` (default on)
+* ``POLYGRAPH_WEBSOCKET_URL`` — optional full ``wss://host/...`` WebSocket path if auto URL returns 404 behind nginx
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
 """
@@ -42,6 +43,14 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
 
 
 def build_worker_websocket_uri(http_base: str, token: str) -> str:
+    """Build ``wss://...`` URI; optional ``POLYGRAPH_WEBSOCKET_URL`` overrides path/host."""
+    raw = os.getenv("POLYGRAPH_WEBSOCKET_URL", "").strip()
+    if raw:
+        u = urlparse(raw)
+        q = urlencode({"token": token})
+        path = u.path or "/internal/worker/ws"
+        return urlunparse((u.scheme or "wss", u.netloc, path, "", q, ""))
+
     u = urlparse(http_base.strip().rstrip("/"))
     scheme = "wss" if u.scheme == "https" else "ws"
     path = u.path.rstrip("/") + "/internal/worker/ws"
