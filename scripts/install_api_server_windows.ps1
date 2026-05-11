@@ -1,14 +1,17 @@
 param(
     [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\..").Path,
     [string]$PublicApiBase = "https://agentmanager.easymediasuitecloud.com/polygraph",
+    [switch]$SingleMachine,
     [switch]$RegenerateWorkerToken
 )
 
-# Idempotent installer for the HTTPS API host (CPU): venv, pip deps, and production-oriented .env keys
-# for remote GPU workers (APP_REMOTE_WORKERS, APP_PUBLIC_BASE_URL, worker token).
+# -SingleMachine: one PC runs API + pipeline locally (APP_REMOTE_WORKERS=false; no APP_WORKER_TOKEN).
+# Omit it for split deploy (remote GPU worker): APP_REMOTE_WORKERS=true + token.
 
 $ErrorActionPreference = "Stop"
 Set-Location $ProjectRoot
+
+# Idempotent installer for the HTTPS API host (CPU): venv, pip deps, and production-oriented .env keys.
 
 function Merge-DotEnvKey {
     param(
@@ -53,24 +56,28 @@ $lines = @(Get-Content $envPath -ErrorAction SilentlyContinue)
 if (-not $lines) { $lines = @() }
 
 $PublicApiBase = $PublicApiBase.Trim().TrimEnd('/')
-$existingToken = ""
-foreach ($line in $lines) {
-    if ($line -match '^\s*APP_WORKER_TOKEN\s*=\s*(.+)\s*$') {
-        $existingToken = $matches[1].Trim()
-    }
-}
-$token = if ($RegenerateWorkerToken) {
-    New-WorkerToken
-} elseif ($existingToken) {
-    $existingToken
-} else {
-    New-WorkerToken
-}
 
 $lines = Merge-DotEnvKey $lines "APP_ROOT_PATH" "/polygraph"
 $lines = Merge-DotEnvKey $lines "APP_PUBLIC_BASE_URL" $PublicApiBase
-$lines = Merge-DotEnvKey $lines "APP_REMOTE_WORKERS" "true"
-$lines = Merge-DotEnvKey $lines "APP_WORKER_TOKEN" $token
+if ($SingleMachine) {
+    $lines = Merge-DotEnvKey $lines "APP_REMOTE_WORKERS" "false"
+} else {
+    $existingToken = ""
+    foreach ($line in $lines) {
+        if ($line -match '^\s*APP_WORKER_TOKEN\s*=\s*(.+)\s*$') {
+            $existingToken = $matches[1].Trim()
+        }
+    }
+    $token = if ($RegenerateWorkerToken) {
+        New-WorkerToken
+    } elseif ($existingToken) {
+        $existingToken
+    } else {
+        New-WorkerToken
+    }
+    $lines = Merge-DotEnvKey $lines "APP_REMOTE_WORKERS" "true"
+    $lines = Merge-DotEnvKey $lines "APP_WORKER_TOKEN" $token
+}
 $lines = Merge-DotEnvKey $lines "APP_MODEL_BASE_URL" "$PublicApiBase/output"
 $lines = Merge-DotEnvKey $lines "APP_UPLOADS_BASE_URL" "$PublicApiBase/uploads"
 
@@ -78,12 +85,17 @@ Set-Content -Path $envPath -Value ($lines -join "`r`n") -Encoding UTF8
 
 Write-Host ""
 Write-Host "API .env updated at $envPath" -ForegroundColor Green
-if ((-not $existingToken) -or $RegenerateWorkerToken) {
-    Write-Host "Copy this token to each GPU worker .env.worker as POLYGRAPH_WORKER_TOKEN:" -ForegroundColor Yellow
-    Write-Host $token -ForegroundColor Yellow
+if ($SingleMachine) {
+    Write-Host "Single-machine mode: jobs run in-process on this PC (APP_REMOTE_WORKERS=false)." -ForegroundColor Green
+    Write-Host "Install SAM/DUSt3R if needed: .\scripts\install_ml_windows.ps1 then PUT /settings for checkpoint paths." -ForegroundColor DarkGray
 } else {
-    Write-Host "APP_WORKER_TOKEN left unchanged. Use -RegenerateWorkerToken to rotate (then update all workers)." -ForegroundColor DarkGray
+    if ((-not $existingToken) -or $RegenerateWorkerToken) {
+        Write-Host "Copy this token to each GPU worker .env.worker as POLYGRAPH_WORKER_TOKEN:" -ForegroundColor Yellow
+        Write-Host $token -ForegroundColor Yellow
+    } else {
+        Write-Host "APP_WORKER_TOKEN left unchanged. Use -RegenerateWorkerToken to rotate (then update all workers)." -ForegroundColor DarkGray
+    }
+    Write-Host "Re-run with -RegenerateWorkerToken to issue a new APP_WORKER_TOKEN (update all workers)." -ForegroundColor DarkGray
 }
 Write-Host ""
 Write-Host "Next: proxy HTTPS so $PublicApiBase/* reaches this app, then run .\scripts\run_server.ps1 or install NSSM (scripts\install_windows_service.ps1)." -ForegroundColor DarkGray
-Write-Host "Re-run with -RegenerateWorkerToken to issue a new APP_WORKER_TOKEN (update all workers)." -ForegroundColor DarkGray
