@@ -6,6 +6,7 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_WORKER_TOKEN`` — must match ``APP_WORKER_TOKEN`` on the API server
 * ``POLYGRAPH_USE_WEBSOCKET`` — ``1``/``true`` to subscribe to ``wss://.../internal/worker/ws`` (default on)
 * ``POLYGRAPH_WEBSOCKET_URL`` — optional full ``wss://host/...`` WebSocket path if auto URL returns 404 behind nginx
+* ``POLYGRAPH_WS_TRY_STRIPPED`` — ``1`` (default) also try ``wss://host/internal/worker/ws`` when the prefixed URL 404s
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
 """
@@ -42,20 +43,48 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
     return out
 
 
-def build_worker_websocket_uri(http_base: str, token: str) -> str:
-    """Build ``wss://...`` URI; optional ``POLYGRAPH_WEBSOCKET_URL`` overrides path/host."""
+def iter_worker_websocket_uris(http_base: str, token: str) -> list[str]:
+    """Candidate ``wss://`` URLs to try when connecting (proxy path / nginx quirks)."""
+    seen: set[str] = set()
+    ordered: list[str] = []
+
+    def add(uri: str) -> None:
+        if uri not in seen:
+            seen.add(uri)
+            ordered.append(uri)
+
     raw = os.getenv("POLYGRAPH_WEBSOCKET_URL", "").strip()
     if raw:
         u = urlparse(raw)
+        scheme = u.scheme or "wss"
+        path = (u.path or "/internal/worker/ws").rstrip("/") or "/internal/worker/ws"
         q = urlencode({"token": token})
-        path = u.path or "/internal/worker/ws"
-        return urlunparse((u.scheme or "wss", u.netloc, path, "", q, ""))
+        add(urlunparse((scheme, u.netloc, path, "", q, "")))
 
     u = urlparse(http_base.strip().rstrip("/"))
     scheme = "wss" if u.scheme == "https" else "ws"
-    path = u.path.rstrip("/") + "/internal/worker/ws"
-    query = urlencode({"token": token})
-    return urlunparse((scheme, u.netloc, path, "", query, ""))
+    q = urlencode({"token": token})
+    base_path = u.path.rstrip("/")
+    try_stripped = os.getenv("POLYGRAPH_WS_TRY_STRIPPED", "1").strip().lower() in ("1", "true", "yes")
+
+    if base_path:
+        add(urlunparse((scheme, u.netloc, f"{base_path}/internal/worker/ws", "", q, "")))
+    if try_stripped or not base_path:
+        add(urlunparse((scheme, u.netloc, "/internal/worker/ws", "", q, "")))
+
+    return ordered
+
+
+def build_worker_websocket_uri(http_base: str, token: str) -> str:
+    """Build ``wss://...`` URI; optional ``POLYGRAPH_WEBSOCKET_URL`` overrides path/host."""
+    uris = iter_worker_websocket_uris(http_base, token)
+    return uris[0] if uris else ""
+
+
+def _mask_ws_uri(uri: str) -> str:
+    if "token=" in uri:
+        return uri.split("token=", 1)[0] + "token=***"
+    return uri
 
 
 class ApiReportingJobRepository:
@@ -235,35 +264,68 @@ async def _consume_payloads(
                     pass
 
 
+def _websocket_invalid_status_code(exc: BaseException) -> int | None:
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        code = getattr(resp, "status_code", None)
+        if isinstance(code, int):
+            return code
+    return None
+
+
 async def _ws_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Client) -> None:
     import websockets
 
-    uri = build_worker_websocket_uri(base, token)
-    print(f"[polygraph-worker] WebSocket: {uri.split('token=')[0]}token=***", flush=True)
+    try:
+        from websockets.exceptions import InvalidStatus
+    except ImportError:
+        from websockets.exceptions import InvalidStatusCode as InvalidStatus  # type: ignore[misc,no-redef]
+
     while True:
-        try:
-            async with websockets.connect(uri, ping_interval=20, ping_timeout=120) as ws:
-                async for raw in ws:
-                    try:
-                        data = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    if data.get("type") != "job_assigned":
-                        continue
-                    jid = data.get("job_id")
-                    if not jid:
-                        continue
-                    r = await asyncio.to_thread(_get_assignment, client, base, token, jid)
-                    if r.status_code == 409:
-                        continue
-                    if r.status_code != 200:
-                        body = (r.text or "")[:300]
-                        print(f"[polygraph-worker] assignment {jid} -> {r.status_code} {body}", flush=True)
-                        continue
-                    await queue.put(r.json())
-        except Exception as exc:
-            print(f"[polygraph-worker] WebSocket error: {exc}; reconnecting in 5s", flush=True)
+        candidates = iter_worker_websocket_uris(base, token)
+        if not candidates:
+            print("[polygraph-worker] WebSocket: no URI candidates; reconnecting in 5s", flush=True)
             await asyncio.sleep(5)
+            continue
+
+        for idx, uri in enumerate(candidates):
+            print(
+                f"[polygraph-worker] WebSocket trying {_mask_ws_uri(uri)} ({idx + 1}/{len(candidates)})",
+                flush=True,
+            )
+            try:
+                async with websockets.connect(uri, ping_interval=20, ping_timeout=120) as ws:
+                    print("[polygraph-worker] WebSocket connected", flush=True)
+                    async for raw in ws:
+                        try:
+                            data = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        if data.get("type") != "job_assigned":
+                            continue
+                        jid = data.get("job_id")
+                        if not jid:
+                            continue
+                        r = await asyncio.to_thread(_get_assignment, client, base, token, jid)
+                        if r.status_code == 409:
+                            continue
+                        if r.status_code != 200:
+                            body = (r.text or "")[:300]
+                            print(f"[polygraph-worker] assignment {jid} -> {r.status_code} {body}", flush=True)
+                            continue
+                        await queue.put(r.json())
+                break
+            except InvalidStatus as exc:
+                code = _websocket_invalid_status_code(exc)
+                if code == 404 and idx + 1 < len(candidates):
+                    continue
+                print(f"[polygraph-worker] WebSocket error: {exc}; reconnecting in 5s", flush=True)
+                await asyncio.sleep(5)
+                break
+            except Exception as exc:
+                print(f"[polygraph-worker] WebSocket error: {exc}; reconnecting in 5s", flush=True)
+                await asyncio.sleep(5)
+                break
 
 
 async def _poll_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Client, interval: float) -> None:

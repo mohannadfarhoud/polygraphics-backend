@@ -6,6 +6,7 @@ xatlas
 fastapi
 uvicorn
 pydantic
+eval-type-backport
 python-multipart
 psutil
 python-dotenv
