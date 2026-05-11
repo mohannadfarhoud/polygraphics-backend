@@ -15,8 +15,10 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
     if not settings.sam_checkpoint_path or not Path(settings.sam_checkpoint_path).is_file():
         raise RuntimeError(
-            "Real SAM is required: set sam_checkpoint_path to an existing .pth file (see README), "
-            "or set allow_placeholder_pipeline=true only for local demos."
+            "Real SAM is required: sam_checkpoint_path must point to an existing .pth on the machine "
+            "that runs the pipeline (see README). On a remote GPU worker use POLYGRAPH_OVERRIDE_SAM_CHECKPOINT "
+            "in .env.worker — PUT /settings paths refer to the API host, not the worker disk. "
+            "Or set allow_placeholder_pipeline=true only for local demos."
         )
 
     backend = settings.reconstruction_backend

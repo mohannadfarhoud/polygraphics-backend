@@ -7,6 +7,7 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_USE_WEBSOCKET`` — ``1``/``true`` to subscribe to ``wss://.../internal/worker/ws`` (default on)
 * ``POLYGRAPH_WEBSOCKET_URL`` — optional full ``wss://host/...`` WebSocket path if auto URL returns 404 behind nginx
 * ``POLYGRAPH_WS_TRY_STRIPPED`` — ``1`` (default) also try ``wss://host/internal/worker/ws`` when the prefixed URL 404s
+* ``POLYGRAPH_OVERRIDE_DEVICE`` — optional ``cuda`` / ``cpu`` / ``auto`` for PyTorch (SAM, DUSt3R, GS); overrides ``PUT /settings`` ``device`` when set
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
 """
@@ -40,6 +41,11 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
         v = os.getenv(env, "").strip()
         if v:
             out[key] = v
+    dev_raw = os.getenv("POLYGRAPH_OVERRIDE_DEVICE", "").strip()
+    if dev_raw:
+        d = dev_raw.lower()
+        if d in ("auto", "cpu", "cuda"):
+            out["device"] = d
     return out
 
 

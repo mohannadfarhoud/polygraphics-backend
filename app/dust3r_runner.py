@@ -62,20 +62,53 @@ def _load_dust3r():
 
 
 def _load_model(settings: RuntimeSettings, device):
+    """Load DUSt3R weights from a local ``.pth`` file, HF hub id, or HF snapshot directory."""
+
     from dust3r.model import AsymmetricCroCo3DStereo
 
     ck_ref = (settings.dust3r_checkpoint_path or "").strip()
     if not ck_ref:
         raise RuntimeError("dust3r_checkpoint_path is empty")
-    ck_path = Path(ck_ref)
-    load_ref = str(ck_path.resolve()) if ck_path.exists() else ck_ref
+
+    p = Path(ck_ref).expanduser()
+    try:
+        if p.exists():
+            p = p.resolve()
+    except OSError:
+        pass
+
+    # Raw ``.pth`` checkpoints must use DUSt3R's ``torch.load`` path. On Windows,
+    # ``from_pretrained`` may fall through to Hugging Face and treat the path as a repo id.
+    if p.is_file():
+        try:
+            from dust3r.model import load_model as dust3r_load_model
+        except ImportError:
+            dust3r_load_model = None
+
+        if dust3r_load_model is not None:
+            try:
+                try:
+                    model = dust3r_load_model(str(p), device="cpu", verbose=False)
+                except TypeError:
+                    model = dust3r_load_model(str(p), device="cpu")
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to load DUSt3R weights from local file {p!r}. "
+                    "Use a standard DUSt3R ``.pth`` checkpoint, or a Hugging Face model id instead. "
+                    f"Original error: {exc}"
+                ) from exc
+            return model.to(device)
+
+    load_ref = str(p) if p.exists() else ck_ref
 
     try:
         model = AsymmetricCroCo3DStereo.from_pretrained(load_ref)
     except Exception as exc:
         raise RuntimeError(
             f"Could not load DUSt3R weights from {load_ref!r}. "
-            "Use a Hugging Face model id or a local snapshot directory. "
+            "For a local file, use an absolute path to a ``.pth`` produced by DUSt3R (see README); "
+            "for Hugging Face use a model id (e.g. ``naver/DUSt3R_ViTLarge_BaseDecoder_512_dpt``) "
+            "or a snapshot directory. "
             f"Original error: {exc}"
         ) from exc
     return model.to(device)
