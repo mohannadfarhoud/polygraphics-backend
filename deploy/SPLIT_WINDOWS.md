@@ -12,7 +12,7 @@ Example status URL:
 
 ## API server (CPU)
 
-1. Clone the repo and run `scripts\install_api_server_windows.ps1` (venv, dependencies, merged `.env`).
+1. Clone the repo and run **`scripts\install_api_only_windows.ps1`** (recommended name for “DB + API only”), or **`scripts\install_api_server_windows.ps1`** without `-SingleMachine`. Both set **`APP_REMOTE_WORKERS=true`**, **`APP_WORKER_TOKEN`**, and public URL keys in `.env`. Do **not** use `-SingleMachine` on this host.
 2. Configure nginx/IIS so `/polygraph` is forwarded to Uvicorn and **paths** `/polygraph/uploads`, `/polygraph/output`, etc. match what the app exposes (`APP_ROOT_PATH=/polygraph`).
 3. Set **`APP_PUBLIC_BASE_URL`** to the full public base **including** `/polygraph` so remote workers receive absolute download URLs for inputs.
 4. Set **`APP_REMOTE_WORKERS=true`** and a strong **`APP_WORKER_TOKEN`**. Use the same token on every GPU worker.
