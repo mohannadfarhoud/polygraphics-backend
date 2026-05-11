@@ -84,7 +84,7 @@ class JobManager:
     notifier: WebSocketNotifier | None = None
 
     def __post_init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._cancel_events: dict[str, threading.Event] = {}
         self._active_threads: dict[str, threading.Thread] = {}
         default_db = self.root_dir / "data" / "jobs.sqlite"
@@ -211,6 +211,13 @@ class JobManager:
                 model_format=notify_fmt,
                 error=notify_err,
             )
+        if status == JobStatus.QUEUED and remote_workers_enabled():
+            try:
+                from .worker_hub import schedule_worker_job_notice
+
+                schedule_worker_job_notice(job_id)
+            except Exception:
+                pass
 
     def create_job_pending(self, job_id: str, image_count: int) -> JobRecord:
         """Register uploads only; processing starts after start_job()."""
@@ -343,6 +350,52 @@ class JobManager:
             )
         return items
 
+    def _build_assignment_payload(self, job_id: str) -> dict:
+        settings = self.settings_store.load()
+        paths = _sorted_input_images(self.upload_dir / job_id)
+        public = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
+        image_urls: list[str] = []
+        for p in paths:
+            if public:
+                image_urls.append(f"{public}/uploads/{job_id}/{p.name}")
+            else:
+                image_urls.append(f"/uploads/{job_id}/{p.name}")
+        job = self.get_job(job_id)
+        return {
+            "job_id": job_id,
+            "image_count": job.image_count if job else 0,
+            "settings": json.loads(settings.model_dump_json()),
+            "image_urls": image_urls,
+        }
+
+    def claim_remote_job_by_id(self, job_id: str) -> dict | None:
+        """Atomically claim a specific ``QUEUED`` job (``QUEUED`` → ``PROCESSING``)."""
+        with self._lock:
+            job = jobs_db.get_job(self._db_path, job_id)
+            if not job or job.status != JobStatus.QUEUED:
+                return None
+            self._cancel_events[job_id] = threading.Event()
+            self.update_job(
+                job_id,
+                JobStatus.PROCESSING,
+                stage="starting",
+                progress=5,
+                clear_error=True,
+            )
+        return self._build_assignment_payload(job_id)
+
+    def update_remote_worker_progress(self, job_id: str, *, stage: str, progress: int) -> JobRecord:
+        job = self.get_job(job_id)
+        if not job:
+            raise KeyError(job_id)
+        if job.status != JobStatus.PROCESSING:
+            raise RuntimeError(f"Job {job_id} is not PROCESSING (got {job.status.value})")
+        self.update_job(job_id, JobStatus.PROCESSING, stage=stage, progress=progress)
+        result = self.get_job(job_id)
+        if not result:
+            raise RuntimeError("Job disappeared")
+        return result
+
     def claim_next_remote_job(self) -> dict | None:
         """Atomically pick the oldest ``QUEUED`` job and move it to ``PROCESSING``."""
         with self._lock:
@@ -350,29 +403,16 @@ class JobManager:
             if not queued:
                 return None
             job = queued[0]
-            self._cancel_events[job.job_id] = threading.Event()
+            jid = job.job_id
+            self._cancel_events[jid] = threading.Event()
             self.update_job(
-                job.job_id,
+                jid,
                 JobStatus.PROCESSING,
                 stage="starting",
                 progress=5,
                 clear_error=True,
             )
-        settings = self.settings_store.load()
-        paths = _sorted_input_images(self.upload_dir / job.job_id)
-        public = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
-        image_urls: list[str] = []
-        for p in paths:
-            if public:
-                image_urls.append(f"{public}/uploads/{job.job_id}/{p.name}")
-            else:
-                image_urls.append(f"/uploads/{job.job_id}/{p.name}")
-        return {
-            "job_id": job.job_id,
-            "image_count": job.image_count,
-            "settings": json.loads(settings.model_dump_json()),
-            "image_urls": image_urls,
-        }
+        return self._build_assignment_payload(jid)
 
     def complete_remote_job(self, job_id: str, file_data: bytes, model_format: str) -> JobRecord:
         job = self.get_job(job_id)

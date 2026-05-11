@@ -10,3 +10,4 @@ python-multipart
 psutil
 python-dotenv
 httpx
+websockets

@@ -16,10 +16,11 @@ try:
 except ImportError:
     pass
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from starlette.websockets import WebSocketDisconnect
 
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopWebSocketNotifier, WebSocketNotifier
@@ -29,6 +30,7 @@ from .reconstruction import Dust3RReconstructor
 from .segmentation import SamSegmenter
 from .runtime_settings import RuntimeSettings, SettingsStore
 from .server_status import collect_server_status
+from .worker_hub import WorkerHub, init_hub
 
 # Resolve project root reliably when running as a Windows service (CWD may be
 # System32 or arbitrary). Relative APP_ROOT_DIR is anchored to the repo directory.
@@ -95,6 +97,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 settings_store = SettingsStore(ROOT_DIR)
+
+
+@app.on_event("startup")
+async def _startup_worker_hub() -> None:
+    import asyncio
+
+    hub = WorkerHub()
+    hub.set_loop(asyncio.get_running_loop())
+    init_hub(hub)
+    app.state.worker_hub = hub
 
 
 _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "0.0.0.0", "::1")
@@ -266,6 +278,11 @@ class WorkerFailBody(BaseModel):
     error: str
 
 
+class WorkerProgressBody(BaseModel):
+    stage: str = "processing"
+    progress: int = Field(default=0, ge=0, le=100)
+
+
 def verify_worker_token(x_worker_token: str | None = Header(default=None, alias="X-Worker-Token")) -> None:
     secret = os.getenv("APP_WORKER_TOKEN", "").strip()
     if not secret:
@@ -315,6 +332,74 @@ def internal_worker_fail(job_id: str, body: WorkerFailBody) -> JobRecord:
         return job_manager.fail_remote_job(job_id, body.error)
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
+
+
+@app.websocket("/internal/worker/ws")
+async def internal_worker_websocket(websocket: WebSocket) -> None:
+    """GPU workers subscribe for ``job_assigned`` messages when jobs enter ``QUEUED``.
+
+    Connect with query param ``token`` equal to ``APP_WORKER_TOKEN``. Same TLS host as REST.
+    """
+    secret = os.getenv("APP_WORKER_TOKEN", "").strip()
+    token = websocket.query_params.get("token")
+    if not secret or token != secret:
+        await websocket.close(code=4403)
+        return
+    if not remote_workers_enabled():
+        await websocket.close(code=4503)
+        return
+    hub: WorkerHub = app.state.worker_hub
+    await hub.register(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.unregister(websocket)
+
+
+@app.get(
+    "/internal/worker/jobs/{job_id}/assignment",
+    dependencies=[Depends(verify_worker_token)],
+)
+def internal_worker_assignment(job_id: str) -> dict[str, Any]:
+    """Claim a specific ``QUEUED`` job and return settings + image URLs (same shape as ``/internal/worker/next``)."""
+    if not remote_workers_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Remote workers disabled. Set APP_REMOTE_WORKERS=true on the API server.",
+        )
+    payload = job_manager.claim_remote_job_by_id(job_id)
+    if payload is None:
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job cannot be claimed (status={job.status.value})",
+        )
+    return payload
+
+
+@app.post(
+    "/internal/worker/jobs/{job_id}/progress",
+    dependencies=[Depends(verify_worker_token)],
+    response_model=JobRecord,
+)
+def internal_worker_progress(job_id: str, body: WorkerProgressBody) -> JobRecord:
+    """Pipeline progress updates from the remote worker (typically every few seconds)."""
+    if not remote_workers_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Remote workers disabled. Set APP_REMOTE_WORKERS=true on the API server.",
+        )
+    try:
+        return job_manager.update_remote_worker_progress(job_id, stage=body.stage, progress=body.progress)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @app.get("/job-stages")
