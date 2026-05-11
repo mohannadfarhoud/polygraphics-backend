@@ -138,7 +138,7 @@ class ApiReportingJobRepository:
 def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | None = None) -> None:
     job_id = payload["job_id"]
     settings_dict = _apply_local_overrides(payload["settings"])
-    image_urls: list[str] = payload["image_urls"]
+    image_urls: list[str] = list(payload.get("image_urls") or [])
 
     repo_root = Path(__file__).resolve().parents[1]
     if str(repo_root) not in sys.path:
@@ -150,22 +150,46 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
 
     work = Path(tempfile.mkdtemp(prefix=f"polyjob-{job_id}-"))
     try:
-        upload_dir = work / "uploads" / job_id
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        for i, url in enumerate(image_urls):
-            full = url if url.startswith("http") else f"{base.rstrip('/')}{url}"
-            resp = client.get(full)
-            resp.raise_for_status()
-            suffix = Path(url).suffix or ".jpg"
-            (upload_dir / f"input_{i:03d}{suffix}").write_bytes(resp.content)
-
         from app.config import PipelineConfig
+        from app.interfaces import NoopWebSocketNotifier
         from app.pipeline import ReconstructionPipeline
+        from app.pipeline_ready import assert_pipeline_ready
         from app.reconstruction import Dust3RReconstructor
         from app.runtime_settings import RuntimeSettings
         from app.segmentation import SamSegmenter
 
         settings = RuntimeSettings.model_validate(settings_dict)
+        print(f"[polygraph-worker] job {job_id}: validating checkpoints and backends...", flush=True)
+        assert_pipeline_ready(settings)
+
+        if len(image_urls) < 2:
+            raise RuntimeError(
+                f"Assignment lists {len(image_urls)} image URL(s); need at least 2. "
+                "Confirm uploads finished and POST /jobs/{job_id}/start ran on the API."
+            )
+
+        upload_dir = work / "uploads" / job_id
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"[polygraph-worker] job {job_id}: downloading {len(image_urls)} images, then running 3D pipeline...", flush=True)
+        for i, url in enumerate(image_urls):
+            full = url if url.startswith("http") else f"{base.rstrip('/')}{url}"
+            resp = client.get(full)
+            try:
+                resp.raise_for_status()
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to fetch image {i + 1}/{len(image_urls)} ({full}): {exc}"
+                ) from exc
+            suffix = Path(url).suffix or ".jpg"
+            out_path = upload_dir / f"input_{i:03d}{suffix}"
+            data = resp.content
+            out_path.write_bytes(data)
+            print(
+                f"[polygraph-worker] job {job_id}: saved {out_path.name} ({len(data)} bytes)",
+                flush=True,
+            )
+
         cfg = PipelineConfig(
             root_dir=work,
             output_dir_name=settings.output_dir_name,
@@ -178,7 +202,6 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
             decimation_target_triangles=settings.decimation_target_triangles,
             cdn_base_url=settings.cdn_base_url,
         )
-        from app.interfaces import NoopWebSocketNotifier
 
         job_repo = ApiReportingJobRepository(client, base, token, job_id)
         pipe = ReconstructionPipeline(
@@ -190,6 +213,7 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
             notifier=NoopWebSocketNotifier(),
         )
         paths = sorted(upload_dir.glob("input_*"))
+        print(f"[polygraph-worker] job {job_id}: reconstructing 3D model from {len(paths)} local images...", flush=True)
         pipe.process_3d_job(job_id, paths)
 
         out_dir = work / settings.output_dir_name
