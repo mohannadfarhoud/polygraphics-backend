@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import os
 import platform
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import psutil
 
+from . import jobs_db
 from .pipeline_ready import assert_pipeline_ready
 from .runtime_settings import RuntimeSettings
 
@@ -223,16 +225,33 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
     }
 
 
+def _remote_workers_section() -> dict:
+    """Split-deploy flags (GPU workers poll ``/internal/worker/next``). No token value exposed."""
+    enabled = os.getenv("APP_REMOTE_WORKERS", "").strip().lower() in ("1", "true", "yes")
+    pub = os.getenv("APP_PUBLIC_BASE_URL", "").strip()
+    tok = bool(os.getenv("APP_WORKER_TOKEN", "").strip())
+    return {
+        "remote_workers_enabled": enabled,
+        "worker_auth_configured": tok,
+        "public_base_url": pub if pub else None,
+        "note": (
+            "GPU workers do not register or heartbeat on this endpoint; "
+            "use jobs.count_by_status (queued / processing) as a backlog hint."
+        ),
+    }
+
+
 def collect_server_status(
     root_dir: Path,
     *,
     settings: RuntimeSettings | None = None,
+    db_path: Path | None = None,
 ) -> dict:
     vm = psutil.virtual_memory()
     disk = psutil.disk_usage(str(root_dir))
     boot_ts = psutil.boot_time()
 
-    return {
+    status: dict = {
         "os": {
             "system": platform.system(),
             "release": platform.release(),
@@ -280,7 +299,18 @@ def collect_server_status(
             "plyfile": _safe_version("plyfile"),
         },
         "pipeline": _pipeline_status(settings),
+        "remote_workers": _remote_workers_section(),
     }
+
+    if db_path is not None:
+        try:
+            status["jobs"] = {"count_by_status": jobs_db.count_jobs_by_status(db_path)}
+        except Exception as exc:
+            status["jobs"] = {"count_by_status": {}, "error": str(exc)}
+    else:
+        status["jobs"] = {"count_by_status": None, "note": "database path not passed"}
+
+    return status
 
 
 def _load_avg_windows_safe() -> list[float] | None:

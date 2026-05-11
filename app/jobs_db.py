@@ -142,6 +142,13 @@ def list_jobs(db_path: Path) -> list[JobRecord]:
         return [JobRecord.model_validate(_row_to_dict(r)) for r in cur.fetchall()]
 
 
+def count_jobs_by_status(db_path: Path) -> dict[str, int]:
+    """Return ``{status_value: count}`` for all rows in ``jobs``."""
+    with _connect(db_path) as conn:
+        cur = conn.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status")
+        return {str(row[0]): int(row[1]) for row in cur.fetchall()}
+
+
 def list_queued_oldest_first(db_path: Path) -> list[JobRecord]:
     """Jobs in ``QUEUED`` state, oldest ``created_at`` first (FIFO work queue)."""
     with _connect(db_path) as conn:

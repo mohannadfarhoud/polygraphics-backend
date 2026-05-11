@@ -93,6 +93,10 @@ class JobManager:
         jobs_db.init_and_migrate(self._db_path, self.root_dir)
         self._recover_stuck_jobs()
 
+    @property
+    def db_path(self) -> Path:
+        return self._db_path
+
     def _recover_stuck_jobs(self) -> None:
         """Mark jobs left as PROCESSING/QUEUED by a previous process as STOPPED.
 

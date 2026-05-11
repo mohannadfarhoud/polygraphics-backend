@@ -337,7 +337,11 @@ def update_settings(payload: RuntimeSettings) -> RuntimeSettings:
 
 @app.get("/server/status")
 def server_status() -> dict:
-    return collect_server_status(ROOT_DIR, settings=settings_store.load())
+    return collect_server_status(
+        ROOT_DIR,
+        settings=settings_store.load(),
+        db_path=job_manager.db_path,
+    )
 
 
 @app.get("/jobs", response_model=list[JobRecord])
