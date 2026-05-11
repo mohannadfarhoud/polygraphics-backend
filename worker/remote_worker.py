@@ -127,6 +127,12 @@ def main() -> None:
         raise SystemExit("Set POLYGRAPH_API_BASE and POLYGRAPH_WORKER_TOKEN (see .env.worker.example)")
     poll = float(os.environ.get("POLYGRAPH_POLL_SECONDS", "5"))
 
+    print(
+        f"[polygraph-worker] polling {base}/internal/worker/next every {poll}s "
+        "(idle is silent; errors print below)",
+        flush=True,
+    )
+
     with httpx.Client(timeout=120.0) as client:
         while True:
             job_id: str | None = None
@@ -138,10 +144,20 @@ def main() -> None:
                 r.raise_for_status()
                 payload = r.json()
                 job_id = payload.get("job_id")
+                print(f"[polygraph-worker] claimed job {job_id}", flush=True)
                 _run_one_job(base, token, payload)
-            except httpx.HTTPError:
+            except httpx.HTTPStatusError as exc:
+                body = (exc.response.text or "")[:400].replace("\n", " ")
+                print(
+                    f"[polygraph-worker] HTTP {exc.response.status_code} on next: {body}",
+                    flush=True,
+                )
+                time.sleep(poll)
+            except httpx.RequestError as exc:
+                print(f"[polygraph-worker] network error: {exc}", flush=True)
                 time.sleep(poll)
             except Exception as exc:
+                print(f"[polygraph-worker] job error: {exc}", flush=True)
                 if job_id:
                     try:
                         client.post(
