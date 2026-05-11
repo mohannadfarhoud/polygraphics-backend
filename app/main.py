@@ -359,6 +359,20 @@ async def internal_worker_websocket(websocket: WebSocket) -> None:
         hub.unregister(websocket)
 
 
+def _register_worker_websocket_routes() -> None:
+    """Also expose ``{APP_ROOT_PATH}/internal/worker/ws`` when behind a proxy that forwards the full path."""
+    if not _root_path:
+        return
+    px = _root_path.rstrip("/")
+    alt_path = f"{px}/internal/worker/ws".replace("//", "/")
+    if not alt_path.startswith("/"):
+        alt_path = "/" + alt_path
+    app.router.add_websocket_route(alt_path, internal_worker_websocket)
+
+
+_register_worker_websocket_routes()
+
+
 @app.get(
     "/internal/worker/jobs/{job_id}/assignment",
     dependencies=[Depends(verify_worker_token)],
