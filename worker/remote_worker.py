@@ -8,7 +8,7 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_WEBSOCKET_URL`` — optional full ``wss://host/...`` WebSocket path if auto URL returns 404 behind nginx
 * ``POLYGRAPH_WS_TRY_STRIPPED`` — ``1`` (default) also try ``wss://host/internal/worker/ws`` when the prefixed URL 404s
 * ``POLYGRAPH_MESH_TEXTURE_MAPPING`` — ``1``/``true`` force on; ``0``/``false`` force off; **if unset, use** ``PUT /settings`` **``mesh_texture_mapping``** (recommended ``true`` for photo-real GLB; phase_6 is slow on CPU)
-* ``POLYGRAPH_WS_PING_INTERVAL`` / ``POLYGRAPH_WS_PING_TIMEOUT`` — WebSocket keepalive seconds (defaults ``30`` / ``600``) for long reconstructions
+* ``POLYGRAPH_WS_PING_INTERVAL`` / ``POLYGRAPH_WS_PING_TIMEOUT`` — WebSocket keepalive seconds (defaults ``30`` / ``600``) while **waiting** for work only; the socket is **closed after each job_assigned** and stays disconnected until the job finishes (progress uses REST ``POST .../progress``), then reconnects — avoids 1011 ping timeouts during long GPU runs
 * ``POLYGRAPH_OVERRIDE_DEVICE`` — optional ``cuda`` / ``cpu`` / ``auto``; if unset, worker uses ``cuda`` when ``torch.cuda.is_available()`` else keeps API ``device``
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
@@ -328,9 +328,14 @@ async def _consume_payloads(
     token: str,
     queue: asyncio.Queue,
     client: httpx.Client,
+    websocket_may_connect: asyncio.Event,
+    active_ws: _ActiveWorkerWebSocket,
 ) -> None:
+    """Process jobs from the queue; always ``websocket_may_connect.set()`` when a run ends so WS can reconnect."""
     while True:
         payload = await queue.get()
+        websocket_may_connect.clear()
+        await active_ws.close_if_open()
         job_id = payload.get("job_id")
         try:
             print(f"[polygraph-worker] running job {job_id}", flush=True)
@@ -350,6 +355,8 @@ async def _consume_payloads(
                     )
                 except Exception:
                     pass
+        finally:
+            websocket_may_connect.set()
 
 
 def _websocket_invalid_status_code(exc: BaseException) -> int | None:
@@ -361,7 +368,47 @@ def _websocket_invalid_status_code(exc: BaseException) -> int | None:
     return None
 
 
-async def _ws_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Client) -> None:
+class _ActiveWorkerWebSocket:
+    """Lets the job consumer close the idle WebSocket when any job starts (poll or WS assignment)."""
+
+    def __init__(self) -> None:
+        self._ws: Any = None
+
+    def register(self, ws: Any) -> None:
+        self._ws = ws
+
+    def clear(self) -> None:
+        self._ws = None
+
+    async def close_if_open(self) -> None:
+        ws = self._ws
+        self._ws = None
+        if ws is None:
+            return
+        try:
+            closed = getattr(ws, "closed", False)
+        except Exception:
+            closed = True
+        if closed:
+            return
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
+async def _ws_feed(
+    base: str,
+    token: str,
+    queue: asyncio.Queue,
+    client: httpx.Client,
+    websocket_may_connect: asyncio.Event,
+    active_ws: _ActiveWorkerWebSocket,
+) -> None:
+    """Subscribe for ``job_assigned`` only while idle. Close after each assignment; reconnect after the job ends.
+
+    Long GPU work does not hold a WebSocket (avoids keepalive ping timeouts); progress uses REST.
+    """
     import websockets
 
     try:
@@ -370,9 +417,11 @@ async def _ws_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Cl
         from websockets.exceptions import InvalidStatusCode as InvalidStatus  # type: ignore[misc,no-redef]
 
     while True:
+        await websocket_may_connect.wait()
+
         candidates = iter_worker_websocket_uris(base, token)
         if not candidates:
-            print("[polygraph-worker] WebSocket: no URI candidates; reconnecting in 5s", flush=True)
+            print("[polygraph-worker] WebSocket: no URI candidates; retrying in 5s", flush=True)
             await asyncio.sleep(5)
             continue
 
@@ -389,7 +438,8 @@ async def _ws_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Cl
                     ping_interval=ping_interval,
                     ping_timeout=ping_timeout,
                 ) as ws:
-                    print("[polygraph-worker] WebSocket connected", flush=True)
+                    active_ws.register(ws)
+                    print("[polygraph-worker] WebSocket connected (idle wait for assignments)", flush=True)
                     async for raw in ws:
                         try:
                             data = json.loads(raw)
@@ -408,18 +458,28 @@ async def _ws_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Cl
                             print(f"[polygraph-worker] assignment {jid} -> {r.status_code} {body}", flush=True)
                             continue
                         await queue.put(r.json())
+                        websocket_may_connect.clear()
+                        print(
+                            "[polygraph-worker] WebSocket: job queued; disconnecting until job finishes "
+                            "(progress via REST /internal/worker/jobs/.../progress)",
+                            flush=True,
+                        )
+                        break
+                active_ws.clear()
                 break
             except InvalidStatus as exc:
                 code = _websocket_invalid_status_code(exc)
                 if code == 404 and idx + 1 < len(candidates):
                     continue
-                print(f"[polygraph-worker] WebSocket error: {exc}; reconnecting in 5s", flush=True)
+                print(f"[polygraph-worker] WebSocket error: {exc}; retrying in 5s", flush=True)
                 await asyncio.sleep(5)
                 break
             except Exception as exc:
-                print(f"[polygraph-worker] WebSocket error: {exc}; reconnecting in 5s", flush=True)
+                print(f"[polygraph-worker] WebSocket error: {exc}; retrying in 5s", flush=True)
                 await asyncio.sleep(5)
                 break
+
+        # No sleep here: after a job handoff we block on ``websocket_may_connect`` until work finishes.
 
 
 async def _poll_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Client, interval: float) -> None:
@@ -470,11 +530,19 @@ def main() -> None:
 async def _run_async(base: str, token: str, poll_interval: float, use_ws: bool) -> None:
     queue: asyncio.Queue = asyncio.Queue()
     client = httpx.Client(timeout=600.0)
+    # Cleared when WS hands off a job (socket closed); set again in consumer ``finally`` so WS reconnects idle.
+    websocket_may_connect = asyncio.Event()
+    websocket_may_connect.set()
+    active_ws = _ActiveWorkerWebSocket()
     try:
-        consumer = asyncio.create_task(_consume_payloads(base, token, queue, client))
+        consumer = asyncio.create_task(
+            _consume_payloads(base, token, queue, client, websocket_may_connect, active_ws),
+        )
         tasks = [consumer]
         if use_ws:
-            tasks.append(asyncio.create_task(_ws_feed(base, token, queue, client)))
+            tasks.append(
+                asyncio.create_task(_ws_feed(base, token, queue, client, websocket_may_connect, active_ws)),
+            )
         tasks.append(asyncio.create_task(_poll_feed(base, token, queue, client, poll_interval)))
         await asyncio.gather(*tasks)
     finally:
