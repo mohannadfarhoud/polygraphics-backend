@@ -167,10 +167,9 @@ class JobManager:
                 # Don't let a still-running worker resurrect a job the user has stopped.
                 # Transitioning from STOPPED back to PROCESSING/QUEUED is only allowed via
                 # continue_job/reprocess_job (those go through QUEUED with cleared events).
-                if existing.status == JobStatus.STOPPED and status in (
-                    JobStatus.PROCESSING,
-                    JobStatus.QUEUED,
-                ):
+                # Block STOPPED → PROCESSING only (orphan guard). Allow STOPPED → QUEUED
+                # so ``reprocess`` / ``continue`` can re-queue after a user stop.
+                if existing.status == JobStatus.STOPPED and status == JobStatus.PROCESSING:
                     return
                 rec = existing
                 rec.status = status
@@ -293,6 +292,14 @@ class JobManager:
         if job.status == JobStatus.PROCESSING:
             raise RuntimeError("Job is already processing")
         if job.status == JobStatus.QUEUED:
+            if remote_workers_enabled():
+                try:
+                    from .worker_hub import schedule_worker_job_notice
+
+                    schedule_worker_job_notice(job_id)
+                except Exception:
+                    pass
+                return self.get_job(job_id) or job
             raise RuntimeError("Job is already queued")
         if job.status == JobStatus.PENDING:
             raise RuntimeError("Job has not started yet; use POST /jobs/{job_id}/start")
@@ -316,6 +323,14 @@ class JobManager:
         if job.status == JobStatus.PROCESSING:
             raise RuntimeError("Job is already processing")
         if job.status == JobStatus.QUEUED:
+            if remote_workers_enabled():
+                try:
+                    from .worker_hub import schedule_worker_job_notice
+
+                    schedule_worker_job_notice(job_id)
+                except Exception:
+                    pass
+                return self.get_job(job_id) or job
             raise RuntimeError("Job is already queued")
         if job.status == JobStatus.PENDING:
             raise RuntimeError("Job has not started yet; use POST /jobs/{job_id}/start")

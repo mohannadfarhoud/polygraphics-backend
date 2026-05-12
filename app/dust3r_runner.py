@@ -64,42 +64,66 @@ def _load_dust3r():
 def _load_model(settings: RuntimeSettings, device):
     """Load DUSt3R weights from a local ``.pth`` file, HF hub id, or HF snapshot directory."""
 
+    import os
+
     from dust3r.model import AsymmetricCroCo3DStereo
 
     ck_ref = (settings.dust3r_checkpoint_path or "").strip()
     if not ck_ref:
         raise RuntimeError("dust3r_checkpoint_path is empty")
 
-    p = Path(ck_ref).expanduser()
-    try:
-        if p.exists():
-            p = p.resolve()
-    except OSError:
-        pass
+    # Strip accidental quoting from env / JSON on Windows.
+    raw = ck_ref.strip().strip('"').strip("'")
+    expanded = os.path.expanduser(raw)
+    candidates: list[str] = []
+    for c in (raw, expanded, os.path.normpath(expanded)):
+        if c not in candidates:
+            candidates.append(c)
+    if not os.path.isabs(expanded):
+        abs_path = os.path.abspath(expanded)
+        if abs_path not in candidates:
+            candidates.append(abs_path)
 
-    # Raw ``.pth`` checkpoints must use DUSt3R's ``torch.load`` path. On Windows,
-    # ``from_pretrained`` may fall through to Hugging Face and treat the path as a repo id.
-    if p.is_file():
+    local_ckpt: str | None = None
+    for cand in candidates:
+        # Match DUSt3R upstream: ``os.path.isfile`` (more reliable than Path-only checks on Windows).
+        if os.path.isfile(cand):
+            local_ckpt = cand
+            break
+
+    looks_like_file = raw.lower().endswith((".pth", ".pt"))
+
+    if local_ckpt is not None:
         try:
             from dust3r.model import load_model as dust3r_load_model
-        except ImportError:
-            dust3r_load_model = None
-
-        if dust3r_load_model is not None:
+        except ImportError as exc:
+            raise RuntimeError(
+                "DUSt3R is installed but ``load_model`` is missing from dust3r.model — "
+                "upgrade naver/dust3r to a recent checkout. "
+                f"Original error: {exc}"
+            ) from exc
+        try:
             try:
-                try:
-                    model = dust3r_load_model(str(p), device="cpu", verbose=False)
-                except TypeError:
-                    model = dust3r_load_model(str(p), device="cpu")
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to load DUSt3R weights from local file {p!r}. "
-                    "Use a standard DUSt3R ``.pth`` checkpoint, or a Hugging Face model id instead. "
-                    f"Original error: {exc}"
-                ) from exc
-            return model.to(device)
+                model = dust3r_load_model(local_ckpt, device="cpu", verbose=False)
+            except TypeError:
+                model = dust3r_load_model(local_ckpt, device="cpu")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load DUSt3R weights from local file {local_ckpt!r}. "
+                "Confirm it is a DUSt3R training checkpoint (``ckpt['args']`` + ``ckpt['model']``). "
+                f"Original error: {exc}"
+            ) from exc
+        return model.to(device)
 
-    load_ref = str(p) if p.exists() else ck_ref
+    if looks_like_file:
+        raise RuntimeError(
+            f"DUSt3R checkpoint is not a readable file on this machine: {raw!r}. "
+            f"Tried: {candidates}. "
+            "Set dust3r_checkpoint_path / POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT to an existing ``.pth``, "
+            "or use a Hugging Face model id (no local path)."
+        )
+
+    load_ref = raw
 
     try:
         model = AsymmetricCroCo3DStereo.from_pretrained(load_ref)
