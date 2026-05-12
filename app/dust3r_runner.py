@@ -179,10 +179,14 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
 
     pts_list = scene.get_pts3d()
     masks_list = scene.get_masks() if hasattr(scene, "get_masks") else [None] * len(pts_list)
-    conf_list = (
-        scene.get_conf() if hasattr(scene, "get_conf") and settings.dust3r_confidence_threshold > 0
-        else [None] * len(pts_list)
-    )
+    if hasattr(scene, "get_conf"):
+        try:
+            conf_list = scene.get_conf()
+        except Exception:
+            conf_list = [None] * len(pts_list)
+    else:
+        conf_list = [None] * len(pts_list)
+
     rgb_list = scene.imgs if hasattr(scene, "imgs") else [None] * len(pts_list)
 
     # Cameras
@@ -196,9 +200,8 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
         c2w_all = np.tile(np.eye(4, dtype=np.float32), (len(pts_list), 1, 1))
 
     conf_thr = float(settings.dust3r_confidence_threshold)
-    chunks_pts: list[np.ndarray] = []
-    chunks_rgb: list[np.ndarray] = []
 
+    frames: list[dict[str, object]] = []
     image_sizes: list[tuple[int, int]] = []
     intrinsics: list[np.ndarray] = []
     poses_w2c: list[np.ndarray] = []
@@ -209,7 +212,6 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
         if pts_np.ndim == 3 and pts_np.shape[-1] == 3:
             H, W, _ = pts_np.shape
         else:
-            # Fallback: assume already flattened (N, 3); use the matching image's RGB shape later.
             n = int(pts_np.size // 3)
             H = int(np.sqrt(max(1, n)))
             W = int(max(1, n // max(1, H)))
@@ -225,16 +227,12 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
             else:
                 f = rgb_np.astype(np.float32)
                 lo, hi = float(f.min()), float(f.max())
-                # DUSt3R's PointCloudOptimizer.imgs are usually [0,1] floats, but some
-                # builds keep ImageNet-normalised tensors (~[-2.1, +2.6]); detect both.
                 if lo < -0.05 or hi > 1.05:
                     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
                     std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
                     f = f * std + mean
                 rgb_arr = (np.clip(f, 0.0, 1.0) * 255.0).astype(np.uint8).reshape(-1, 3)
 
-        # Fallback / sanity: if nothing got through, sample the masked image from disk
-        # at the scene's resolution. Avoids any ImageNet/normalisation surprises.
         if (
             rgb_arr is None
             or rgb_arr.shape[0] != p.shape[0]
@@ -246,25 +244,8 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
             elif rgb_arr is None:
                 rgb_arr = np.full((p.shape[0], 3), 200, dtype=np.uint8)
 
-        valid = np.ones(p.shape[0], dtype=bool)
-        if mask is not None:
-            m = mask.detach().cpu().numpy().reshape(-1)
-            valid &= (m > 0.5) if m.dtype != bool else m
-        if conf_list[idx] is not None and conf_thr > 0.0:
-            try:
-                c = conf_list[idx].detach().cpu().numpy().reshape(-1)
-                cmin, cmax = float(c.min()), float(c.max())
-                if cmax > cmin:
-                    cn = (c - cmin) / (cmax - cmin)
-                else:
-                    cn = np.ones_like(c)
-                valid &= cn >= conf_thr
-            except Exception:
-                pass
-
-        if valid.any():
-            chunks_pts.append(p[valid])
-            chunks_rgb.append(rgb_arr[valid])
+        cidx = conf_list[idx] if idx < len(conf_list) else None
+        frames.append({"p": p, "rgb_arr": rgb_arr, "mask": mask, "conf": cidx})
 
         f = float(focals[idx]) if idx < len(focals) else max(W, H) * 0.9
         K = np.array([[f, 0.0, W / 2.0], [0.0, f, H / 2.0], [0.0, 0.0, 1.0]], dtype=np.float64)
@@ -278,8 +259,52 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
         poses_c2w.append(c2w)
         poses_w2c.append(w2c)
 
+    def _merge_chunks(conf_use: float, use_mask: bool) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        out_pts: list[np.ndarray] = []
+        out_rgb: list[np.ndarray] = []
+        for frame in frames:
+            p = frame["p"]  # type: ignore[assignment]
+            rgb_arr = frame["rgb_arr"]  # type: ignore[assignment]
+            mask = frame["mask"] if use_mask else None  # type: ignore[assignment]
+            conf_t = frame["conf"]  # type: ignore[assignment]
+
+            valid = np.ones(p.shape[0], dtype=bool)
+            if mask is not None:
+                m = mask.detach().cpu().numpy().reshape(-1)  # type: ignore[union-attr]
+                valid &= (m > 0.5) if m.dtype != bool else m
+            if conf_t is not None and conf_use > 0.0:
+                try:
+                    c = conf_t.detach().cpu().numpy().reshape(-1)  # type: ignore[union-attr]
+                    cmin, cmax = float(c.min()), float(c.max())
+                    if cmax > cmin:
+                        cn = (c - cmin) / (cmax - cmin)
+                    else:
+                        cn = np.ones_like(c)
+                    valid &= cn >= conf_use
+                except Exception:
+                    pass
+            if valid.any():
+                out_pts.append(p[valid])
+                out_rgb.append(rgb_arr[valid])
+        return out_pts, out_rgb
+
+    chunks_pts, chunks_rgb = _merge_chunks(conf_thr, True)
+    tried: list[str] = [f"threshold={conf_thr}, mask=on"]
+    if not chunks_pts and conf_thr > 0.0:
+        chunks_pts, chunks_rgb = _merge_chunks(0.0, True)
+        tried.append("threshold=0, mask=on")
     if not chunks_pts:
-        raise RuntimeError("DUSt3R produced no 3D points after confidence filtering")
+        chunks_pts, chunks_rgb = _merge_chunks(0.0, False)
+        tried.append("threshold=0, mask=off")
+
+    if not chunks_pts:
+        raise RuntimeError(
+            "DUSt3R produced no 3D points after filtering. "
+            f"Tried: {'; '.join(tried)}. "
+            "Set ``dust3r_confidence_threshold`` to 0 in PUT /settings, "
+            "try ``sam_segmentation_mode`` / more overlapping views, "
+            "or switch ``reconstruction_backend`` to ``colmap`` for this scene."
+        )
 
     cloud = np.concatenate(chunks_pts, axis=0).astype(np.float32)
     colors = np.concatenate(chunks_rgb, axis=0).astype(np.uint8)
