@@ -85,7 +85,7 @@ def run_colmap_sparse(
                 f"COLMAP step failed ({step}): {' '.join(args)}\n" + "\n".join(tail)
             )
 
-    fe_args = [
+    fe_base_args = [
         colmap_bin,
         "feature_extractor",
         "--database_path",
@@ -95,9 +95,29 @@ def run_colmap_sparse(
         "--ImageReader.single_camera",
         "1",
     ]
-    if bool(getattr(settings, "colmap_sift_gpu", True)):
-        fe_args.extend(["--SiftExtraction.use_gpu", "1"])
-    _run(fe_args, "feature_extractor")
+    want_gpu = bool(getattr(settings, "colmap_sift_gpu", True))
+    if want_gpu:
+        # COLMAP CLI changed across versions:
+        # - newer builds: --FeatureExtraction.use_gpu
+        # - older builds: --SiftExtraction.use_gpu
+        gpu_variants = (
+            fe_base_args + ["--FeatureExtraction.use_gpu", "1"],
+            fe_base_args + ["--SiftExtraction.use_gpu", "1"],
+        )
+        for i, args in enumerate(gpu_variants):
+            try:
+                _run(args, "feature_extractor")
+                break
+            except RuntimeError as exc:
+                msg = str(exc)
+                if "unrecognised option" in msg and i + 1 < len(gpu_variants):
+                    continue
+                if "unrecognised option" in msg and i + 1 == len(gpu_variants):
+                    _run(fe_base_args, "feature_extractor")
+                    break
+                raise
+    else:
+        _run(fe_base_args, "feature_extractor")
     _run(
         [
             colmap_bin, "exhaustive_matcher",

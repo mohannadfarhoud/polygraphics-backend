@@ -210,7 +210,7 @@ def _build_colmap_scene(masked_images: list[Path], scene_dir: Path, settings: Ru
             tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-20:]
             raise RuntimeError(f"COLMAP step failed: {' '.join(args)}\n" + "\n".join(tail))
 
-    fe_args = [
+    fe_base_args = [
         colmap,
         "feature_extractor",
         "--database_path",
@@ -220,9 +220,26 @@ def _build_colmap_scene(masked_images: list[Path], scene_dir: Path, settings: Ru
         "--ImageReader.single_camera",
         "1",
     ]
-    if bool(getattr(settings, "colmap_sift_gpu", True)):
-        fe_args.extend(["--SiftExtraction.use_gpu", "1"])
-    _run(fe_args)
+    want_gpu = bool(getattr(settings, "colmap_sift_gpu", True))
+    if want_gpu:
+        gpu_variants = (
+            fe_base_args + ["--FeatureExtraction.use_gpu", "1"],
+            fe_base_args + ["--SiftExtraction.use_gpu", "1"],
+        )
+        for i, args in enumerate(gpu_variants):
+            try:
+                _run(args)
+                break
+            except RuntimeError as exc:
+                msg = str(exc)
+                if "unrecognised option" in msg and i + 1 < len(gpu_variants):
+                    continue
+                if "unrecognised option" in msg and i + 1 == len(gpu_variants):
+                    _run(fe_base_args)
+                    break
+                raise
+    else:
+        _run(fe_base_args)
     _run([colmap, "exhaustive_matcher", "--database_path", str(db_path)])
     _run([colmap, "mapper", "--database_path", str(db_path),
           "--image_path", str(images_dir), "--output_path", str(sparse_dir)])
