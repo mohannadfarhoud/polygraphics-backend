@@ -7,6 +7,8 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_USE_WEBSOCKET`` — ``1``/``true`` to subscribe to ``wss://.../internal/worker/ws`` (default on)
 * ``POLYGRAPH_WEBSOCKET_URL`` — optional full ``wss://host/...`` WebSocket path if auto URL returns 404 behind nginx
 * ``POLYGRAPH_WS_TRY_STRIPPED`` — ``1`` (default) also try ``wss://host/internal/worker/ws`` when the prefixed URL 404s
+* ``POLYGRAPH_MESH_TEXTURE_MAPPING`` — set ``1``/``true`` to enable UV atlas bake on the worker; **if unset or ``0``, texture mapping is off** (vertex-colour GLB; avoids long ``phase_6_texture_mapping``)
+* ``POLYGRAPH_WS_PING_INTERVAL`` / ``POLYGRAPH_WS_PING_TIMEOUT`` — WebSocket keepalive seconds (defaults ``30`` / ``600``) for long reconstructions
 * ``POLYGRAPH_OVERRIDE_DEVICE`` — optional ``cuda`` / ``cpu`` / ``auto``; if unset, worker uses ``cuda`` when ``torch.cuda.is_available()`` else keeps API ``device``
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
@@ -55,6 +57,10 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
                 out["device"] = "cuda"
         except ImportError:
             pass
+
+    tex = os.getenv("POLYGRAPH_MESH_TEXTURE_MAPPING", "").strip().lower()
+    out["mesh_texture_mapping"] = tex in ("1", "true", "yes", "on")
+
     return out
 
 
@@ -333,7 +339,13 @@ async def _ws_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.Cl
                 flush=True,
             )
             try:
-                async with websockets.connect(uri, ping_interval=20, ping_timeout=120) as ws:
+                ping_interval = float(os.environ.get("POLYGRAPH_WS_PING_INTERVAL", "30"))
+                ping_timeout = float(os.environ.get("POLYGRAPH_WS_PING_TIMEOUT", "600"))
+                async with websockets.connect(
+                    uri,
+                    ping_interval=ping_interval,
+                    ping_timeout=ping_timeout,
+                ) as ws:
                     print("[polygraph-worker] WebSocket connected", flush=True)
                     async for raw in ws:
                         try:
