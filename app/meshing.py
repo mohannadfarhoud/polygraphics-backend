@@ -38,6 +38,71 @@ def decimate(mesh: o3d.geometry.TriangleMesh, target_triangles: int) -> o3d.geom
     return simplified
 
 
+def keep_largest_mesh_component(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
+    """Drop disconnected fragments; keep the largest triangle component."""
+    if len(mesh.triangles) == 0:
+        return mesh
+    labels, tri_counts, _areas = mesh.cluster_connected_triangles()
+    labels = np.asarray(labels)
+    tri_counts = np.asarray(tri_counts)
+    if labels.size == 0 or tri_counts.size == 0:
+        return mesh
+    keep_label = int(np.argmax(tri_counts))
+    remove_triangles = labels != keep_label
+    if not remove_triangles.any():
+        return mesh
+    out = o3d.geometry.TriangleMesh(mesh)
+    out.remove_triangles_by_mask(remove_triangles)
+    out.remove_unreferenced_vertices()
+    out.compute_vertex_normals()
+    return out
+
+
+def center_and_scale_mesh(mesh: o3d.geometry.TriangleMesh, *, target_extent: float = 1.8) -> o3d.geometry.TriangleMesh:
+    """Recentre mesh to origin and scale to a stable viewer-friendly extent."""
+    verts = np.asarray(mesh.vertices)
+    if verts.size == 0:
+        return mesh
+    mn = verts.min(axis=0)
+    mx = verts.max(axis=0)
+    center = (mn + mx) * 0.5
+    extent = float(np.max(mx - mn))
+    if extent <= 1e-9:
+        return mesh
+    scale = float(target_extent) / extent
+    centered = (verts - center) * scale
+    out = o3d.geometry.TriangleMesh(mesh)
+    out.vertices = o3d.utility.Vector3dVector(centered)
+    out.compute_vertex_normals()
+    return out
+
+
+def autobalance_vertex_colors(mesh: o3d.geometry.TriangleMesh) -> o3d.geometry.TriangleMesh:
+    """Lift dark/flat vertex colors when reconstruction produced near-black results."""
+    has_colors = bool(getattr(mesh, "has_vertex_colors", lambda: False)())
+    if not has_colors:
+        return mesh
+    cols = np.asarray(mesh.vertex_colors, dtype=np.float64)
+    if cols.size == 0:
+        return mesh
+
+    luma = cols @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float64)
+    med = float(np.median(luma))
+    if med >= 0.18:
+        return mesh
+
+    lo = np.percentile(cols, 1, axis=0)
+    hi = np.percentile(cols, 99, axis=0)
+    denom = np.maximum(hi - lo, 1e-6)
+    balanced = (cols - lo) / denom
+    balanced = np.clip(balanced, 0.0, 1.0)
+    balanced = np.power(balanced, 0.8)
+
+    out = o3d.geometry.TriangleMesh(mesh)
+    out.vertex_colors = o3d.utility.Vector3dVector(balanced)
+    return out
+
+
 def transfer_vertex_colors_from_point_cloud(
     mesh: o3d.geometry.TriangleMesh,
     pcd: o3d.geometry.PointCloud,

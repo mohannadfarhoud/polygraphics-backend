@@ -49,6 +49,12 @@
       "note": "Mesh (.glb) path only: Poisson + vertex colours / photo-projected colours — not used for Gaussian Splatting."
     },
     {
+      "id": "mesh_cleanup",
+      "progress": { "min": 79, "max": 79, "typical": 79 },
+      "label": "Mesh cleanup",
+      "note": "Mesh path: keep largest connected component and remove disconnected fragments."
+    },
+    {
       "id": "vertex_color_transfer",
       "progress": { "min": 77, "max": 77, "typical": 77 },
       "label": "Vertex colours from point cloud",
@@ -59,6 +65,12 @@
       "progress": { "min": 86, "max": 86, "typical": 86 },
       "label": "Photo-projected vertex colours",
       "note": "Mesh path: multi-view colour sampling when cameras are available."
+    },
+    {
+      "id": "color_autobalance",
+      "progress": { "min": 90, "max": 90, "typical": 90 },
+      "label": "Color balancing + centering",
+      "note": "Mesh path: auto-lift dark colors when needed, then center and scale around origin."
     },
     {
       "id": "compare_mesh_dust3r",
@@ -93,7 +105,9 @@
         { "id": "phase_3_sanitization", "progress": 65 },
         { "id": "meshing", "progress": 75 },
         { "id": "vertex_color_transfer", "progress": 77 },
+        { "id": "mesh_cleanup", "progress": 79 },
         { "id": "photo_vertex_bake", "progress": 86 },
+        { "id": "color_autobalance", "progress": 90 },
         { "id": "exporting", "progress": 94 },
         { "id": "completed", "progress": 100 }
       ]

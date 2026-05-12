@@ -30,7 +30,7 @@ class RuntimeSettings(BaseModel):
     dust3r_aligner_iters: int = Field(default=300, ge=10, le=5000)
     dust3r_aligner_lr: float = Field(default=0.01, gt=0.0, le=1.0)
     # Drop DUSt3R points below this per-pixel confidence (0..1). 0 disables (Phase 3).
-    dust3r_confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    dust3r_confidence_threshold: float = Field(default=0.2, ge=0.0, le=1.0)
     colmap_binary_path: str | None = None
     # When True, COLMAP ``feature_extractor`` gets ``--SiftExtraction.use_gpu 1`` (needs a CUDA COLMAP build).
     colmap_sift_gpu: bool = True
@@ -61,7 +61,7 @@ class RuntimeSettings(BaseModel):
     std_ratio: float = Field(default=2.0, gt=0)
     poisson_depth: int = Field(default=9, ge=4, le=14)
     poisson_density_quantile: float = Field(default=0.02, ge=0.0, le=1.0)
-    decimation_target_triangles: int = Field(default=120_000, ge=1000)
+    decimation_target_triangles: int = Field(default=200_000, ge=1000)
     # Public URL prefix for generated model files (must match where this API serves /output/…).
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)

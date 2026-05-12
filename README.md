@@ -53,6 +53,10 @@ The canonical mapping (progress ranges + ordered flows) lives in **`ui/job-stage
 | `phase_4_colmap_scene` | 50 | Running COLMAP (`feature_extractor` → `exhaustive_matcher` → `mapper`). | GS path with `gs_init_source=colmap` |
 | `phase_5_gaussian_splatting` | 65 → 95 | `train.py` running. | GS path |
 | `meshing` | 75 | Poisson + decimation; vertex / photo-projected colours. | mesh path only |
+| `vertex_color_transfer` | 77 | Transfer nearest cloud colors to mesh vertices. | mesh path only |
+| `mesh_cleanup` | 79 | Keep only the largest connected mesh component. | mesh path only |
+| `photo_vertex_bake` | 86 | Multi-view projected colors from original images. | mesh path when cameras exist |
+| `color_autobalance` | 90 | Auto-lift dark colors and center/scale mesh near origin. | mesh path only |
 | `exporting` | 94 | Writing the final `.glb` / `.ply`. | always |
 | `completed` | 100 | Job finished, `model_url` is ready. | always |
 
@@ -68,6 +72,10 @@ const STAGE_LABELS: Record<string, string> = {
   phase_4_colmap_scene: "Building COLMAP scene",
   phase_5_gaussian_splatting: "Training Gaussian Splatting",
   meshing: "Meshing surface",
+  vertex_color_transfer: "Applying point-cloud colors",
+  mesh_cleanup: "Removing disconnected fragments",
+  photo_vertex_bake: "Projecting photo colors",
+  color_autobalance: "Balancing colors + centering object",
   exporting: "Exporting model",
   completed: "Done",
 };
@@ -84,9 +92,10 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `save_raw_masks` | `true` | 1 | Save binary `.png` masks to `masks/<job_id>/`. |
 | `dust3r_aligner_iters` | `300` | 2 | `niter` for `compute_global_alignment` (≥ 300 for stable floors). |
 | `dust3r_aligner_lr` | `0.01` | 2 | Learning rate for the global aligner. |
-| `dust3r_confidence_threshold` | `0.5` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
+| `dust3r_confidence_threshold` | `0.2` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
 | `nb_neighbors` | `20` | 3 | Open3D SOR neighbours. |
 | `std_ratio` | `2.0` | 3 | Open3D SOR std-dev ratio (protocol range: 1.5–2.0). |
+| `decimation_target_triangles` | `200000` | mesh | Higher keeps more detail (slower / larger GLB). |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. |
 | `gs_iterations` | `7000` | 5 | `7_000` (Quick) or `30_000` (Dense). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |

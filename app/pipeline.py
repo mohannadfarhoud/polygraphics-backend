@@ -8,7 +8,15 @@ from typing import Literal
 from .color_baking import CameraView
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopJobRepository, NoopWebSocketNotifier, WebSocketNotifier
-from .meshing import decimate, export_glb, poisson_mesh, transfer_vertex_colors_from_point_cloud
+from .meshing import (
+    autobalance_vertex_colors,
+    center_and_scale_mesh,
+    decimate,
+    export_glb,
+    keep_largest_mesh_component,
+    poisson_mesh,
+    transfer_vertex_colors_from_point_cloud,
+)
 from .pipeline_ready import assert_pipeline_ready
 from .point_cloud import build_point_cloud, remove_statistical_outliers
 from .reconstruction import Dust3RReconstructor
@@ -145,6 +153,9 @@ class ReconstructionPipeline:
         self._raise_if_cancelled(cancel_event)
         mesh = decimate(mesh, self.config.decimation_target_triangles)
         self._raise_if_cancelled(cancel_event)
+        self._publish(job_id, JobStatus.PROCESSING, stage="mesh_cleanup", progress=79)
+        mesh = keep_largest_mesh_component(mesh)
+        self._raise_if_cancelled(cancel_event)
 
         # Make sure photo colors actually end up on the GLB. Open3D's Poisson +
         # decimation don't reliably propagate vertex colors across versions, so
@@ -194,6 +205,10 @@ class ReconstructionPipeline:
                     job_id,
                     exc,
                 )
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="color_autobalance", progress=90)
+        mesh = autobalance_vertex_colors(mesh)
+        mesh = center_and_scale_mesh(mesh)
 
         self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
         glb_path = self.config.output_dir / f"{stem}.glb"
