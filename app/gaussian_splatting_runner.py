@@ -210,8 +210,19 @@ def _build_colmap_scene(masked_images: list[Path], scene_dir: Path, settings: Ru
             tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-20:]
             raise RuntimeError(f"COLMAP step failed: {' '.join(args)}\n" + "\n".join(tail))
 
-    _run([colmap, "feature_extractor", "--database_path", str(db_path), "--image_path", str(images_dir),
-          "--ImageReader.single_camera", "1"])
+    fe_args = [
+        colmap,
+        "feature_extractor",
+        "--database_path",
+        str(db_path),
+        "--image_path",
+        str(images_dir),
+        "--ImageReader.single_camera",
+        "1",
+    ]
+    if bool(getattr(settings, "colmap_sift_gpu", True)):
+        fe_args.extend(["--SiftExtraction.use_gpu", "1"])
+    _run(fe_args)
     _run([colmap, "exhaustive_matcher", "--database_path", str(db_path)])
     _run([colmap, "mapper", "--database_path", str(db_path),
           "--image_path", str(images_dir), "--output_path", str(sparse_dir)])

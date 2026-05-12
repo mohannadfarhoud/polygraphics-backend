@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -35,6 +36,7 @@ class Dust3RReconstructor:
         masked_images: list[Path],
         *,
         job_id: str | None = None,
+        mesh_backend: Literal["dust3r", "colmap"] | None = None,
     ) -> ReconstructionResult:
         if len(masked_images) < 2:
             raise ValueError("Need at least 2 masked images")
@@ -48,7 +50,15 @@ class Dust3RReconstructor:
                 aligned_colors_rgb=None,
             )
 
-        backend = self.resolve_backend(len(masked_images))
+        if mesh_backend is not None:
+            backend = mesh_backend
+        else:
+            backend = self.resolve_backend(len(masked_images))
+        if backend == "gaussian_splatting":
+            raise RuntimeError(
+                "reconstruct() does not run Gaussian Splatting; pass mesh_backend='dust3r' or 'colmap', "
+                "or set reconstruction_backend to auto/dust3r/colmap for mesh jobs."
+            )
 
         if backend == "dust3r":
             from .dust3r_runner import run_dust3r_scene

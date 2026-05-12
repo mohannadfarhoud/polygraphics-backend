@@ -49,6 +49,9 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
         _need_dust3r()
         _need_colmap()
     elif backend == "gaussian_splatting":
+        if bool(getattr(settings, "compare_mesh_dust3r_colmap_with_gs", False)):
+            _need_dust3r()
+            _need_colmap()
         repo = Path(settings.gs_repo_path or "")
         try:
             import torch

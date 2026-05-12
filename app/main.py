@@ -29,6 +29,7 @@ from .pipeline import ReconstructionPipeline
 from .reconstruction import Dust3RReconstructor
 from .segmentation import SamSegmenter
 from .runtime_settings import RuntimeSettings, SettingsStore
+from .settings_guide import settings_deployment_guide
 from .server_status import collect_server_status
 from .worker_hub import WorkerHub, init_hub
 
@@ -342,6 +343,24 @@ async def internal_worker_complete(
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
+@app.post("/internal/worker/jobs/{job_id}/comparison-glb", dependencies=[Depends(verify_worker_token)])
+async def internal_worker_comparison_glb(
+    job_id: str,
+    variant: str = Form(..., description="dust3r or colmap"),
+    file: UploadFile = File(...),
+) -> dict[str, str]:
+    """Sidecar mesh from ``compare_mesh_dust3r_colmap_with_gs``; call before ``/complete`` while the job is PROCESSING."""
+    body = await file.read()
+    try:
+        return job_manager.save_remote_comparison_glb(job_id, variant, body)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
 @app.post("/internal/worker/jobs/{job_id}/fail", dependencies=[Depends(verify_worker_token)])
 def internal_worker_fail(job_id: str, body: WorkerFailBody) -> JobRecord:
     try:
@@ -443,6 +462,12 @@ def job_stages() -> dict[str, Any]:
 @app.get("/settings", response_model=RuntimeSettings)
 def get_settings() -> RuntimeSettings:
     return settings_store.load()
+
+
+@app.get("/settings/deployment")
+def get_settings_deployment() -> dict[str, Any]:
+    """Which ``PUT /settings`` fields matter on the API host vs the GPU worker, plus worker-only env vars."""
+    return settings_deployment_guide()
 
 
 @app.put("/settings", response_model=RuntimeSettings)

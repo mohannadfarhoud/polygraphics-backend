@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Literal
 
 from .color_baking import CameraView
 from .config import PipelineConfig
@@ -55,6 +56,39 @@ class ReconstructionPipeline:
             self._raise_if_cancelled(cancel_event)
 
             if self.runtime_settings.reconstruction_backend == "gaussian_splatting":
+                if self.runtime_settings.compare_mesh_dust3r_colmap_with_gs:
+                    self._publish(
+                        job_id,
+                        JobStatus.PROCESSING,
+                        stage="compare_mesh_dust3r",
+                        progress=41,
+                    )
+                    self._run_mesh_pipeline(
+                        job_id,
+                        masked_paths,
+                        image_paths,
+                        cancel_event=cancel_event,
+                        mesh_backend="dust3r",
+                        output_basename=f"{job_id}_compare_dust3r",
+                        publish_completed=False,
+                    )
+                    self._raise_if_cancelled(cancel_event)
+                    self._publish(
+                        job_id,
+                        JobStatus.PROCESSING,
+                        stage="compare_mesh_colmap",
+                        progress=44,
+                    )
+                    self._run_mesh_pipeline(
+                        job_id,
+                        masked_paths,
+                        image_paths,
+                        cancel_event=cancel_event,
+                        mesh_backend="colmap",
+                        output_basename=f"{job_id}_compare_colmap",
+                        publish_completed=False,
+                    )
+                    self._raise_if_cancelled(cancel_event)
                 model_url = self._run_gaussian_splatting(job_id, masked_paths, cancel_event=cancel_event)
                 return model_url
 
@@ -75,11 +109,17 @@ class ReconstructionPipeline:
         original_paths: list[Path],
         *,
         cancel_event: threading.Event | None = None,
+        mesh_backend: Literal["dust3r", "colmap"] | None = None,
+        output_basename: str | None = None,
+        publish_completed: bool = True,
     ) -> str:
+        stem = output_basename or job_id
         # Phase 2 of the protocol: DUSt3R/COLMAP reconstruction (also applies the
         # confidence filter from Phase 3 before merging per-view clouds for DUSt3R).
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)
-        reconstruction = self.reconstructor.reconstruct(masked_paths, job_id=job_id)
+        reconstruction = self.reconstructor.reconstruct(
+            masked_paths, job_id=job_id, mesh_backend=mesh_backend
+        )
         self._raise_if_cancelled(cancel_event)
 
         # Phase 3 of the protocol: Statistical Outlier Removal on the unified cloud.
@@ -176,7 +216,7 @@ class ReconstructionPipeline:
             self._raise_if_cancelled(cancel_event)
 
         self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
-        glb_path = self.config.output_dir / f"{job_id}.glb"
+        glb_path = self.config.output_dir / f"{stem}.glb"
         if textured_tm is not None:
             try:
                 from .texture_mapping import export_textured_glb
@@ -189,15 +229,16 @@ class ReconstructionPipeline:
         if not glb_path.is_file() or glb_path.stat().st_size < 256:
             raise RuntimeError(f"Export produced no usable GLB at {glb_path}")
 
-        model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
-        self._publish(
-            job_id,
-            JobStatus.COMPLETED,
-            stage="completed",
-            progress=100,
-            model_url=model_url,
-            model_format="glb",
-        )
+        model_url = f"{self.config.cdn_base_url.rstrip('/')}/{stem}.glb"
+        if publish_completed:
+            self._publish(
+                job_id,
+                JobStatus.COMPLETED,
+                stage="completed",
+                progress=100,
+                model_url=model_url,
+                model_format="glb",
+            )
         return model_url
 
     def _run_gaussian_splatting(

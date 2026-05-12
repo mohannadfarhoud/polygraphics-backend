@@ -462,6 +462,28 @@ class JobManager:
             raise RuntimeError("Job disappeared after complete")
         return result
 
+    def save_remote_comparison_glb(self, job_id: str, variant: str, file_data: bytes) -> dict[str, str]:
+        """Write ``{job_id}_compare_{variant}.glb`` while the job is still PROCESSING (before primary ``/complete``)."""
+        job = self.get_job(job_id)
+        if not job:
+            raise KeyError(job_id)
+        if job.status != JobStatus.PROCESSING:
+            raise RuntimeError(
+                f"Job {job_id} is not PROCESSING (got {job.status.value}); comparison GLB upload is only valid mid-run."
+            )
+        v = variant.strip().lower()
+        if v not in ("dust3r", "colmap"):
+            raise ValueError("variant must be dust3r or colmap")
+        settings = self.settings_store.load()
+        out_dir = self.root_dir / settings.output_dir_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"{job_id}_compare_{v}.glb"
+        out_path = out_dir / fname
+        out_path.write_bytes(file_data)
+        base = _effective_model_base_url_for_jobs(settings)
+        model_url = f"{base.rstrip('/')}/{fname}"
+        return {"filename": fname, "model_url": model_url}
+
     def fail_remote_job(self, job_id: str, error: str) -> JobRecord:
         self.update_job(job_id, JobStatus.FAILED, error=error)
         result = self.get_job(job_id)

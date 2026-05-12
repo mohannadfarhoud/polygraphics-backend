@@ -12,6 +12,7 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_OVERRIDE_DEVICE`` — optional ``cuda`` / ``cpu`` / ``auto``; if unset, worker uses ``cuda`` when ``torch.cuda.is_available()`` else keeps API ``device``
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
+* ``POLYGRAPH_REQUIRE_CUDA`` — ``1``/``true`` to exit immediately if ``torch.cuda.is_available()`` is false
 """
 
 from __future__ import annotations
@@ -111,6 +112,16 @@ def _mask_ws_uri(uri: str) -> str:
     return uri
 
 
+def _require_cuda_if_configured() -> None:
+    raw = os.getenv("POLYGRAPH_REQUIRE_CUDA", "").strip().lower()
+    if raw not in ("1", "true", "yes"):
+        return
+    import torch
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("POLYGRAPH_REQUIRE_CUDA is set but torch.cuda.is_available() is False")
+
+
 class ApiReportingJobRepository:
     """Forwards pipeline ``PROCESSING`` stage/progress to the API (throttled)."""
 
@@ -183,6 +194,7 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         from app.segmentation import SamSegmenter
 
         settings = RuntimeSettings.model_validate(settings_dict)
+        _require_cuda_if_configured()
         print(f"[polygraph-worker] job {job_id}: validating checkpoints and backends...", flush=True)
         assert_pipeline_ready(settings)
 
@@ -241,6 +253,34 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         pipe.process_3d_job(job_id, paths)
 
         out_dir = work / settings.output_dir_name
+        if (
+            settings.reconstruction_backend == "gaussian_splatting"
+            and settings.compare_mesh_dust3r_colmap_with_gs
+        ):
+            for variant, stem in (
+                ("dust3r", f"{job_id}_compare_dust3r"),
+                ("colmap", f"{job_id}_compare_colmap"),
+            ):
+                sidecar = out_dir / f"{stem}.glb"
+                if not sidecar.is_file():
+                    print(
+                        f"[polygraph-worker] job {job_id}: no comparison GLB at {sidecar.name} (skipping upload)",
+                        flush=True,
+                    )
+                    continue
+                body = sidecar.read_bytes()
+                ur = client.post(
+                    f"{base}/internal/worker/jobs/{job_id}/comparison-glb",
+                    headers={"X-Worker-Token": token},
+                    data={"variant": variant},
+                    files={"file": (f"{stem}.glb", body, "model/gltf-binary")},
+                )
+                ur.raise_for_status()
+                print(
+                    f"[polygraph-worker] job {job_id}: uploaded comparison GLB variant={variant} ({len(body)} bytes)",
+                    flush=True,
+                )
+
         glb = out_dir / f"{job_id}.glb"
         ply = out_dir / f"{job_id}.ply"
         if ply.is_file():

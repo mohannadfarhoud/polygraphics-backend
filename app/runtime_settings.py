@@ -31,6 +31,11 @@ class RuntimeSettings(BaseModel):
     # Drop DUSt3R points below this per-pixel confidence (0..1). 0 disables (Phase 3).
     dust3r_confidence_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
     colmap_binary_path: str | None = None
+    # When True, COLMAP ``feature_extractor`` gets ``--SiftExtraction.use_gpu 1`` (needs a CUDA COLMAP build).
+    colmap_sift_gpu: bool = True
+    # With ``reconstruction_backend == "gaussian_splatting"``, also emit mesh GLBs for A/B comparison
+    # (DUSt3R vs COLMAP) before training GS: ``<job_id>_compare_dust3r.glb`` and ``<job_id>_compare_colmap.glb``.
+    compare_mesh_dust3r_colmap_with_gs: bool = False
     # Gaussian Splatting (https://github.com/graphdeco-inria/gaussian-splatting)
     gs_repo_path: str | None = None
     gs_python_executable: str | None = None  # leave null to use the API's Python
