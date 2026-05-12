@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from .point_cloud import build_point_cloud, remove_statistical_outliers
 from .reconstruction import Dust3RReconstructor
 from .runtime_settings import RuntimeSettings
 from .segmentation import SamSegmenter
+
+_log = logging.getLogger(__name__)
 
 
 class JobCancelled(Exception):
@@ -143,8 +146,12 @@ class ReconstructionPipeline:
                 from .color_baking import bake_vertex_colors_from_views
 
                 bake_vertex_colors_from_views(mesh, photo_views)
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning(
+                    "bake_vertex_colors_from_views failed job=%s (mesh may look flat/dark): %s",
+                    job_id,
+                    exc,
+                )
 
         # Phase 6: UV atlas + multi-view texture bake (better than vertex colours alone).
         textured_tm = None
@@ -163,7 +170,8 @@ class ReconstructionPipeline:
                     skip_dark_threshold=int(self.runtime_settings.texture_skip_dark_threshold),
                     flip_uv_v=bool(self.runtime_settings.texture_flip_uv_v),
                 )
-            except Exception:
+            except Exception as exc:
+                _log.warning("build_textured_trimesh failed job=%s: %s", job_id, exc)
                 textured_tm = None
             self._raise_if_cancelled(cancel_event)
 
