@@ -7,7 +7,6 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_USE_WEBSOCKET`` — ``1``/``true`` to subscribe to ``wss://.../internal/worker/ws`` (default on)
 * ``POLYGRAPH_WEBSOCKET_URL`` — optional full ``wss://host/...`` WebSocket path if auto URL returns 404 behind nginx
 * ``POLYGRAPH_WS_TRY_STRIPPED`` — ``1`` (default) also try ``wss://host/internal/worker/ws`` when the prefixed URL 404s
-* ``POLYGRAPH_MESH_TEXTURE_MAPPING`` — ``1``/``true`` force on; ``0``/``false`` force off; **if unset, use** ``PUT /settings`` **``mesh_texture_mapping``** (recommended ``true`` for photo-real GLB; phase_6 is slow on CPU)
 * ``POLYGRAPH_WS_PING_INTERVAL`` / ``POLYGRAPH_WS_PING_TIMEOUT`` — WebSocket keepalive seconds (defaults ``30`` / ``600``) while **waiting** for work only; the socket is **closed after each job_assigned** and stays disconnected until the job finishes (progress uses REST ``POST .../progress``), then reconnects — avoids 1011 ping timeouts during long GPU runs
 * ``POLYGRAPH_OVERRIDE_DEVICE`` — optional ``cuda`` / ``cpu`` / ``auto``; if unset, worker uses ``cuda`` when ``torch.cuda.is_available()`` else keeps API ``device``
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
@@ -58,12 +57,6 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
                 out["device"] = "cuda"
         except ImportError:
             pass
-
-    tex = os.getenv("POLYGRAPH_MESH_TEXTURE_MAPPING", "").strip().lower()
-    if tex in ("1", "true", "yes", "on"):
-        out["mesh_texture_mapping"] = True
-    elif tex in ("0", "false", "no", "off"):
-        out["mesh_texture_mapping"] = False
 
     return out
 

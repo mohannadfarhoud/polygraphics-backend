@@ -46,13 +46,7 @@
       "id": "meshing",
       "progress": { "min": 75, "max": 75, "typical": 75 },
       "label": "Meshing",
-      "note": "Mesh (.glb) path only, not used for Gaussian Splatting."
-    },
-    {
-      "id": "phase_6_texture_mapping",
-      "progress": { "min": 85, "max": 85, "typical": 85 },
-      "label": "Texture mapping",
-      "note": "UV unwrap (xatlas) + multi-view diffuse bake. Skipped if cameras unavailable or mesh_texture_mapping=false."
+      "note": "Mesh (.glb) path only: Poisson + vertex colours / photo-projected colours — not used for Gaussian Splatting."
     },
     {
       "id": "exporting",
@@ -74,7 +68,6 @@
         { "id": "phase_2_alignment", "progress": 45 },
         { "id": "phase_3_sanitization", "progress": 65 },
         { "id": "meshing", "progress": 75 },
-        { "id": "phase_6_texture_mapping", "progress": 85 },
         { "id": "exporting", "progress": 94 },
         { "id": "completed", "progress": 100 }
       ]

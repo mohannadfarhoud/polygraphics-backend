@@ -24,8 +24,6 @@ STAGE_PHASE_5_GAUSSIAN_SPLATTING: Final = "phase_5_gaussian_splatting"
 
 # Mesh-only finishing step (only emitted on the .glb backend).
 STAGE_MESHING: Final = "meshing"
-# Mesh-only: UV unwrap + multi-view texture bake (phase 6 — after Poisson mesh).
-STAGE_PHASE_6_TEXTURE_MAPPING: Final = "phase_6_texture_mapping"
 
 ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_STARTING,
@@ -36,7 +34,6 @@ ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_PHASE_4_COLMAP_SCENE,
     STAGE_PHASE_5_GAUSSIAN_SPLATTING,
     STAGE_MESHING,
-    STAGE_PHASE_6_TEXTURE_MAPPING,
     STAGE_EXPORTING,
     STAGE_COMPLETED,
 )

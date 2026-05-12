@@ -69,12 +69,6 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Set false on a strict GPU worker so GS does not use CPU PLY fallback.",
         },
         {
-            "key": "mesh_texture_mapping",
-            "scope": "both",
-            "worker_env": "POLYGRAPH_MESH_TEXTURE_MAPPING",
-            "notes": "UV atlas bake (CPU-heavy). Ignored for gaussian_splatting main output.",
-        },
-        {
             "key": "cdn_base_url",
             "scope": "api",
             "worker_env": None,
@@ -98,12 +92,11 @@ def settings_deployment_guide() -> dict[str, Any]:
             {"name": "POLYGRAPH_API_BASE", "purpose": "HTTPS root of the API (same host as uploads)."},
             {"name": "POLYGRAPH_WORKER_TOKEN", "purpose": "Must match APP_WORKER_TOKEN on the API."},
             {"name": "POLYGRAPH_REQUIRE_CUDA", "purpose": "If 1, worker exits when torch.cuda.is_available() is false."},
-            {"name": "POLYGRAPH_MESH_TEXTURE_MAPPING", "purpose": "1/0 overrides mesh_texture_mapping; unset uses PUT /settings value."},
             {"name": "POLYGRAPH_WS_PING_TIMEOUT", "purpose": "WebSocket keepalive for long jobs."},
         ],
         "fields": fields,
         "limitations": (
-            "Some steps are inherently CPU-only in this codebase (Open3D Poisson/decimate, xatlas texture bake, "
-            "parts of COLMAP). CUDA is used for SAM, DUSt3R, COLMAP SIFT when enabled, and GS train.py on GPU."
+            "Some steps are inherently CPU-only in this codebase (Open3D Poisson/decimate, parts of COLMAP). "
+            "CUDA is used for SAM, DUSt3R, COLMAP SIFT when enabled, and GS train.py on GPU."
         ),
     }

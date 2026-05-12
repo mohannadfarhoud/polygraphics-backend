@@ -193,39 +193,9 @@ class ReconstructionPipeline:
                     exc,
                 )
 
-        # Phase 6: UV atlas + multi-view texture bake (better than vertex colours alone).
-        textured_tm = None
-        if (
-            bool(self.runtime_settings.mesh_texture_mapping)
-            and photo_views
-        ):
-            self._publish(job_id, JobStatus.PROCESSING, stage="phase_6_texture_mapping", progress=85)
-            try:
-                from .texture_mapping import build_textured_trimesh
-
-                textured_tm = build_textured_trimesh(
-                    mesh,
-                    photo_views,
-                    atlas_size=int(self.runtime_settings.texture_atlas_size),
-                    skip_dark_threshold=int(self.runtime_settings.texture_skip_dark_threshold),
-                    flip_uv_v=bool(self.runtime_settings.texture_flip_uv_v),
-                )
-            except Exception as exc:
-                _log.warning("build_textured_trimesh failed job=%s: %s", job_id, exc)
-                textured_tm = None
-            self._raise_if_cancelled(cancel_event)
-
         self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
         glb_path = self.config.output_dir / f"{stem}.glb"
-        if textured_tm is not None:
-            try:
-                from .texture_mapping import export_textured_glb
-
-                export_textured_glb(textured_tm, glb_path)
-            except Exception:
-                export_glb(mesh, glb_path)
-        else:
-            export_glb(mesh, glb_path)
+        export_glb(mesh, glb_path)
         if not glb_path.is_file() or glb_path.stat().st_size < 256:
             raise RuntimeError(f"Export produced no usable GLB at {glb_path}")
 

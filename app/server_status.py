@@ -193,16 +193,6 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
         "cpu_max_points": settings.gs_cpu_max_points if settings else None,
     }
 
-    xatlas_importable, xatlas_err = _module_importable("xatlas")
-
-    mesh_texture = {
-        "package": "xatlas",
-        "importable": xatlas_importable,
-        "import_error": xatlas_err,
-        "enabled_by_default": settings.mesh_texture_mapping if settings else None,
-        "texture_atlas_size": settings.texture_atlas_size if settings else None,
-    }
-
     ready_flag, ready_reason = (False, "settings unavailable")
     if settings is not None:
         try:
@@ -221,7 +211,6 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
         "dust3r": dust3r,
         "colmap": colmap,
         "gaussian_splatting": gaussian_splatting,
-        "mesh_texture_mapping": mesh_texture,
     }
 
 
