@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -7,6 +9,30 @@ import cv2
 import numpy as np
 
 from .runtime_settings import RuntimeSettings
+
+
+def _torch_safe_globals_ctx():
+    """Allow DUSt3R checkpoints that pickle argparse.Namespace on newer torch."""
+    try:
+        import torch
+    except Exception:
+        return nullcontext()
+    ser = getattr(torch, "serialization", None)
+    if ser is None:
+        return nullcontext()
+    ctx = getattr(ser, "safe_globals", None)
+    if callable(ctx):
+        try:
+            return ctx([argparse.Namespace])
+        except Exception:
+            return nullcontext()
+    add = getattr(ser, "add_safe_globals", None)
+    if callable(add):
+        try:
+            add([argparse.Namespace])
+        except Exception:
+            pass
+    return nullcontext()
 
 
 def _read_image_resized_rgb(path: Path, width: int, height: int) -> np.ndarray | None:
@@ -103,16 +129,46 @@ def _load_model(settings: RuntimeSettings, device):
                 f"Original error: {exc}"
             ) from exc
         try:
-            try:
-                model = dust3r_load_model(local_ckpt, device="cpu", verbose=False)
-            except TypeError:
-                model = dust3r_load_model(local_ckpt, device="cpu")
+            with _torch_safe_globals_ctx():
+                try:
+                    model = dust3r_load_model(local_ckpt, device="cpu", verbose=False)
+                except TypeError:
+                    model = dust3r_load_model(local_ckpt, device="cpu")
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to load DUSt3R weights from local file {local_ckpt!r}. "
-                "Confirm it is a DUSt3R training checkpoint (``ckpt['args']`` + ``ckpt['model']``). "
-                f"Original error: {exc}"
-            ) from exc
+            msg = str(exc)
+            if "Weights only load failed" in msg:
+                # PyTorch 2.6+ defaults torch.load(..., weights_only=True). DUSt3R
+                # training checkpoints often include argparse.Namespace metadata.
+                try:
+                    import torch
+
+                    orig_torch_load = torch.load
+
+                    def _torch_load_compat(*args, **kwargs):
+                        kwargs.setdefault("weights_only", False)
+                        return orig_torch_load(*args, **kwargs)
+
+                    torch.load = _torch_load_compat
+                    try:
+                        with _torch_safe_globals_ctx():
+                            try:
+                                model = dust3r_load_model(local_ckpt, device="cpu", verbose=False)
+                            except TypeError:
+                                model = dust3r_load_model(local_ckpt, device="cpu")
+                    finally:
+                        torch.load = orig_torch_load
+                except Exception as exc2:
+                    raise RuntimeError(
+                        f"Failed to load DUSt3R weights from local file {local_ckpt!r}. "
+                        "Checkpoint likely needs trusted unpickling on this torch version. "
+                        f"Original error: {exc2}"
+                    ) from exc2
+            else:
+                raise RuntimeError(
+                    f"Failed to load DUSt3R weights from local file {local_ckpt!r}. "
+                    "Confirm it is a DUSt3R training checkpoint (``ckpt['args']`` + ``ckpt['model']``). "
+                    f"Original error: {exc}"
+                ) from exc
         return model.to(device)
 
     if looks_like_file:
