@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 import open3d as o3d
 import trimesh
+
+_log = logging.getLogger(__name__)
 
 
 def poisson_mesh(
@@ -55,11 +58,31 @@ def transfer_vertex_colors_from_point_cloud(
     if pts.size == 0 or cols.size == 0:
         return mesh
 
-    tree = o3d.geometry.KDTreeFlann(pcd)
-    nn_colors = np.empty_like(verts)
-    for i in range(verts.shape[0]):
-        _, idx, _ = tree.search_knn_vector_3d(verts[i], 1)
-        nn_colors[i] = cols[idx[0]] if idx else (0.85, 0.85, 0.85)
+    pts64 = np.asarray(pts, dtype=np.float64)
+    verts64 = np.asarray(verts, dtype=np.float64)
+    cols64 = np.asarray(cols, dtype=np.float64)
+
+    try:
+        from scipy.spatial import cKDTree
+
+        tree = cKDTree(pts64)
+        try:
+            _, idx = tree.query(verts64, k=1, workers=-1)
+        except TypeError:
+            _, idx = tree.query(verts64, k=1)
+        idx = np.asarray(idx, dtype=np.intp).reshape(-1)
+        nn_colors = cols64[idx]
+    except ImportError:
+        _log.warning(
+            "scipy is not installed; mesh vertex colour transfer falls back to a slow per-vertex loop "
+            "(install scipy for large meshes)."
+        )
+        tree = o3d.geometry.KDTreeFlann(pcd)
+        nn_colors = np.empty_like(verts64)
+        for i in range(verts64.shape[0]):
+            _, idx, _ = tree.search_knn_vector_3d(verts64[i], 1)
+            nn_colors[i] = cols64[idx[0]] if idx else (0.85, 0.85, 0.85)
+
     mesh.vertex_colors = o3d.utility.Vector3dVector(nn_colors)
     return mesh
 

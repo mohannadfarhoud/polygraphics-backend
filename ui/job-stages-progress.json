@@ -49,6 +49,30 @@
       "note": "Mesh (.glb) path only: Poisson + vertex colours / photo-projected colours — not used for Gaussian Splatting."
     },
     {
+      "id": "vertex_color_transfer",
+      "progress": { "min": 77, "max": 77, "typical": 77 },
+      "label": "Vertex colours from point cloud",
+      "note": "Mesh path: nearest-point colours onto mesh vertices (vectorized when scipy is installed)."
+    },
+    {
+      "id": "photo_vertex_bake",
+      "progress": { "min": 86, "max": 86, "typical": 86 },
+      "label": "Photo-projected vertex colours",
+      "note": "Mesh path: multi-view colour sampling when cameras are available."
+    },
+    {
+      "id": "compare_mesh_dust3r",
+      "progress": { "min": 41, "max": 41, "typical": 41 },
+      "label": "Comparison mesh (DUSt3R)",
+      "note": "Only when compare_mesh_dust3r_colmap_with_gs and gaussian_splatting."
+    },
+    {
+      "id": "compare_mesh_colmap",
+      "progress": { "min": 44, "max": 44, "typical": 44 },
+      "label": "Comparison mesh (COLMAP)",
+      "note": "Only when compare_mesh_dust3r_colmap_with_gs and gaussian_splatting."
+    },
+    {
       "id": "exporting",
       "progress": { "min": 94, "max": 94, "typical": 94 },
       "label": "Exporting model"
@@ -68,6 +92,8 @@
         { "id": "phase_2_alignment", "progress": 45 },
         { "id": "phase_3_sanitization", "progress": 65 },
         { "id": "meshing", "progress": 75 },
+        { "id": "vertex_color_transfer", "progress": 77 },
+        { "id": "photo_vertex_bake", "progress": 86 },
         { "id": "exporting", "progress": 94 },
         { "id": "completed", "progress": 100 }
       ]

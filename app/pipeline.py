@@ -150,6 +150,7 @@ class ReconstructionPipeline:
         # decimation don't reliably propagate vertex colors across versions, so
         # we always transfer them from the cleaned colored cloud at the end.
         if clean_pcd.has_colors():
+            self._publish(job_id, JobStatus.PROCESSING, stage="vertex_color_transfer", progress=77)
             mesh = transfer_vertex_colors_from_point_cloud(mesh, clean_pcd)
 
         # Build camera views mapped to original (unmasked) photos for baking.
@@ -185,6 +186,7 @@ class ReconstructionPipeline:
             try:
                 from .color_baking import bake_vertex_colors_from_views
 
+                self._publish(job_id, JobStatus.PROCESSING, stage="photo_vertex_bake", progress=86)
                 bake_vertex_colors_from_views(mesh, photo_views)
             except Exception as exc:
                 _log.warning(

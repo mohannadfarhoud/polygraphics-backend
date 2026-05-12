@@ -24,6 +24,10 @@ STAGE_PHASE_5_GAUSSIAN_SPLATTING: Final = "phase_5_gaussian_splatting"
 
 # Mesh-only finishing step (only emitted on the .glb backend).
 STAGE_MESHING: Final = "meshing"
+STAGE_VERTEX_COLOR_TRANSFER: Final = "vertex_color_transfer"
+STAGE_PHOTO_VERTEX_BAKE: Final = "photo_vertex_bake"
+STAGE_COMPARE_MESH_DUST3R: Final = "compare_mesh_dust3r"
+STAGE_COMPARE_MESH_COLMAP: Final = "compare_mesh_colmap"
 
 ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_STARTING,
@@ -34,6 +38,10 @@ ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_PHASE_4_COLMAP_SCENE,
     STAGE_PHASE_5_GAUSSIAN_SPLATTING,
     STAGE_MESHING,
+    STAGE_VERTEX_COLOR_TRANSFER,
+    STAGE_PHOTO_VERTEX_BAKE,
+    STAGE_COMPARE_MESH_DUST3R,
+    STAGE_COMPARE_MESH_COLMAP,
     STAGE_EXPORTING,
     STAGE_COMPLETED,
 )

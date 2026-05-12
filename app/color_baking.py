@@ -9,12 +9,15 @@ came out near-black.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
 import numpy as np
 import open3d as o3d
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -106,17 +109,35 @@ def bake_vertex_colors_from_views(
     # Fill non-sampled vertices via nearest neighbour from sampled ones so the GLB
     # never has black holes where projection happened to miss.
     if (~has_any).any() and has_any.any():
-        sampled_pcd = o3d.geometry.PointCloud()
-        sampled_pcd.points = o3d.utility.Vector3dVector(verts[has_any])
-        sampled_pcd.colors = o3d.utility.Vector3dVector(out_colors[has_any])
-        tree = o3d.geometry.KDTreeFlann(sampled_pcd)
-        sampled_cols = np.asarray(sampled_pcd.colors)
-        for i in np.where(~has_any)[0]:
-            _k, idx, _d = tree.search_knn_vector_3d(verts[i], 1)
-            if len(idx):
-                out_colors[i] = sampled_cols[idx[0]]
-            else:
-                out_colors[i] = (0.85, 0.85, 0.85)
+        src_pts = verts[has_any].astype(np.float64)
+        src_cols = out_colors[has_any]
+        miss = np.where(~has_any)[0]
+        dst = verts[miss].astype(np.float64)
+        try:
+            from scipy.spatial import cKDTree
+
+            tree = cKDTree(src_pts)
+            try:
+                _, nn_i = tree.query(dst, k=1, workers=-1)
+            except TypeError:
+                _, nn_i = tree.query(dst, k=1)
+            nn_i = np.asarray(nn_i, dtype=np.intp).reshape(-1)
+            out_colors[miss] = src_cols[nn_i]
+        except ImportError:
+            _log.warning(
+                "scipy is not installed; photo vertex hole-fill uses a slow loop (install scipy)."
+            )
+            sampled_pcd = o3d.geometry.PointCloud()
+            sampled_pcd.points = o3d.utility.Vector3dVector(src_pts)
+            sampled_pcd.colors = o3d.utility.Vector3dVector(src_cols)
+            tree = o3d.geometry.KDTreeFlann(sampled_pcd)
+            sampled_cols = np.asarray(sampled_pcd.colors)
+            for i in miss:
+                _k, idx, _d = tree.search_knn_vector_3d(verts[i], 1)
+                if len(idx):
+                    out_colors[i] = sampled_cols[idx[0]]
+                else:
+                    out_colors[i] = (0.85, 0.85, 0.85)
 
     mesh.vertex_colors = o3d.utility.Vector3dVector(out_colors)
     return True

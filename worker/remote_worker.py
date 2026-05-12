@@ -148,9 +148,9 @@ class ApiReportingJobRepository:
         now = time.monotonic()
         if now - self._last_post < self._interval:
             return
-        self._last_post = now
         try:
-            self._client.post(
+            self._last_post = now
+            r = self._client.post(
                 f"{self._base}/internal/worker/jobs/{job_id}/progress",
                 headers={"X-Worker-Token": self._token},
                 json={
@@ -159,8 +159,14 @@ class ApiReportingJobRepository:
                 },
                 timeout=60.0,
             )
-        except Exception:
-            pass
+            if r.status_code >= 400:
+                print(
+                    f"[polygraph-worker] progress POST failed job={job_id} "
+                    f"HTTP {r.status_code}: {(r.text or '')[:240]}",
+                    flush=True,
+                )
+        except Exception as exc:
+            print(f"[polygraph-worker] progress POST error job={job_id}: {exc}", flush=True)
 
 
 def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | None = None) -> None:
