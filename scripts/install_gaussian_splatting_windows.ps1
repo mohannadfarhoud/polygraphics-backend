@@ -90,7 +90,7 @@ if ($SkipSubmoduleBuild) {
 
     Step "Building diff-gaussian-rasterization (CUDA - requires nvcc)"
     Push-Location $dgr
-    & $venvPython -m pip install .
+    & $venvPython -m pip install --no-build-isolation .
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
         Write-Host ""
@@ -104,7 +104,7 @@ if ($SkipSubmoduleBuild) {
 
     Step "Building simple-knn (CUDA)"
     Push-Location $skn
-    & $venvPython -m pip install .
+    & $venvPython -m pip install --no-build-isolation .
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
         exit $LASTEXITCODE
