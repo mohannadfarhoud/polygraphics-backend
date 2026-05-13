@@ -3,7 +3,7 @@
   Clone graphdeco-inria/gaussian-splatting (with submodules) and build CUDA extensions
   inside the project virtualenv so the API can run reconstruction_backend=gaussian_splatting.
 
-.REQUIREMENTS (official repo — same as upstream)
+.REQUIREMENTS (official repo - same as upstream)
   - NVIDIA GPU + driver
   - CUDA Toolkit installed; nvcc must be on PATH (version should match the PyTorch CUDA wheel)
   - Visual Studio 2022 Build Tools with "Desktop development with C++" workload
@@ -85,10 +85,10 @@ if ($SkipSubmoduleBuild) {
     $dgr = Join-Path $gsRepo "submodules\diff-gaussian-rasterization"
     $skn = Join-Path $gsRepo "submodules\simple-knn"
     if (-not (Test-Path $dgr)) {
-        Write-Error "Missing submodule: $dgr — run: cd `"$gsRepo`"; git submodule update --init --recursive"
+        Write-Error "Missing submodule: $dgr - run: cd `"$gsRepo`"; git submodule update --init --recursive"
     }
 
-    Step "Building diff-gaussian-rasterization (CUDA — requires nvcc)"
+    Step "Building diff-gaussian-rasterization (CUDA - requires nvcc)"
     Push-Location $dgr
     & $venvPython -m pip install .
     if ($LASTEXITCODE -ne 0) {
