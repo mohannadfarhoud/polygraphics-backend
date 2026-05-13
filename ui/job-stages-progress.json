@@ -46,7 +46,7 @@
       "id": "meshing",
       "progress": { "min": 75, "max": 75, "typical": 75 },
       "label": "Meshing",
-      "note": "Mesh (.glb) path only: Poisson meshing, not used for Gaussian Splatting."
+      "note": "Mesh (.glb) path only: Poisson meshing; optional photo-projected vertex colours when enabled in settings."
     },
     {
       "id": "mesh_cleanup",
@@ -54,14 +54,20 @@
       "label": "Mesh cleanup",
       "note": "Mesh path: keep largest connected component and remove disconnected fragments."
     },
-    {
-      "id": "vertex_color_transfer",
-      "progress": { "min": 77, "max": 77, "typical": 77 },
-      "label": "Vertex colours from point cloud",
-      "note": "Mesh path: nearest-point colours onto mesh vertices (vectorized when scipy is installed)."
-    },
-    {
-      "id": "color_autobalance",
+        {
+            "id": "vertex_color_transfer",
+            "progress": { "min": 77, "max": 77, "typical": 77 },
+            "label": "Vertex colours from point cloud",
+            "note": "Mesh path: nearest-point colours onto mesh vertices (vectorized when scipy is installed)."
+        },
+        {
+            "id": "photo_vertex_bake",
+            "progress": { "min": 86, "max": 86, "typical": 86 },
+            "label": "Photo-projected vertex colours",
+            "note": "Mesh path: multi-view colour sampling from originals when cameras exist and mesh_photo_vertex_bake is true."
+        },
+        {
+            "id": "color_autobalance",
       "progress": { "min": 90, "max": 90, "typical": 90 },
       "label": "Color balancing + centering",
       "note": "Mesh path: auto-lift dark colors when needed, then center and scale around origin."
@@ -100,6 +106,7 @@
         { "id": "meshing", "progress": 75 },
         { "id": "vertex_color_transfer", "progress": 77 },
         { "id": "mesh_cleanup", "progress": 79 },
+        { "id": "photo_vertex_bake", "progress": 86 },
         { "id": "color_autobalance", "progress": 90 },
         { "id": "exporting", "progress": 94 },
         { "id": "completed", "progress": 100 }

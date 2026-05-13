@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 from typing import Literal
 
+from .color_baking import CameraView
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopJobRepository, NoopWebSocketNotifier, WebSocketNotifier
 from .meshing import (
@@ -162,6 +163,44 @@ class ReconstructionPipeline:
         if clean_pcd.has_colors():
             self._publish(job_id, JobStatus.PROCESSING, stage="vertex_color_transfer", progress=77)
             mesh = transfer_vertex_colors_from_point_cloud(mesh, clean_pcd)
+
+        if self.runtime_settings.mesh_photo_vertex_bake:
+            photo_views: list[CameraView] = []
+            try:
+                cams = list(getattr(reconstruction, "cameras", []) or [])
+                if cams:
+                    masked_to_original: dict[str, Path] = {}
+                    for masked, original in zip(masked_paths, original_paths):
+                        masked_to_original[str(masked)] = original
+                        masked_to_original[masked.name] = original
+
+                    for cam in cams:
+                        original = masked_to_original.get(str(cam.image_path)) or masked_to_original.get(
+                            Path(cam.image_path).name
+                        ) or cam.image_path
+                        photo_views.append(
+                            CameraView(
+                                image_path=original,
+                                image_size=cam.image_size,
+                                K=cam.K,
+                                w2c=cam.w2c,
+                            )
+                        )
+            except Exception:
+                photo_views = []
+
+            if photo_views:
+                try:
+                    from .color_baking import bake_vertex_colors_from_views
+
+                    self._publish(job_id, JobStatus.PROCESSING, stage="photo_vertex_bake", progress=86)
+                    bake_vertex_colors_from_views(mesh, photo_views)
+                except Exception as exc:
+                    _log.warning(
+                        "bake_vertex_colors_from_views failed job=%s (mesh may look flat/dark): %s",
+                        job_id,
+                        exc,
+                    )
 
         self._publish(job_id, JobStatus.PROCESSING, stage="color_autobalance", progress=90)
         mesh = autobalance_vertex_colors(mesh)

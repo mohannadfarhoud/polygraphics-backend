@@ -22,12 +22,12 @@ The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudf
 1. SAM segmentation creates binary masks and forces a black background.
 2. DUSt3R (or COLMAP) reconstruction produces aligned 3D points.
 3. Open3D statistical outlier removal cleans noise.
-4. Poisson meshing + decimation creates a lightweight surface mesh; vertex colours come from the reconstructed point cloud.
+4. Poisson meshing + decimation creates a lightweight surface mesh; vertex colours come from the point cloud, then optional **multi-view photo projection** onto vertices (see `mesh_photo_vertex_bake` in `PUT /settings`) for a closer match to the real photos.
 5. `.glb` export → `output/<job_id>.glb`.
 
 ## Pipeline (Gaussian Splatting / `.ply`)
 
-Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`.
+Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`, set **`gs_repo_path`** to your local clone of [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) (with CUDA extensions built on the worker), and use **`gs_iterations`** around `7000` for quick runs or `30000` for higher quality `.ply` output.
 
 1. SAM segmentation (same as above). When **`save_raw_masks = true`** (default), 1‑channel `.png` masks are written to `masks/<job_id>/mask_NNN.png` alongside the masked colour images.
 2. **Initial scene** (Phase 4 of the pipeline protocol):
@@ -55,6 +55,7 @@ The canonical mapping (progress ranges + ordered flows) lives in **`ui/job-stage
 | `meshing` | 75 | Poisson + decimation. | mesh path only |
 | `vertex_color_transfer` | 77 | Transfer nearest cloud colors to mesh vertices. | mesh path only |
 | `mesh_cleanup` | 79 | Keep only the largest connected mesh component. | mesh path only |
+| `photo_vertex_bake` | 86 | Multi-view projected colours from original images. | mesh path when cameras exist and `mesh_photo_vertex_bake` is true |
 | `color_autobalance` | 90 | Auto-lift dark colors and center/scale mesh near origin. | mesh path only |
 | `exporting` | 94 | Writing the final `.glb` / `.ply`. | always |
 | `completed` | 100 | Job finished, `model_url` is ready. | always |
@@ -73,6 +74,7 @@ const STAGE_LABELS: Record<string, string> = {
   meshing: "Meshing surface",
   vertex_color_transfer: "Applying point-cloud colors",
   mesh_cleanup: "Removing disconnected fragments",
+  photo_vertex_bake: "Projecting photo colors",
   color_autobalance: "Balancing colors + centering object",
   exporting: "Exporting model",
   completed: "Done",
@@ -94,6 +96,7 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `nb_neighbors` | `20` | 3 | Open3D SOR neighbours. |
 | `std_ratio` | `2.0` | 3 | Open3D SOR std-dev ratio (protocol range: 1.5–2.0). |
 | `decimation_target_triangles` | `300000` | mesh | Higher keeps more detail (slower / larger GLB). |
+| `mesh_photo_vertex_bake` | `true` | mesh | When true and cameras are available, sample vertex colours from original photos (best realism for `.glb`). |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. |
 | `gs_iterations` | `30000` | 5 | `7_000` (Quick) or `30_000` (Dense). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |

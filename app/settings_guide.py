@@ -69,6 +69,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Set false on a strict GPU worker so GS does not use CPU PLY fallback.",
         },
         {
+            "key": "mesh_photo_vertex_bake",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Mesh (.glb): when true, project mesh vertex colours from original photos using estimated cameras (recommended for realistic colour).",
+        },
+        {
             "key": "cdn_base_url",
             "scope": "api",
             "worker_env": None,

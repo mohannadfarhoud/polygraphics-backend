@@ -62,6 +62,9 @@ class RuntimeSettings(BaseModel):
     poisson_depth: int = Field(default=10, ge=4, le=14)
     poisson_density_quantile: float = Field(default=0.02, ge=0.0, le=1.0)
     decimation_target_triangles: int = Field(default=300_000, ge=1000)
+    # Mesh (.glb) only: project vertex colours from original (unmasked) photos using estimated cameras.
+    # Strongly improves realism vs point-cloud colours alone. Set false for faster jobs or if colours look wrong.
+    mesh_photo_vertex_bake: bool = True
     # Public URL prefix for generated model files (must match where this API serves /output/…).
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)

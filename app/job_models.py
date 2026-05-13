@@ -18,7 +18,7 @@ class JobRecord(BaseModel):
             "Lifecycle: starting | exporting | completed. "
             "Pipeline protocol: phase_1_segmentation | phase_2_alignment | phase_3_sanitization "
             "| phase_4_colmap_bridge | phase_4_colmap_scene | phase_5_gaussian_splatting. "
-            "Mesh-only: meshing | mesh_cleanup | vertex_color_transfer "
+            "Mesh-only: meshing | mesh_cleanup | vertex_color_transfer | photo_vertex_bake "
             "| color_autobalance | exporting. "
             "Optional GS comparison meshes: compare_mesh_dust3r | compare_mesh_colmap. "
             "May include a human suffix in parens, e.g. 'phase_1_segmentation (3/27)'."
