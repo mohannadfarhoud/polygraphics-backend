@@ -88,6 +88,9 @@ if ($SkipSubmoduleBuild) {
         Write-Error "Missing submodule: $dgr - run: cd `"$gsRepo`"; git submodule update --init --recursive"
     }
 
+    # Reuse the active Visual Studio developer prompt environment for setuptools builds.
+    $env:DISTUTILS_USE_SDK = "1"
+
     Step "Building diff-gaussian-rasterization (CUDA - requires nvcc)"
     Push-Location $dgr
     & $venvPython -m pip install --no-build-isolation .
