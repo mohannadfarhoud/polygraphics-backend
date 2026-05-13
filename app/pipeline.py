@@ -208,7 +208,11 @@ class ReconstructionPipeline:
 
         self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
         glb_path = self.config.output_dir / f"{stem}.glb"
-        export_glb(mesh, glb_path)
+        export_glb(
+            mesh,
+            glb_path,
+            compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
+        )
         if not glb_path.is_file() or glb_path.stat().st_size < 256:
             raise RuntimeError(f"Export produced no usable GLB at {glb_path}")
 

@@ -23,7 +23,35 @@ The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudf
 2. DUSt3R (or COLMAP) reconstruction produces aligned 3D points.
 3. Open3D statistical outlier removal cleans noise.
 4. Poisson meshing + decimation creates a lightweight surface mesh; vertex colours come from the point cloud, then optional **multi-view photo projection** onto vertices (see `mesh_photo_vertex_bake` in `PUT /settings`) for a closer match to the real photos.
-5. `.glb` export → `output/<job_id>.glb`.
+5. `.glb` export → `output/<job_id>.glb` (optional Draco-style compression via Open3D when `mesh_glb_draco_compression` is true).
+
+### RTX 3050 (8 GB VRAM) preset
+
+Tune `PUT /settings` roughly like this for mesh + splats on a single GPU:
+
+```json
+{
+  "device": "cuda",
+  "sam_use_fp16": true,
+  "dust3r_use_fp16": true,
+  "dust3r_inference_batch_size": 1,
+  "dust3r_max_inference_side": 768,
+  "max_image_side": 1024,
+  "gs_iterations": 7000,
+  "gs_sh_degree": 3,
+  "gs_densify_until_iter": 5000,
+  "mesh_glb_draco_compression": true,
+  "mesh_photo_vertex_bake": true
+}
+```
+
+### SAM masks CLI (CUDA)
+
+Batch binary masks outside the API:
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\sam_masks_cuda.py --input-dir .\photos --mask-dir .\masks --checkpoint C:\path\to\sam_vit_b_01ec64.pth --model-type vit_b
+```
 
 ## Pipeline (Gaussian Splatting / `.ply`)
 
@@ -33,7 +61,7 @@ Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`, set 
 2. **Initial scene** (Phase 4 of the pipeline protocol):
    - `gs_init_source = "colmap"` runs COLMAP on the masked images to produce `cameras.bin` / `images.bin` / `points3D.bin`.
    - **`gs_init_source = "dust3r"`** runs DUSt3R + `GlobalAligner` and writes a COLMAP **text** sparse reconstruction (`sparse/0/cameras.txt` / `images.txt` / `points3D.txt`). The 3D-points seed is the confidence-filtered DUSt3R cloud — exactly the “seed” described in the protocol.
-3. **Training**: shells out to `python <gs_repo_path>/train.py -s <scene> -m <model> --iterations <gs_iterations> --sh_degree <gs_sh_degree> --opacity_reset_interval <gs_opacity_reset_interval> [--resolution <gs_resolution>]` from the official [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) repo.
+3. **Training**: shells out to `python <gs_repo_path>/train.py` with `--iterations`, `--sh_degree`, `--opacity_reset_interval`, optional `--resolution`, and `--densify_until_iter` when `gs_densify_until_iter > 0` from the official [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) repo.
 4. The latest `point_cloud/iteration_<N>/point_cloud.ply` is copied to `output/<job_id>.ply`.
 5. `model_url` points to that `.ply`; `model_format = "ply"`.
 
@@ -97,8 +125,14 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `std_ratio` | `2.0` | 3 | Open3D SOR std-dev ratio (protocol range: 1.5–2.0). |
 | `decimation_target_triangles` | `300000` | mesh | Higher keeps more detail (slower / larger GLB). |
 | `mesh_photo_vertex_bake` | `true` | mesh | When true and cameras are available, sample vertex colours from original photos (best realism for `.glb`). |
+| `mesh_glb_draco_compression` | `true` | mesh | Open3D compressed binary GLB (smaller web downloads). Falls back to uncompressed trimesh export if needed. |
+| `sam_use_fp16` | `true` | 1 | CUDA mixed precision for SAM (lower VRAM). |
+| `dust3r_use_fp16` | `true` | 2–3 | CUDA mixed precision for DUSt3R inference + alignment. |
+| `dust3r_inference_batch_size` | `1` | 2 | DUSt3R pair batch size (`2` uses more VRAM). |
+| `dust3r_max_inference_side` | `768` | 2 | Upper bound on DUSt3R resize side (`min` with `max_image_side`). |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. |
-| `gs_iterations` | `30000` | 5 | `7_000` (Quick) or `30_000` (Dense). |
+| `gs_iterations` | `7000` | 5 | Default targets RTX 3050-class VRAM; use `30000` for higher-quality `.ply`. |
+| `gs_densify_until_iter` | `5000` | 5 | Stops Gaussian densification earlier; forwarded to `train.py --densify_until_iter`. Use `0` to omit (upstream default ~15000). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |
 
 > Real GS training officially needs a CUDA GPU. On CPU it’s impractical (or unsupported, depending on fork).

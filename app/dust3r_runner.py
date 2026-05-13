@@ -218,20 +218,26 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
     device = _resolve_device(settings)
     model = _load_model(settings, device)
 
-    max_side = min(settings.max_image_side, 512)
+    max_side = min(int(settings.max_image_side), int(settings.dust3r_max_inference_side))
     images = load_images(paths, size=max_side)
     pairs = make_pairs(images, scene_graph="complete", prefilter=None, symmetrize=True)
 
-    batch_size = 1 if device.type == "cpu" else 2
-    output = inference(pairs, model, device, batch_size=batch_size)
+    batch_size = 1 if device.type == "cpu" else max(1, int(settings.dust3r_inference_batch_size))
+    use_fp16 = device.type == "cuda" and bool(getattr(settings, "dust3r_use_fp16", True))
+
+    amp_ctx = torch.cuda.amp.autocast(dtype=torch.float16) if use_fp16 else nullcontext()
+
+    with amp_ctx:
+        output = inference(pairs, model, device, batch_size=batch_size)
 
     scene = global_aligner(output, device=device, mode=GlobalAlignerMode.PointCloudOptimizer)
-    scene.compute_global_alignment(
-        init="mst",
-        niter=int(settings.dust3r_aligner_iters),
-        schedule="cosine",
-        lr=float(settings.dust3r_aligner_lr),
-    )
+    with amp_ctx:
+        scene.compute_global_alignment(
+            init="mst",
+            niter=int(settings.dust3r_aligner_iters),
+            schedule="cosine",
+            lr=float(settings.dust3r_aligner_lr),
+        )
 
     pts_list = scene.get_pts3d()
     masks_list = scene.get_masks() if hasattr(scene, "get_masks") else [None] * len(pts_list)

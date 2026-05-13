@@ -152,12 +152,34 @@ def transfer_vertex_colors_from_point_cloud(
     return mesh
 
 
-def export_glb(mesh: o3d.geometry.TriangleMesh, output_path: Path) -> Path:
+def export_glb(
+    mesh: o3d.geometry.TriangleMesh,
+    output_path: Path,
+    *,
+    compressed: bool = False,
+) -> Path:
+    output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     vertices = np.asarray(mesh.vertices)
     faces = np.asarray(mesh.triangles)
     if vertices.size == 0 or faces.size == 0:
         raise RuntimeError("Cannot export empty mesh")
+
+    if compressed and output_path.suffix.lower() == ".glb":
+        try:
+            ok = o3d.io.write_triangle_mesh(
+                str(output_path),
+                mesh,
+                write_ascii=False,
+                compressed=True,
+                write_vertex_normals=True,
+                write_vertex_colors=True,
+                write_triangle_uvs=False,
+            )
+            if ok and output_path.is_file() and output_path.stat().st_size > 256:
+                return output_path
+        except Exception as exc:
+            _log.warning("Open3D compressed GLB failed (%s); using trimesh export.", exc)
 
     tri = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
 

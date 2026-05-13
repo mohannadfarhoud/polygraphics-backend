@@ -24,6 +24,8 @@ class RuntimeSettings(BaseModel):
         "auto_masks_center_bias",
         "auto_masks_largest_area",
     ] = "auto_masks_center_bias"
+    # AMP fp16 on CUDA for SAM forward passes (saves VRAM on e.g. RTX 3050 8GB).
+    sam_use_fp16: bool = True
     dust3r_repo_path: str | None = None
     dust3r_checkpoint_path: str | None = None
     # DUSt3R global aligner (Phase 2 of the pipeline protocol).
@@ -31,6 +33,12 @@ class RuntimeSettings(BaseModel):
     dust3r_aligner_lr: float = Field(default=0.01, gt=0.0, le=1.0)
     # Drop DUSt3R points below this per-pixel confidence (0..1). 0 disables (Phase 3).
     dust3r_confidence_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
+    # DUSt3R inference / aligner on CUDA: mixed precision to stay under ~6–8 GB VRAM on consumer GPUs.
+    dust3r_use_fp16: bool = True
+    # Pair batch size for DUSt3R ``inference()`` (use 1 on RTX 3050).
+    dust3r_inference_batch_size: int = Field(default=1, ge=1, le=8)
+    # Internal longest-side cap for DUSt3R ``load_images`` (combined with max_image_side via min).
+    dust3r_max_inference_side: int = Field(default=768, ge=256, le=8192)
     colmap_binary_path: str | None = None
     # When True, COLMAP ``feature_extractor`` gets ``--SiftExtraction.use_gpu 1`` (needs a CUDA COLMAP build).
     colmap_sift_gpu: bool = True
@@ -41,8 +49,11 @@ class RuntimeSettings(BaseModel):
     gs_repo_path: str | None = None
     gs_python_executable: str | None = None  # leave null to use the API's Python
     gs_init_source: Literal["colmap", "dust3r"] = "colmap"
-    gs_iterations: int = Field(default=30000, ge=100, le=60000)
+    # ~7000 is a practical quality/speed balance on 8 GB GPUs; raise for final-quality splats.
+    gs_iterations: int = Field(default=7000, ge=100, le=60000)
     gs_sh_degree: int = Field(default=3, ge=0, le=4)
+    # Official train.py OptimizationParams.densify_until_iter — lower stops densification earlier (VRAM safety).
+    gs_densify_until_iter: int = Field(default=5000, ge=0, le=60000)
     gs_resolution: int = Field(default=-1, ge=-1, le=8192)  # -1 = original
     # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000.
     gs_opacity_reset_interval: int = Field(default=3000, ge=100, le=60000)
@@ -65,6 +76,8 @@ class RuntimeSettings(BaseModel):
     # Mesh (.glb) only: project vertex colours from original (unmasked) photos using estimated cameras.
     # Strongly improves realism vs point-cloud colours alone. Set false for faster jobs or if colours look wrong.
     mesh_photo_vertex_bake: bool = True
+    # Write mesh GLB with Open3D compressed mode (Draco-style mesh compression for smaller web payloads).
+    mesh_glb_draco_compression: bool = True
     # Public URL prefix for generated model files (must match where this API serves /output/…).
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)

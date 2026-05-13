@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import cv2
@@ -50,12 +51,23 @@ class SamSegmenter:
 
         sam = self._ensure_sam(model_type, ckpt, device)
 
-        if mode == "center_point":
-            mask = self._predict_center_point(sam, image_rgb, h, w)
-        elif mode == "auto_masks_largest_area":
-            mask = self._predict_auto_largest(sam, image_rgb)
+        use_amp = (
+            device.type == "cuda"
+            and self.settings is not None
+            and bool(getattr(self.settings, "sam_use_fp16", True))
+        )
+        if use_amp:
+            amp_ctx = torch.cuda.amp.autocast(dtype=torch.float16)
         else:
-            mask = self._predict_auto_center_bias(sam, image_rgb, h, w)
+            amp_ctx = contextlib.nullcontext()
+
+        with amp_ctx:
+            if mode == "center_point":
+                mask = self._predict_center_point(sam, image_rgb, h, w)
+            elif mode == "auto_masks_largest_area":
+                mask = self._predict_auto_largest(sam, image_rgb)
+            else:
+                mask = self._predict_auto_center_bias(sam, image_rgb, h, w)
 
         if mask is None or mask.size == 0:
             return self._fallback_center_mask(image_bgr)

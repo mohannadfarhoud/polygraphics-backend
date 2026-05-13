@@ -75,6 +75,42 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Mesh (.glb): when true, project mesh vertex colours from original photos using estimated cameras (recommended for realistic colour).",
         },
         {
+            "key": "sam_use_fp16",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "CUDA AMP fp16 for SAM forward passes (lower VRAM on small GPUs).",
+        },
+        {
+            "key": "dust3r_use_fp16",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "CUDA AMP fp16 for DUSt3R inference + global alignment.",
+        },
+        {
+            "key": "dust3r_inference_batch_size",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "DUSt3R inference batch size; use 1 on 8 GB GPUs.",
+        },
+        {
+            "key": "dust3r_max_inference_side",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Caps longest side passed to DUSt3R load_images (min with max_image_side).",
+        },
+        {
+            "key": "gs_densify_until_iter",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Forwarded to gaussian-splatting train.py --densify_until_iter; 0 omits flag (upstream default).",
+        },
+        {
+            "key": "mesh_glb_draco_compression",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Mesh (.glb): Open3D compressed export when true (smaller files for web).",
+        },
+        {
             "key": "cdn_base_url",
             "scope": "api",
             "worker_env": None,

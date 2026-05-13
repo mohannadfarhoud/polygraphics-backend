@@ -146,6 +146,9 @@ def run_gaussian_splatting(
     ]
     if settings.gs_resolution and settings.gs_resolution > 0:
         cmd += ["--resolution", str(settings.gs_resolution)]
+    densify_until = int(getattr(settings, "gs_densify_until_iter", 0))
+    if densify_until > 0:
+        cmd += ["--densify_until_iter", str(densify_until)]
 
     proc = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, check=False)
     if proc.returncode != 0:
