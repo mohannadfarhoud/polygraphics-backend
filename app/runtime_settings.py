@@ -23,14 +23,14 @@ class RuntimeSettings(BaseModel):
         "center_point",
         "auto_masks_center_bias",
         "auto_masks_largest_area",
-    ] = "center_point"
+    ] = "auto_masks_center_bias"
     dust3r_repo_path: str | None = None
     dust3r_checkpoint_path: str | None = None
     # DUSt3R global aligner (Phase 2 of the pipeline protocol).
     dust3r_aligner_iters: int = Field(default=300, ge=10, le=5000)
     dust3r_aligner_lr: float = Field(default=0.01, gt=0.0, le=1.0)
     # Drop DUSt3R points below this per-pixel confidence (0..1). 0 disables (Phase 3).
-    dust3r_confidence_threshold: float = Field(default=0.2, ge=0.0, le=1.0)
+    dust3r_confidence_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
     colmap_binary_path: str | None = None
     # When True, COLMAP ``feature_extractor`` gets ``--SiftExtraction.use_gpu 1`` (needs a CUDA COLMAP build).
     colmap_sift_gpu: bool = True
@@ -41,7 +41,7 @@ class RuntimeSettings(BaseModel):
     gs_repo_path: str | None = None
     gs_python_executable: str | None = None  # leave null to use the API's Python
     gs_init_source: Literal["colmap", "dust3r"] = "colmap"
-    gs_iterations: int = Field(default=7000, ge=100, le=60000)
+    gs_iterations: int = Field(default=30000, ge=100, le=60000)
     gs_sh_degree: int = Field(default=3, ge=0, le=4)
     gs_resolution: int = Field(default=-1, ge=-1, le=8192)  # -1 = original
     # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000.
@@ -59,9 +59,9 @@ class RuntimeSettings(BaseModel):
     save_raw_masks: bool = True
     nb_neighbors: int = Field(default=20, ge=1)
     std_ratio: float = Field(default=2.0, gt=0)
-    poisson_depth: int = Field(default=9, ge=4, le=14)
+    poisson_depth: int = Field(default=10, ge=4, le=14)
     poisson_density_quantile: float = Field(default=0.02, ge=0.0, le=1.0)
-    decimation_target_triangles: int = Field(default=200_000, ge=1000)
+    decimation_target_triangles: int = Field(default=300_000, ge=1000)
     # Public URL prefix for generated model files (must match where this API serves /output/…).
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)

@@ -22,7 +22,7 @@ The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudf
 1. SAM segmentation creates binary masks and forces a black background.
 2. DUSt3R (or COLMAP) reconstruction produces aligned 3D points.
 3. Open3D statistical outlier removal cleans noise.
-4. Poisson meshing + decimation creates a lightweight surface mesh; vertex colours come from the point cloud and optional **photo‑projected** vertex colours from estimated cameras.
+4. Poisson meshing + decimation creates a lightweight surface mesh; vertex colours come from the reconstructed point cloud.
 5. `.glb` export → `output/<job_id>.glb`.
 
 ## Pipeline (Gaussian Splatting / `.ply`)
@@ -52,10 +52,9 @@ The canonical mapping (progress ranges + ordered flows) lives in **`ui/job-stage
 | `phase_4_colmap_bridge` | 60 | Writing `sparse/0/{cameras,images,points3D}.txt` from DUSt3R seed. | GS path with `gs_init_source=dust3r` |
 | `phase_4_colmap_scene` | 50 | Running COLMAP (`feature_extractor` → `exhaustive_matcher` → `mapper`). | GS path with `gs_init_source=colmap` |
 | `phase_5_gaussian_splatting` | 65 → 95 | `train.py` running. | GS path |
-| `meshing` | 75 | Poisson + decimation; vertex / photo-projected colours. | mesh path only |
+| `meshing` | 75 | Poisson + decimation. | mesh path only |
 | `vertex_color_transfer` | 77 | Transfer nearest cloud colors to mesh vertices. | mesh path only |
 | `mesh_cleanup` | 79 | Keep only the largest connected mesh component. | mesh path only |
-| `photo_vertex_bake` | 86 | Multi-view projected colors from original images. | mesh path when cameras exist |
 | `color_autobalance` | 90 | Auto-lift dark colors and center/scale mesh near origin. | mesh path only |
 | `exporting` | 94 | Writing the final `.glb` / `.ply`. | always |
 | `completed` | 100 | Job finished, `model_url` is ready. | always |
@@ -74,7 +73,6 @@ const STAGE_LABELS: Record<string, string> = {
   meshing: "Meshing surface",
   vertex_color_transfer: "Applying point-cloud colors",
   mesh_cleanup: "Removing disconnected fragments",
-  photo_vertex_bake: "Projecting photo colors",
   color_autobalance: "Balancing colors + centering object",
   exporting: "Exporting model",
   completed: "Done",
@@ -92,12 +90,12 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `save_raw_masks` | `true` | 1 | Save binary `.png` masks to `masks/<job_id>/`. |
 | `dust3r_aligner_iters` | `300` | 2 | `niter` for `compute_global_alignment` (≥ 300 for stable floors). |
 | `dust3r_aligner_lr` | `0.01` | 2 | Learning rate for the global aligner. |
-| `dust3r_confidence_threshold` | `0.2` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
+| `dust3r_confidence_threshold` | `0` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
 | `nb_neighbors` | `20` | 3 | Open3D SOR neighbours. |
 | `std_ratio` | `2.0` | 3 | Open3D SOR std-dev ratio (protocol range: 1.5–2.0). |
-| `decimation_target_triangles` | `200000` | mesh | Higher keeps more detail (slower / larger GLB). |
+| `decimation_target_triangles` | `300000` | mesh | Higher keeps more detail (slower / larger GLB). |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. |
-| `gs_iterations` | `7000` | 5 | `7_000` (Quick) or `30_000` (Dense). |
+| `gs_iterations` | `30000` | 5 | `7_000` (Quick) or `30_000` (Dense). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |
 
 > Real GS training officially needs a CUDA GPU. On CPU it’s impractical (or unsupported, depending on fork).
@@ -145,7 +143,7 @@ To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatt
 
 ### SAM: mask the center subject
 
-`PUT /settings` includes **`sam_segmentation_mode`** (default **`center_point`**): SAM is prompted with a **positive point at the image center**, which targets the object in the middle of the frame. Other modes: **`auto_masks_center_bias`** (all auto-masks, scored by size × closeness to center) and **`auto_masks_largest_area`** (legacy: largest mask only — often the background).
+`PUT /settings` includes **`sam_segmentation_mode`** (default **`auto_masks_center_bias`**): SAM auto-generates masks and scores them by size × closeness to center. Other modes: **`center_point`** (prompt with a positive point at image center) and **`auto_masks_largest_area`** (legacy: largest mask only — often the background).
 
 ### Improving mesh quality (DUSt3R + Open3D)
 

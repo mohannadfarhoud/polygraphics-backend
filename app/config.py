@@ -12,9 +12,9 @@ class PipelineConfig:
     masks_dir_name: str = "masks"
     nb_neighbors: int = 20
     std_ratio: float = 2.0
-    poisson_depth: int = 9
+    poisson_depth: int = 10
     poisson_density_quantile: float = 0.02
-    decimation_target_triangles: int = 120_000
+    decimation_target_triangles: int = 300_000
     cdn_base_url: str = "http://127.0.0.1:8000/output"
 
     @property
