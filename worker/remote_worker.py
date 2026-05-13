@@ -124,6 +124,7 @@ class ApiReportingJobRepository:
         self._token = token
         self._job_id = job_id
         self._last_post = float("-inf")
+        self._last_stage: str | None = None
         self._interval = float(os.environ.get("POLYGRAPH_PROGRESS_INTERVAL_SECONDS", "5"))
 
     def set_status(
@@ -146,10 +147,13 @@ class ApiReportingJobRepository:
         if stage is None and progress is None:
             return
         now = time.monotonic()
-        if now - self._last_post < self._interval:
+        stage_changed = stage is not None and stage != self._last_stage
+        if not stage_changed and now - self._last_post < self._interval:
             return
         try:
             self._last_post = now
+            if stage is not None:
+                self._last_stage = stage
             r = self._client.post(
                 f"{self._base}/internal/worker/jobs/{job_id}/progress",
                 headers={"X-Worker-Token": self._token},
