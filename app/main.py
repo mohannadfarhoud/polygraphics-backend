@@ -18,8 +18,10 @@ except ImportError:
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
+from starlette.responses import HTMLResponse, JSONResponse
 from starlette.websockets import WebSocketDisconnect
 
 from .config import PipelineConfig
@@ -56,12 +58,13 @@ app = FastAPI(
     title="polyGraphics 3D Backend",
     description="API for 2D-to-3D reconstruction pipeline (SAM + DUSt3R + Open3D)",
     version="1.0.0",
-    docs_url="/swagger",
-    redoc_url="/redoc",
+    # Custom /swagger + /redoc below: FastAPI defaults use scope root_path only; we do not set
+    # FastAPI(root_path=…) because it breaks bare /output and /uploads behind strip-prefix proxies.
+    # When APP_ROOT_PATH is set (public URL prefix), Swagger must fetch openapi.json under that prefix.
+    docs_url=None,
+    redoc_url=None,
     openapi_url="/openapi.json",
 )
-# Do not pass root_path= to FastAPI: it affects route matching so bare /output and
-# /uploads stop matching while /polygraph/output works. Use OpenAPI servers + env for docs.
 
 
 def custom_openapi() -> dict:
@@ -87,6 +90,35 @@ def custom_openapi() -> dict:
 
 
 app.openapi = custom_openapi  # type: ignore[method-assign]
+
+
+def _browser_openapi_url() -> str:
+    """Browser-visible path for OpenAPI JSON when behind a strip-prefix proxy (APP_ROOT_PATH)."""
+    return f"{_root_path}/openapi.json" if _root_path else "/openapi.json"
+
+
+@app.get("/swagger", include_in_schema=False)
+async def swagger_ui_html_route() -> HTMLResponse:
+    return get_swagger_ui_html(
+        openapi_url=_browser_openapi_url(),
+        title=f"{app.title} - Swagger UI",
+        oauth2_redirect_url=None,
+        init_oauth=app.swagger_ui_init_oauth,
+        swagger_ui_parameters=app.swagger_ui_parameters,
+    )
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_html_route() -> HTMLResponse:
+    return get_redoc_html(openapi_url=_browser_openapi_url(), title=f"{app.title} - ReDoc")
+
+
+if _root_path:
+
+    @app.get(f"{_root_path}/openapi.json", include_in_schema=False)
+    async def openapi_json_public_prefix_mirror() -> JSONResponse:
+        return JSONResponse(app.openapi())
+
 
 _settings_cors = os.getenv("APP_CORS_ORIGINS", "*").strip()
 _origins = [o.strip() for o in _settings_cors.split(",") if o.strip()]
@@ -283,7 +315,8 @@ _JOB_STAGES_JSON = _REPO_ROOT / "ui" / "job-stages-progress.json"
 
 @app.get("/", include_in_schema=False)
 def root() -> RedirectResponse:
-    return RedirectResponse(url="/swagger")
+    sp = f"{_root_path}/swagger" if _root_path else "/swagger"
+    return RedirectResponse(url=sp)
 
 
 @app.get("/health")
