@@ -311,6 +311,7 @@ async def _save_job_files(job_id: str, files: list[UploadFile]) -> None:
 
 
 _JOB_STAGES_JSON = _REPO_ROOT / "ui" / "job-stages-progress.json"
+_CAPTURE_GUIDE_JSON = _REPO_ROOT / "ui" / "capture-guide.json"
 
 
 @app.get("/", include_in_schema=False)
@@ -490,6 +491,14 @@ def job_stages() -> dict[str, Any]:
     if not _JOB_STAGES_JSON.is_file():
         raise HTTPException(status_code=404, detail="job-stages mapping file missing on server")
     return json.loads(_JOB_STAGES_JSON.read_text(encoding="utf-8"))
+
+
+@app.get("/capture-guide")
+def capture_guide() -> dict[str, Any]:
+    """Capture UX + PUT /settings overlay hints for PolyCam-class quality (same file as ``ui/capture-guide.json``)."""
+    if not _CAPTURE_GUIDE_JSON.is_file():
+        raise HTTPException(status_code=404, detail="capture-guide file missing on server")
+    return json.loads(_CAPTURE_GUIDE_JSON.read_text(encoding="utf-8"))
 
 
 @app.get("/settings", response_model=RuntimeSettings)

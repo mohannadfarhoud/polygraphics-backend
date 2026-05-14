@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "title": "Capture and quality guide (PolyCam-class behaviour, open stack)",
+  "disclaimer": "Commercial apps like PolyCam do not publish their full pipeline. This file describes standard photogrammetry and 3D Gaussian Splatting practice, and how to drive this API (SAM + COLMAP/DUSt3R + GS) toward similar results. Your web UI can render it verbatim or map fields to localised copy.",
+  "pipeline_comparison": {
+    "typical_commercial_object_mode": [
+      "Guided orbit capture (fixed subject, many overlapping views).",
+      "Per-view camera poses from visual-inertial / SfM with aggressive filtering.",
+      "Object-centric masking or full-scene training with strong regularisation.",
+      "NeRF or 3DGS optimisation against high-bit-depth colour targets, often with full-resolution supervision and proprietary colour pipelines."
+    ],
+    "this_backend_default": [
+      "Uploads are optionally downscaled (max_input_image_side) then SAM segments the subject (black background on masked copies).",
+      "Gaussian Splatting: COLMAP (default) or DUSt3R seeds sparse geometry; official graphdeco train.py refines splats.",
+      "When gs_train_with_original_images is true (default), scene images used for the GS photometric loss are overwritten with the matching originals before train.py—geometry still uses masked-friendly views, colour supervision matches commercial-style full photos.",
+      "Mesh (.glb) path: Poisson + vertex colour transfer + optional photo_vertex_bake from originals."
+    ]
+  },
+  "capture_protocol": {
+    "subject": "Single rigid object on a table works best. Remove clutter; use a matte turntable or keep the camera moving and the object fixed.",
+    "distance": "Fill most of the frame with the object (PolyCam-style object mode). Too wide = weak texture on the object; too tight = no context for alignment.",
+    "overlap": "~70–90% overlap between neighbouring views along the orbit. More views help more than higher resolution, up to server max_images.",
+    "motion": "Smooth arc around the object: low hemisphere (tabletop) plus a second higher ring for the top. Avoid single-axis spin only if the object is tall.",
+    "exposure": "Lock exposure/focus/WB across the burst (manual or AE-L). Harsh HDR or auto swings hurt multi-view consistency.",
+    "motion_blur": "Use short shutter / bright light; blur is lethal for COLMAP/GS.",
+    "background": "Prefer non-black, mildly textured backdrop for SIFT; SAM still isolates foreground. Plain white/black walls are harder—add paper clutter if needed.",
+    "resolution": "4K uploads are OK; API downscales by max_input_image_side. Prefer stable 1080p–2K bursts with good exposure over noisy 8K.",
+    "ordering": "Time-ordered uploads match orbit order and often help matching stability."
+  },
+  "web_ui_checklist": [
+    {
+      "id": "count",
+      "severity": "error",
+      "rule": "Enforce minimum image count ≥ 2 (API requirement); recommend ≥ 24–40 for GS object mode."
+    },
+    {
+      "id": "steady",
+      "severity": "warning",
+      "rule": "Warn if EXIF reports very slow shutter or large motion (if available from client)."
+    },
+    {
+      "id": "progress",
+      "severity": "info",
+      "rule": "Poll GET /jobs/{id}; map stage with GET /job-stages."
+    },
+    {
+      "id": "viewer",
+      "severity": "info",
+      "rule": ".ply splats need a 3DGS-capable viewer; .glb may need vertex-colour shading enabled."
+    }
+  ],
+  "recommended_settings_overlays": {
+    "_comment": "Merge into your current settings: GET /settings, shallow-merge listed keys (replace only these), PUT /settings with the full validated body. Paths (sam_checkpoint_path, gs_repo_path, colmap_binary_path, dust3r_*) stay host-specific.",
+    "gaussian_splatting_consumer_8gb": [
+      { "key": "reconstruction_backend", "value": "gaussian_splatting", "rationale": "Match PolyCam-class splat export." },
+      { "key": "gs_init_source", "value": "colmap", "rationale": "Stable sparse seed on masked views; aligns with COLMAP-heavy commercial stacks." },
+      { "key": "gs_train_with_original_images", "value": true, "rationale": "Supervise GS with real colours—not SAM black padding." },
+      { "key": "sam_segmentation_mode", "value": "center_point", "rationale": "Fast, predictable foreground when the object is centred (like guided capture)." },
+      { "key": "max_input_image_side", "value": 1600, "rationale": "Balance detail vs SAM/COLMAP/GS VRAM on 8 GB." },
+      { "key": "gs_sh_degree", "value": 2, "rationale": "Softer than 3 for VRAM; raise to 3 for final renders if stable." },
+      { "key": "gs_iterations", "value": 12000, "rationale": "Better colour/geometry than 7k; increase to 20000–30000 for finals if heat/VRAM allow." },
+      { "key": "gs_densify_until_iter", "value": 8000, "rationale": "Allow more growth than 5k on warm GPUs; lower if OOM during densify." },
+      { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "When using .glb mesh path, photo-true vertex colours." }
+    ],
+    "mesh_glb_friendly": [
+      { "key": "reconstruction_backend", "value": "dust3r", "rationale": "Classic mesh path in this stack (or colmap for many wide photos)." },
+      { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "Strong colour on GLB." },
+      { "key": "max_input_image_side", "value": 1920, "rationale": "Sharper textures for baked vertices." }
+    ]
+  }
+}

@@ -293,6 +293,8 @@ Stop-Service polyGraphicsBackend
 - `POST /jobs/{job_id}/reprocess` — re-run from saved inputs (including after `COMPLETED`).
 - `GET /models` — list `.glb` and `.ply` files under the configured output directory (`url`, **`image_url`** preview of first upload, `size_bytes`, … — no server filesystem paths).
 - `GET /settings` / `PUT /settings` — runtime options.
+- `GET /job-stages` — JSON for UI progress labels (same as `ui/job-stages-progress.json`).
+- `GET /capture-guide` — capture UX + recommended `PUT /settings` field overlays for object/scene photogrammetry (`ui/capture-guide.json`).
 - `GET /server/status` — hardware/software snapshot.
 
 ## `model_url` (downloads)
