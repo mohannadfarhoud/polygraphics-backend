@@ -129,6 +129,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Forwarded to gaussian-splatting train.py --densify_until_iter; 0 omits flag (upstream default).",
         },
         {
+            "key": "gs_train_with_original_images",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true (default): before GPU train.py, scene/images RGB is replaced per view with original (unmasked) photos while keeping masked filenames — reduces dark/black Gaussians from SAM black padding supervising the splat optimiser.",
+        },
+        {
             "key": "mesh_glb_draco_compression",
             "scope": "both",
             "worker_env": None,

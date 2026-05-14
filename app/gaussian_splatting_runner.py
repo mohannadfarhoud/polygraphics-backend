@@ -20,6 +20,7 @@ Notes:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import struct
@@ -38,6 +39,8 @@ from .gs_ply_export import write_gaussian_ply_from_colored_points
 ProgressCallback = Callable[[str, int], None]
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+_logger = logging.getLogger(__name__)
 
 # Official train.py resets opacity every `--opacity_reset_interval` steps. On *short* runs (common
 # on 8 GB GPUs, e.g. 5000 iters) that reset mid-run can leave zero splats after pruning, and the CUDA
@@ -110,6 +113,53 @@ def build_gaussian_scene_workspace(
         raise RuntimeError(f"Unknown gs_init_source {settings.gs_init_source!r}")
 
 
+def _swap_gs_scene_training_images_with_originals(
+    scene_dir: Path,
+    masked_paths: list[Path],
+    original_paths: list[Path],
+) -> None:
+    """Replace RGB in ``scene/images`` with originals; keep filenames from ``masked_paths``.
+
+    Pose and intrinsic metadata refer to filenames under ``images``; overwriting pixel data with
+    unmasked shots fixes black-background SAM artefacts in the optimisation loss."""
+    images_dir = scene_dir / "images"
+    if not images_dir.is_dir():
+        _logger.warning("[gs] gs_train_with_original_images: scene/%s/images missing — skip swap", scene_dir.name)
+        return
+
+    try:
+        import cv2  # noqa: PLC0415
+    except ImportError:
+        _logger.warning("[gs] gs_train_with_original_images: OpenCV unavailable — skip swap")
+        return
+
+    n_swap = 0
+    for mpath, orig in zip(masked_paths, original_paths):
+        dst = images_dir / mpath.name
+        if not dst.is_file():
+            continue
+        masked_bgr = cv2.imread(str(mpath), cv2.IMREAD_COLOR)
+        rgb_bgr = cv2.imread(str(orig), cv2.IMREAD_COLOR)
+        if masked_bgr is None or rgb_bgr is None:
+            _logger.warning("[gs] could not read pair for swap (%s ← %s) — leaving scene image", mpath.name, orig)
+            continue
+        if masked_bgr.shape[:2] != rgb_bgr.shape[:2]:
+            rgb_bgr = cv2.resize(
+                rgb_bgr,
+                (int(masked_bgr.shape[1]), int(masked_bgr.shape[0])),
+                interpolation=cv2.INTER_AREA,
+            )
+        if not cv2.imwrite(str(dst), rgb_bgr):
+            _logger.warning("[gs] failed to write swapped training image %s", dst.name)
+            continue
+        n_swap += 1
+
+    if n_swap != len(masked_paths):
+        _logger.warning("[gs] training-image colour swap wrote %s/%s files under scene/images/", n_swap, len(masked_paths))
+    elif n_swap:
+        _logger.info("[gs] replaced %s scene training images with unmasked originals (photometric supervision)", n_swap)
+
+
 def run_gaussian_splatting(
     job_id: str,
     masked_images: list[Path],
@@ -118,6 +168,7 @@ def run_gaussian_splatting(
     settings: RuntimeSettings,
     *,
     progress_callback: ProgressCallback | None = None,
+    original_training_images: list[Path] | None = None,
 ) -> Path:
     """Train a Gaussian Splatting scene and write `output_ply`. Returns its path."""
     if len(masked_images) < 2:
@@ -197,6 +248,15 @@ def run_gaussian_splatting(
         )
 
     _vacuum_cuda_cache()
+
+    if (
+        cuda_ok
+        and not cpu_fallback
+        and bool(getattr(settings, "gs_train_with_original_images", True))
+        and original_training_images is not None
+        and len(original_training_images) == len(masked_images)
+    ):
+        _swap_gs_scene_training_images_with_originals(scene_dir, masked_images, original_training_images)
 
     _emit(progress_callback, "phase_5_gaussian_splatting", 65)
 

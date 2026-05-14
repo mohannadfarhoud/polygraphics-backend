@@ -62,6 +62,7 @@ Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`, set 
 2. **Initial scene** (Phase 4 of the pipeline protocol):
    - `gs_init_source = "colmap"` runs COLMAP on the masked images to produce `cameras.bin` / `images.bin` / `points3D.bin`.
    - **`gs_init_source = "dust3r"`** runs DUSt3R + `GlobalAligner` and writes a COLMAP **text** sparse reconstruction (`sparse/0/cameras.txt` / `images.txt` / `points3D.txt`). The 3D-points seed is the confidence-filtered DUSt3R cloud — exactly the “seed” described in the protocol.
+   - **`gs_train_with_original_images`** (default `true`): immediately before **`train.py`**, `scene/images` is rewritten per view using the **same downscaled originals** as the SAM stage (masked filenames unchanged). That way registration still uses masking-friendly views but the **Gaussian photometric loss** is supervised against real colours—avoids systematically **dark/black** optimisation when SAM blacks out backgrounds.
 3. **Training**: shells out to `python <gs_repo_path>/train.py` with `--iterations`, `--sh_degree`, `--opacity_reset_interval`, optional `--resolution`, and `--densify_until_iter` when `gs_densify_until_iter > 0` from the official [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) repo.
 4. The latest `point_cloud/iteration_<N>/point_cloud.ply` is copied to `output/<job_id>.ply`.
 5. `model_url` points to that `.ply`; `model_format = "ply"`.
@@ -134,6 +135,7 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `dust3r_max_inference_side` | `768` | 2 | Upper bound on DUSt3R resize side (`min` with `max_image_side`). |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. For `gs_iterations` ≤ 10000, the worker may increase this so no reset runs mid-training (reduces upstream “invalid gradient” / zero-splat failures on short runs). |
 | `gs_iterations` | `7000` | 5 | Default targets RTX 3050-class VRAM; use `30000` for higher-quality `.ply`. |
+| `gs_train_with_original_images` | `true` | 5 | Before GPU `train.py`, replace `scene/images` pixels with originals (masked filenames unchanged) so optimisation is not anchored to SAM black paddings—major fix for **dark/black** coloured splats. |
 | `gs_densify_until_iter` | `5000` | 5 | Stops Gaussian densification earlier; forwarded to `train.py --densify_until_iter`. Use `0` to omit (upstream default ~15000). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |
 

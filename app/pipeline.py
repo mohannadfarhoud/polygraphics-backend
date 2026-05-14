@@ -117,7 +117,9 @@ class ReconstructionPipeline:
                         publish_completed=False,
                     )
                     self._raise_if_cancelled(cancel_event)
-                model_url = self._run_gaussian_splatting(job_id, masked_paths, cancel_event=cancel_event)
+                model_url = self._run_gaussian_splatting(
+                    job_id, masked_paths, image_paths, cancel_event=cancel_event
+                )
                 return model_url
 
             model_url = self._run_mesh_pipeline(
@@ -252,6 +254,7 @@ class ReconstructionPipeline:
         self,
         job_id: str,
         masked_paths: list[Path],
+        original_paths: list[Path],
         *,
         cancel_event: threading.Event | None = None,
     ) -> str:
@@ -271,6 +274,7 @@ class ReconstructionPipeline:
             output_ply=ply_path,
             settings=self.runtime_settings,
             progress_callback=_on_progress,
+            original_training_images=list(original_paths),
         )
 
         if not ply_path.is_file() or ply_path.stat().st_size < 256:

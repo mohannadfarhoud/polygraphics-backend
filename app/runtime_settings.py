@@ -73,6 +73,12 @@ class RuntimeSettings(BaseModel):
     # valid 3DGS-format .ply from sparse colored points (no GPU / no CUDA extensions).
     gs_allow_cpu_fallback: bool = True
     gs_cpu_max_points: int = Field(default=250_000, ge=1000, le=2_000_000)
+    # When True (default): after COLMAP/DUSt3R scene layout is built from masked SAM images,
+    # replace files in scene/images/ with aligned **original** photos (same per-view indices) before
+    # ``train.py``. Filenames stay as the masked filenames so COLMAP/SfM bookkeeping matches;
+    # photometric loss then supervises against real colour—not black paddings—from each view (major
+    # fix for unrealistically dark / black-ish splats when SAM uses apply_black_background).
+    gs_train_with_original_images: bool = True
     meshing_method: Literal["poisson", "bpa"] = "poisson"
     output_dir_name: str = "output"
     masked_dir_name: str = "masked"
