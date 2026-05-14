@@ -42,6 +42,13 @@ class RuntimeSettings(BaseModel):
     dust3r_inference_batch_size: int = Field(default=1, ge=1, le=8)
     # Internal longest-side cap for DUSt3R ``load_images`` (combined with max_image_side via min).
     dust3r_max_inference_side: int = Field(default=768, ge=256, le=8192)
+    # Cap how many views DUSt3R sees (uniform subsampling). Large sets + a dense pair graph OOM the
+    # global aligner on single 8 GB GPUs.
+    dust3r_max_input_views: int = Field(default=36, ge=2, le=500)
+    # Passed to naver/dust3r ``make_pairs(..., scene_graph=…)``. ``auto`` uses ``complete`` when the
+    # view count ≤ ``dust3r_complete_graph_max_views``, else ``swin-6-noncyclic`` (fewer pairs).
+    dust3r_scene_graph: str = Field(default="auto")
+    dust3r_complete_graph_max_views: int = Field(default=24, ge=2, le=200)
     colmap_binary_path: str | None = None
     # When True, COLMAP ``feature_extractor`` gets ``--SiftExtraction.use_gpu 1`` (needs a CUDA COLMAP build).
     colmap_sift_gpu: bool = True

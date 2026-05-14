@@ -71,6 +71,30 @@ def _resolve_device(settings: RuntimeSettings):
     return torch.device(device_str)
 
 
+def _subsample_image_paths(paths: list[Path], max_n: int) -> list[Path]:
+    """Keep a spread of frames (sorted inputs) when capping DUSt3R views for VRAM."""
+    if len(paths) <= max_n:
+        return list(paths)
+    idx = np.linspace(0, len(paths) - 1, max_n)
+    idx = np.unique(np.round(idx).astype(int))
+    out = [paths[int(i)] for i in idx]
+    if len(out) < 2:
+        return [paths[0], paths[-1]]
+    return out
+
+
+def _resolve_dust3r_scene_graph(settings: RuntimeSettings, n_views: int) -> str:
+    """Map ``dust3r_scene_graph=auto`` to naver/dust3r ``make_pairs`` scene_graph string."""
+    raw = (getattr(settings, "dust3r_scene_graph", None) or "auto").strip()
+    if raw.lower() != "auto":
+        return raw
+    cap = int(getattr(settings, "dust3r_complete_graph_max_views", 24))
+    if n_views <= cap:
+        return "complete"
+    # Sliding window: far fewer Stereo pairs than ``complete`` (critical for 8 GB + many photos).
+    return "swin-6-noncyclic"
+
+
 def _load_dust3r():
     try:
         from dust3r.cloud_opt import GlobalAlignerMode, global_aligner
@@ -214,13 +238,17 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
         load_images,
     ) = _load_dust3r()
 
-    paths = [str(p.resolve()) for p in masked_image_paths]
+    max_views = int(getattr(settings, "dust3r_max_input_views", 36))
+    working_paths = _subsample_image_paths(list(masked_image_paths), max_views)
+    scene_graph = _resolve_dust3r_scene_graph(settings, len(working_paths))
+
+    paths = [str(p.resolve()) for p in working_paths]
     device = _resolve_device(settings)
     model = _load_model(settings, device)
 
     max_side = min(int(settings.max_image_side), int(settings.dust3r_max_inference_side))
     images = load_images(paths, size=max_side)
-    pairs = make_pairs(images, scene_graph="complete", prefilter=None, symmetrize=True)
+    pairs = make_pairs(images, scene_graph=scene_graph, prefilter=None, symmetrize=True)
 
     batch_size = 1 if device.type == "cpu" else max(1, int(settings.dust3r_inference_batch_size))
     use_fp16 = device.type == "cuda" and bool(getattr(settings, "dust3r_use_fp16", True))
@@ -300,7 +328,7 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
             or rgb_arr.shape[0] != p.shape[0]
             or int(np.asarray(rgb_arr).max()) <= 4
         ):
-            disk = _read_image_resized_rgb(masked_image_paths[idx], W, H)
+            disk = _read_image_resized_rgb(working_paths[idx], W, H)
             if disk is not None:
                 rgb_arr = disk.reshape(-1, 3)
             elif rgb_arr is None:
@@ -399,7 +427,7 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
     return Dust3rScene(
         points=cloud,
         colors=colors,
-        image_paths=[Path(p) for p in masked_image_paths],
+        image_paths=[Path(p) for p in working_paths],
         image_sizes=image_sizes,
         intrinsics=intrinsics,
         poses_w2c=poses_w2c,

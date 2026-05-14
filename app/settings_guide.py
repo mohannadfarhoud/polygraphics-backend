@@ -111,6 +111,18 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Caps longest side passed to DUSt3R load_images (min with max_image_side).",
         },
         {
+            "key": "dust3r_max_input_views",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Uniform subsampling cap before DUSt3R (default 36) — many photos + dense graphs OOM global alignment on 8 GB.",
+        },
+        {
+            "key": "dust3r_scene_graph",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "naver/dust3r make_pairs scene_graph; auto uses complete for few views else swin-6-noncyclic.",
+        },
+        {
             "key": "gs_densify_until_iter",
             "scope": "both",
             "worker_env": None,
