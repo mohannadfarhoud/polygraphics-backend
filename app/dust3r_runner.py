@@ -375,6 +375,20 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
         cloud = cloud[idx]
         colors = colors[idx]
 
+    # Free DUSt3R weights + optimizer state before GS train.py (same worker process shares CUDA).
+    try:
+        del frames
+        del pts_list
+        del masks_list
+        del conf_list
+        del rgb_list
+        del output
+        del pairs
+        del images
+        del model
+        del scene
+    except Exception:
+        pass
     try:
         import gc
 
@@ -383,6 +397,7 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
             import torch
 
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
     except Exception:
         pass
 
