@@ -73,6 +73,23 @@ class SamSegmenter:
             return self._fallback_center_mask(image_bgr)
         return mask
 
+    def release_gpu_memory(self) -> None:
+        """Drop Segment Anything tensors so DUSt3R / GS fit on ~8 GB GPUs (worker single-process)."""
+        self._sam_model = None
+        self._predictor = None
+        self._mask_generator = None
+        try:
+            import gc
+
+            gc.collect()
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except Exception:
+            pass
+
     def _ensure_sam(self, model_type: str, ckpt: str, device):
         from segment_anything import sam_model_registry
 

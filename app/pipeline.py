@@ -61,6 +61,7 @@ class ReconstructionPipeline:
             assert_pipeline_ready(self.runtime_settings)
             self._raise_if_cancelled(cancel_event)
             masked_paths = self._run_segmentation(job_id, image_paths, cancel_event=cancel_event)
+            self.segmenter.release_gpu_memory()
             self._raise_if_cancelled(cancel_event)
 
             if self.runtime_settings.reconstruction_backend == "gaussian_splatting":

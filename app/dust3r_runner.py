@@ -375,6 +375,17 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
         cloud = cloud[idx]
         colors = colors[idx]
 
+    try:
+        import gc
+
+        gc.collect()
+        if device.type == "cuda":
+            import torch
+
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
     return Dust3rScene(
         points=cloud,
         colors=colors,

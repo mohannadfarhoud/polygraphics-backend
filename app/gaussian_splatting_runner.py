@@ -44,6 +44,21 @@ def _torch_cuda_available() -> bool:
         return False
 
 
+def _vacuum_cuda_cache() -> None:
+    """Free Python-held CUDA allocations before spawning ``train.py`` (SAM+DUSt3R then GS)."""
+    try:
+        import gc
+
+        gc.collect()
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+    except Exception:
+        pass
+
+
 def _emit(progress_callback: ProgressCallback | None, stage: str, progress: int) -> None:
     if progress_callback is None:
         return
@@ -111,6 +126,8 @@ def run_gaussian_splatting(
         )
     else:
         raise RuntimeError(f"Unknown gs_init_source {settings.gs_init_source!r}")
+
+    _vacuum_cuda_cache()
 
     _emit(progress_callback, "phase_5_gaussian_splatting", 65)
 
