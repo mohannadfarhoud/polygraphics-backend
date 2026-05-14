@@ -34,6 +34,24 @@ from .gs_ply_export import write_gaussian_ply_from_colored_points
 
 ProgressCallback = Callable[[str, int], None]
 
+# Official train.py resets opacity every `--opacity_reset_interval` steps. On *short* runs (common
+# on 8 GB GPUs, e.g. 5000 iters) that reset mid-run can leave zero splats after pruning, and the CUDA
+# rasterizer then fails in backward with invalid gradient shapes — graphdeco-inria/gaussian-splatting#482.
+_GS_SHORT_RUN_MAX_ITERS = 10_000
+
+
+def _effective_opacity_reset_interval(settings: RuntimeSettings) -> int:
+    """Avoid scheduling opacity reset inside a short training run when it would still fire."""
+    iters = int(settings.gs_iterations)
+    interval = int(settings.gs_opacity_reset_interval)
+    if interval <= 0:
+        return interval
+    if iters > _GS_SHORT_RUN_MAX_ITERS:
+        return interval
+    if interval < iters:
+        return iters + 1
+    return interval
+
 
 def _torch_cuda_available() -> bool:
     try:
@@ -147,6 +165,7 @@ def run_gaussian_splatting(
         return output_ply
 
     py = settings.gs_python_executable or sys.executable
+    opacity_reset = _effective_opacity_reset_interval(settings)
     cmd = [
         py,
         str(repo / "train.py"),
@@ -159,7 +178,7 @@ def run_gaussian_splatting(
         "--sh_degree",
         str(settings.gs_sh_degree),
         "--opacity_reset_interval",
-        str(settings.gs_opacity_reset_interval),
+        str(opacity_reset),
     ]
     if settings.gs_resolution and settings.gs_resolution > 0:
         cmd += ["--resolution", str(settings.gs_resolution)]

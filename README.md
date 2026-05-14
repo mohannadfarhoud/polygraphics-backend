@@ -130,7 +130,7 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `dust3r_use_fp16` | `true` | 2–3 | CUDA mixed precision for DUSt3R inference + alignment. |
 | `dust3r_inference_batch_size` | `1` | 2 | DUSt3R pair batch size (`2` uses more VRAM). |
 | `dust3r_max_inference_side` | `768` | 2 | Upper bound on DUSt3R resize side (`min` with `max_image_side`). |
-| `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. |
+| `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. For `gs_iterations` ≤ 10000, the worker may increase this so no reset runs mid-training (reduces upstream “invalid gradient” / zero-splat failures on short runs). |
 | `gs_iterations` | `7000` | 5 | Default targets RTX 3050-class VRAM; use `30000` for higher-quality `.ply`. |
 | `gs_densify_until_iter` | `5000` | 5 | Stops Gaussian densification earlier; forwarded to `train.py --densify_until_iter`. Use `0` to omit (upstream default ~15000). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |

@@ -55,7 +55,9 @@ class RuntimeSettings(BaseModel):
     # Official train.py OptimizationParams.densify_until_iter — lower stops densification earlier (VRAM safety).
     gs_densify_until_iter: int = Field(default=5000, ge=0, le=60000)
     gs_resolution: int = Field(default=-1, ge=-1, le=8192)  # -1 = original
-    # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000.
+    # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000. On runs with
+    # gs_iterations <= 10000, the worker may pass a larger value so no reset occurs mid-run (avoids
+    # prune-to-zero / rasterizer backward crashes on short consumer-GPU jobs).
     gs_opacity_reset_interval: int = Field(default=3000, ge=100, le=60000)
     # When True and PyTorch sees no CUDA device, skip official train.py and write a
     # valid 3DGS-format .ply from sparse colored points (no GPU / no CUDA extensions).
