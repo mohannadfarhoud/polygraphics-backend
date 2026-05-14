@@ -1,14 +1,44 @@
 """Subprocess entry: run SAM masking for all inputs then exit (releases CUDA before DUSt3R/GS).
 
 Invoked from ``ReconstructionPipeline._run_segmentation`` when ``gpu_isolate_phases`` is enabled.
+
+When ``POLYGRAPH_API_BASE`` and ``POLYGRAPH_WORKER_TOKEN`` are set (worker ``.env.worker``), each
+masked image triggers ``POST .../internal/worker/jobs/{id}/progress`` so the app UI advances through
+phase 1 instead of freezing until the subprocess exits.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+
+# Same band as ``ReconstructionPipeline._run_segmentation`` (10 → 40).
+_SEG_START, _SEG_END = 10, 40
+
+
+def _maybe_post_remote_progress(job_id: str, idx_one_based: int, total: int) -> None:
+    base = (os.getenv("POLYGRAPH_API_BASE") or "").strip().rstrip("/")
+    token = (os.getenv("POLYGRAPH_WORKER_TOKEN") or "").strip()
+    if not base or not token or total < 1:
+        return
+    t = max(1, total)
+    pct = _SEG_START + int((_SEG_END - _SEG_START) * (idx_one_based / t))
+    pct = min(_SEG_END, max(_SEG_START, pct))
+    stage = f"phase_1_segmentation ({idx_one_based}/{t})"
+    try:
+        import httpx
+
+        httpx.post(
+            f"{base}/internal/worker/jobs/{job_id}/progress",
+            headers={"X-Worker-Token": token},
+            json={"stage": stage, "progress": pct},
+            timeout=30.0,
+        )
+    except Exception:
+        pass
 
 
 def main() -> int:
@@ -52,6 +82,7 @@ def main() -> int:
             output_path,
             mask_output_path=mask_path,
         )
+        _maybe_post_remote_progress(job_id, idx + 1, total)
         print(f"[gpu_phase_sam] {idx + 1}/{total} {output_path.name}", flush=True)
 
     segmenter.release_gpu_memory()
