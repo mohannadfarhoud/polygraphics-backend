@@ -93,6 +93,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "DUSt3R inference batch size; use 1 on 8 GB GPUs.",
         },
         {
+            "key": "max_input_image_side",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Longest edge cap when a job starts: phone 4K images are downscaled before SAM (default 1920).",
+        },
+        {
             "key": "dust3r_max_inference_side",
             "scope": "both",
             "worker_env": None,

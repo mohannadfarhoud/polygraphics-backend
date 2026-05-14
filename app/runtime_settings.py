@@ -83,6 +83,10 @@ class RuntimeSettings(BaseModel):
     # Public URL prefix for generated model files (must match where this API serves /output/…).
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)
+    # Longest-edge cap for **input** photos as soon as a job starts (before SAM). Phone 4K images
+    # are downscaled (aspect-preserving) so segmentation and later stages use HD-class resolution.
+    # DUSt3R/COLMAP may still apply ``max_image_side`` / ``dust3r_max_inference_side`` on top.
+    max_input_image_side: int = Field(default=1920, ge=256, le=8192)
     max_image_side: int = Field(default=1024, ge=128, le=8192)
     # When True: fake masks/points/GS PLY (demo only). When False: real checkpoints + packages required.
     allow_placeholder_pipeline: bool = False

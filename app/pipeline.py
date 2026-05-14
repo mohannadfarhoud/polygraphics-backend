@@ -60,6 +60,14 @@ class ReconstructionPipeline:
         try:
             assert_pipeline_ready(self.runtime_settings)
             self._raise_if_cancelled(cancel_event)
+            from .image_preprocess import downscale_job_images_if_needed
+
+            image_paths = downscale_job_images_if_needed(
+                job_id,
+                image_paths,
+                self.config.root_dir / "data" / "job_inputs",
+                int(self.runtime_settings.max_input_image_side),
+            )
             masked_paths = self._run_segmentation(job_id, image_paths, cancel_event=cancel_event)
             self.segmenter.release_gpu_memory()
             self._raise_if_cancelled(cancel_event)

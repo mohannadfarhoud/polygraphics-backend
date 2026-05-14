@@ -36,6 +36,7 @@ Tune `PUT /settings` roughly like this for mesh + splats on a single GPU:
   "dust3r_use_fp16": true,
   "dust3r_inference_batch_size": 1,
   "dust3r_max_inference_side": 768,
+  "max_input_image_side": 1920,
   "max_image_side": 1024,
   "gs_iterations": 7000,
   "gs_sh_degree": 3,
@@ -118,6 +119,7 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | Setting | Default | Phase | Notes |
 |---|---:|---|---|
 | `save_raw_masks` | `true` | 1 | Save binary `.png` masks to `masks/<job_id>/`. |
+| `max_input_image_side` | `1920` | 0–1 | Longest edge of uploads after ingest (4K phone shots downscaled to HD-class **before** SAM). Set `1280` / `1080` for lighter jobs. |
 | `dust3r_aligner_iters` | `300` | 2 | `niter` for `compute_global_alignment` (≥ 300 for stable floors). |
 | `dust3r_aligner_lr` | `0.01` | 2 | Learning rate for the global aligner. |
 | `dust3r_confidence_threshold` | `0` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
