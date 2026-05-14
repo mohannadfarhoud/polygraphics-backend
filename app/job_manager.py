@@ -506,6 +506,12 @@ class JobManager:
         job_repo = PerJobJobRepository(self, job_id)
         pipe = self.build_pipeline(settings, job_repo, None)
         try:
+            try:
+                from app.cuda_memory import bootstrap_worker_cuda
+
+                bootstrap_worker_cuda()
+            except Exception:
+                pass
             pipe.process_3d_job(job_id, paths, cancel_event=cancel_ev)
         except JobCancelled:
             self.update_job(job_id, JobStatus.STOPPED, error="Stopped by user")

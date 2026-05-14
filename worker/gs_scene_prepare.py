@@ -22,8 +22,11 @@ def main() -> int:
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
+    from app.cuda_memory import ensure_cuda_allocator_env
     from app.gaussian_splatting_runner import build_gaussian_scene_workspace
     from app.runtime_settings import RuntimeSettings
+
+    ensure_cuda_allocator_env()
 
     raw = Path(args.settings_json).read_text(encoding="utf-8")
     settings = RuntimeSettings.model_validate_json(raw)

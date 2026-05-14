@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Literal
@@ -17,6 +21,7 @@ from .meshing import (
     poisson_mesh,
     transfer_vertex_colors_from_point_cloud,
 )
+from .cuda_memory import effective_gpu_isolate_phases, purge_torch_cuda
 from .pipeline_ready import assert_pipeline_ready
 from .point_cloud import build_point_cloud, remove_statistical_outliers
 from .reconstruction import Dust3RReconstructor
@@ -24,6 +29,8 @@ from .runtime_settings import RuntimeSettings
 from .segmentation import SamSegmenter
 
 _log = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class JobCancelled(Exception):
@@ -69,7 +76,11 @@ class ReconstructionPipeline:
                 int(self.runtime_settings.max_input_image_side),
             )
             masked_paths = self._run_segmentation(job_id, image_paths, cancel_event=cancel_event)
-            self.segmenter.release_gpu_memory()
+            try:
+                self.segmenter.release_gpu_memory()
+            except Exception:
+                pass
+            purge_torch_cuda()
             self._raise_if_cancelled(cancel_event)
 
             if self.runtime_settings.reconstruction_backend == "gaussian_splatting":
@@ -282,6 +293,53 @@ class ReconstructionPipeline:
         if cancel_event is not None and cancel_event.is_set():
             raise JobCancelled()
 
+    def _run_segmentation_isolated_subprocess(self, job_id: str, image_paths: list[Path]) -> list[Path]:
+        from .cuda_memory import ensure_cuda_allocator_env
+
+        ensure_cuda_allocator_env()
+        scratch = self.config.root_dir / "data" / "phase_scratch" / job_id
+        scratch.mkdir(parents=True, exist_ok=True)
+        settings_json = scratch / "sam_settings.json"
+        paths_json = scratch / "sam_paths.json"
+        settings_json.write_text(self.runtime_settings.model_dump_json(), encoding="utf-8")
+        paths_json.write_text(json.dumps([str(p.resolve()) for p in image_paths]), encoding="utf-8")
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "worker.gpu_phase_sam",
+                "--job-id",
+                job_id,
+                "--settings-json",
+                str(settings_json),
+                "--paths-json",
+                str(paths_json),
+                "--root-dir",
+                str(self.config.root_dir.resolve()),
+            ],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            env=os.environ.copy(),
+            check=False,
+        )
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-40:]
+            raise RuntimeError(
+                "SAM segmentation subprocess failed.\nCommand: worker.gpu_phase_sam\n" + "\n".join(tail)
+            )
+        purge_torch_cuda()
+
+        masked_paths: list[Path] = []
+        for idx, image_path in enumerate(image_paths):
+            suffix = image_path.suffix or ".png"
+            out = self.config.masked_dir / job_id / f"masked_{idx:03d}{suffix}"
+            if not out.is_file():
+                raise RuntimeError(f"SAM subprocess did not write expected masked image: {out}")
+            masked_paths.append(out)
+        return masked_paths
+
     def _run_segmentation(
         self,
         job_id: str,
@@ -293,6 +351,31 @@ class ReconstructionPipeline:
             raise ValueError("No input images provided")
 
         total = max(1, len(image_paths))
+
+        isolate = False
+        try:
+            import torch
+
+            isolate = (
+                bool(torch.cuda.is_available())
+                and effective_gpu_isolate_phases(self.runtime_settings)
+                and not self.runtime_settings.allow_placeholder_pipeline
+                and cancel_event is None
+            )
+        except Exception:
+            isolate = False
+
+        if isolate:
+            masked_paths = self._run_segmentation_isolated_subprocess(job_id, image_paths)
+            total_n = max(1, len(masked_paths))
+            self._publish(
+                job_id,
+                JobStatus.PROCESSING,
+                stage=f"phase_1_segmentation ({total_n}/{total_n})",
+                progress=40,
+            )
+            return masked_paths
+
         masked_paths: list[Path] = []
         save_masks = bool(self.runtime_settings.save_raw_masks)
         masks_root = self.config.masks_dir / job_id if save_masks else None

@@ -30,7 +30,7 @@ from typing import Callable
 
 import numpy as np
 
-from .cuda_memory import purge_torch_cuda
+from .cuda_memory import ensure_cuda_allocator_env, purge_torch_cuda
 from .runtime_settings import RuntimeSettings
 from .colmap_runner import load_sparse_points_from_gs_scene
 from .gs_ply_export import write_gaussian_ply_from_colored_points
@@ -130,6 +130,8 @@ def run_gaussian_splatting(
         _write_placeholder_gs_ply(output_ply, n_points=8000)
         return output_ply
 
+    ensure_cuda_allocator_env()
+
     cuda_ok = _torch_cuda_available()
     cpu_fallback = (not cuda_ok) and settings.gs_allow_cpu_fallback
 
@@ -156,7 +158,6 @@ def run_gaussian_splatting(
     # before ``train.py`` so VRAM is actually released on single‑GPU 8 GB boxes.
     isolate_prepare = cuda_ok and not cpu_fallback
     prep_env = os.environ.copy()
-    prep_env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     if isolate_prepare:
         settings_json = work_dir / "_gs_prepare_settings.json"
@@ -237,7 +238,6 @@ def run_gaussian_splatting(
         cmd += ["--densify_until_iter", str(densify_until)]
 
     train_env = os.environ.copy()
-    train_env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
     proc = subprocess.run(
         cmd,

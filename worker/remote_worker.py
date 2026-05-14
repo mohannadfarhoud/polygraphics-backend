@@ -196,6 +196,10 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         from app.runtime_settings import RuntimeSettings
         from app.segmentation import SamSegmenter
 
+        from app.cuda_memory import bootstrap_worker_cuda
+
+        bootstrap_worker_cuda()
+
         settings = RuntimeSettings.model_validate(settings_dict)
         _require_cuda_if_configured()
         print(f"[polygraph-worker] job {job_id}: validating checkpoints and backends...", flush=True)

@@ -15,6 +15,9 @@ class RuntimeSettings(BaseModel):
     # When reconstruction_backend == "auto", switch to COLMAP at this image count or above.
     auto_dust3r_max_images: int = Field(default=20, ge=2, le=10000)
     device: Literal["auto", "cpu", "cuda"] = "auto"
+    # When True (default): phase 1 (SAM) and GS COLMAP/DUSt3R scene prep run in subprocesses on CUDA so
+    # each PyTorch workload exits before the next — strongly recommended on single 8 GB GPUs.
+    gpu_isolate_phases: bool = True
     sam_checkpoint_path: str | None = None
     sam_model_type: str = "vit_h"
     # How to pick the foreground mask (SAM). `center_point` uses a click at the image center — best for a subject in the middle.

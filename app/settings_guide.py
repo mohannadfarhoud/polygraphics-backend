@@ -27,6 +27,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "PyTorch device for SAM/DUSt3R/GS. Worker defaults to cuda when a GPU is present unless overridden.",
         },
         {
+            "key": "gpu_isolate_phases",
+            "scope": "both",
+            "worker_env": "POLYGRAPH_GPU_ISOLATE_PHASES (optional 0/false disables)",
+            "notes": "When true (default on CUDA): SAM and GS scene prep run in subprocesses so VRAM drops between peaks — recommended on single 8 GB GPUs.",
+        },
+        {
             "key": "sam_checkpoint_path",
             "scope": "stored_on_api",
             "worker_env": "POLYGRAPH_OVERRIDE_SAM_CHECKPOINT",
