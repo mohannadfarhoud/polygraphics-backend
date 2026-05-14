@@ -390,14 +390,9 @@ def run_dust3r_scene(masked_image_paths: list[Path], settings: RuntimeSettings) 
     except Exception:
         pass
     try:
-        import gc
+        from .cuda_memory import purge_torch_cuda
 
-        gc.collect()
-        if device.type == "cuda":
-            import torch
-
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+        purge_torch_cuda()
     except Exception:
         pass
 

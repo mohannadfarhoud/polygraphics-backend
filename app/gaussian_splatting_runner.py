@@ -19,6 +19,7 @@ Notes:
 
 from __future__ import annotations
 
+import os
 import shutil
 import struct
 import subprocess
@@ -28,6 +29,7 @@ from typing import Callable
 
 import numpy as np
 
+from .cuda_memory import purge_torch_cuda
 from .runtime_settings import RuntimeSettings
 from .colmap_runner import load_sparse_points_from_gs_scene
 from .gs_ply_export import write_gaussian_ply_from_colored_points
@@ -64,17 +66,7 @@ def _torch_cuda_available() -> bool:
 
 def _vacuum_cuda_cache() -> None:
     """Free Python-held CUDA allocations before spawning ``train.py`` (SAM+DUSt3R then GS)."""
-    try:
-        import gc
-
-        gc.collect()
-        import torch
-
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-    except Exception:
-        pass
+    purge_torch_cuda()
 
 
 def _emit(progress_callback: ProgressCallback | None, stage: str, progress: int) -> None:
@@ -186,7 +178,17 @@ def run_gaussian_splatting(
     if densify_until > 0:
         cmd += ["--densify_until_iter", str(densify_until)]
 
-    proc = subprocess.run(cmd, cwd=str(repo), capture_output=True, text=True, check=False)
+    train_env = os.environ.copy()
+    train_env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    proc = subprocess.run(
+        cmd,
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=train_env,
+    )
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-30:]
         raise RuntimeError(

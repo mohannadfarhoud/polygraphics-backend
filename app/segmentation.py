@@ -79,14 +79,9 @@ class SamSegmenter:
         self._predictor = None
         self._mask_generator = None
         try:
-            import gc
+            from .cuda_memory import purge_torch_cuda
 
-            gc.collect()
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
+            purge_torch_cuda()
         except Exception:
             pass
 

@@ -301,6 +301,12 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         )
         r.raise_for_status()
     finally:
+        try:
+            from app.cuda_memory import purge_torch_cuda
+
+            purge_torch_cuda()
+        except Exception:
+            pass
         shutil.rmtree(work, ignore_errors=True)
         if own_client and client is not None:
             client.close()
