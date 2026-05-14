@@ -19,6 +19,7 @@ Notes:
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import struct
@@ -35,6 +36,8 @@ from .colmap_runner import load_sparse_points_from_gs_scene
 from .gs_ply_export import write_gaussian_ply_from_colored_points
 
 ProgressCallback = Callable[[str, int], None]
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Official train.py resets opacity every `--opacity_reset_interval` steps. On *short* runs (common
 # on 8 GB GPUs, e.g. 5000 iters) that reset mid-run can leave zero splats after pruning, and the CUDA
@@ -79,6 +82,34 @@ def _emit(progress_callback: ProgressCallback | None, stage: str, progress: int)
         pass
 
 
+def build_gaussian_scene_workspace(
+    masked_images: list[Path],
+    work_dir: Path,
+    settings: RuntimeSettings,
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> None:
+    """Create ``scene/`` + ``model/`` under ``work_dir`` and fill COLMAP/DUSt3R inputs for ``train.py``."""
+    scene_dir = work_dir / "scene"
+    model_dir = work_dir / "model"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    if settings.gs_init_source == "colmap":
+        _emit(progress_callback, "phase_4_colmap_scene", 50)
+        _build_colmap_scene(masked_images, scene_dir, settings)
+    elif settings.gs_init_source == "dust3r":
+        _emit(progress_callback, "phase_2_alignment", 45)
+        _build_dust3r_scene(
+            masked_images,
+            scene_dir,
+            settings,
+            progress_callback=progress_callback,
+        )
+    else:
+        raise RuntimeError(f"Unknown gs_init_source {settings.gs_init_source!r}")
+
+
 def run_gaussian_splatting(
     job_id: str,
     masked_images: list[Path],
@@ -120,22 +151,49 @@ def run_gaussian_splatting(
 
     scene_dir = work_dir / "scene"
     model_dir = work_dir / "model"
-    scene_dir.mkdir(parents=True, exist_ok=True)
-    model_dir.mkdir(parents=True, exist_ok=True)
 
-    if settings.gs_init_source == "colmap":
-        _emit(progress_callback, "phase_4_colmap_scene", 50)
-        _build_colmap_scene(masked_images, scene_dir, settings)
-    elif settings.gs_init_source == "dust3r":
-        _emit(progress_callback, "phase_2_alignment", 45)
-        _build_dust3r_scene(
+    # DUSt3R holds multi‑GB CUDA allocations. Run COLMAP/DUSt3R scene prep in a subprocess that exits
+    # before ``train.py`` so VRAM is actually released on single‑GPU 8 GB boxes.
+    isolate_prepare = cuda_ok and not cpu_fallback
+    prep_env = os.environ.copy()
+    prep_env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
+    if isolate_prepare:
+        settings_json = work_dir / "_gs_prepare_settings.json"
+        masked_json = work_dir / "_gs_prepare_masked_paths.json"
+        settings_json.write_text(settings.model_dump_json(), encoding="utf-8")
+        masked_json.write_text(json.dumps([str(p.resolve()) for p in masked_images]), encoding="utf-8")
+        proc_prep = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "worker.gs_scene_prepare",
+                "--settings-json",
+                str(settings_json),
+                "--work-dir",
+                str(work_dir),
+                "--masked-json",
+                str(masked_json),
+            ],
+            cwd=str(_REPO_ROOT),
+            capture_output=True,
+            text=True,
+            env=prep_env,
+            check=False,
+        )
+        if proc_prep.returncode != 0:
+            tail = (proc_prep.stderr or proc_prep.stdout or "").strip().splitlines()[-40:]
+            raise RuntimeError(
+                "Gaussian Splatting scene preparation failed (DUSt3R/COLMAP subprocess).\n"
+                + "\n".join(tail)
+            )
+    else:
+        build_gaussian_scene_workspace(
             masked_images,
-            scene_dir,
+            work_dir,
             settings,
             progress_callback=progress_callback,
         )
-    else:
-        raise RuntimeError(f"Unknown gs_init_source {settings.gs_init_source!r}")
 
     _vacuum_cuda_cache()
 
