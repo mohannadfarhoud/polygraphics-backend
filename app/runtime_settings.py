@@ -40,7 +40,8 @@ class RuntimeSettings(BaseModel):
     skip_sam_segmentation: bool = False
 
     sam_checkpoint_path: str | None = None
-    sam_model_type: str = "vit_h"
+    # Must match the .pth file: ``sam_vit_b_*.pth`` → vit_b; ``sam_vit_h_*.pth`` → vit_h; ``sam_vit_l_*.pth`` → vit_l.
+    sam_model_type: Literal["vit_h", "vit_l", "vit_b"] = "vit_b"
     sam_segmentation_mode: Literal[
         "center_subject",
         "center_point",

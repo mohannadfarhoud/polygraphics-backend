@@ -78,7 +78,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "sam_checkpoint_path",
             "scope": "stored_on_api",
             "worker_env": "POLYGRAPH_OVERRIDE_SAM_CHECKPOINT",
-            "notes": "Must exist on the machine that runs SAM (worker path in split deploy). Ignored when ``skip_sam_segmentation`` is true.",
+            "notes": "Must exist on the machine that runs SAM (worker path in split deploy). Ignored when ``skip_sam_segmentation`` is true. ``sam_model_type`` must match the file: vit_b for sam_vit_b_*.pth, vit_h for sam_vit_h_*.pth, vit_l for sam_vit_l_*.pth — mismatch causes weight shape errors.",
         },
         {
             "key": "gs_repo_path",
@@ -103,6 +103,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": "`masked`: sample SAM black-background crops (recommended — avoids backdrop colours on vertices). `original`: sample full uploads (legacy; can smear clutter onto the mesh).",
+        },
+        {
+            "key": "sam_model_type",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "vit_b / vit_l / vit_h must match the Segment Anything ``.pth`` filename you load; default vit_b matches common ``sam_vit_b_*.pth`` installs.",
         },
         {
             "key": "sam_use_fp16",

@@ -66,7 +66,7 @@ class SamSegmenter:
                 f"Original: {exc}"
             ) from exc
 
-        model_type = self.settings.sam_model_type if self.settings else "vit_h"
+        model_type = self.settings.sam_model_type if self.settings else "vit_b"
         if model_type not in sam_model_registry:
             raise RuntimeError(f"Unknown sam_model_type {model_type!r}; use vit_h, vit_l, or vit_b.")
 
