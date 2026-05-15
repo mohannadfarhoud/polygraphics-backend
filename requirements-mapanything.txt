@@ -1,3 +1,4 @@
 # Optional: mesh + GS scene seed via Meta MapAnything (facebookresearch/map-anything).
+# Requires Python >= 3.10 (mapanything's pyproject.toml — 3.9 will fail at install time).
 # Requires a working PyTorch install first (CUDA wheel recommended for GPU workers).
 git+https://github.com/facebookresearch/map-anything.git
