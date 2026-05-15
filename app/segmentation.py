@@ -9,6 +9,37 @@ import numpy as np
 from .runtime_settings import RuntimeSettings
 
 
+def refine_binary_mask_to_center_subject(mask_u8: np.ndarray) -> np.ndarray:
+    """Keep the connected foreground component that contains the image centre (or nearest large blob)."""
+    h, w = mask_u8.shape[:2]
+    binary = ((mask_u8 > 0).astype(np.uint8) * 255).astype(np.uint8)
+    cx, cy = w // 2, h // 2
+    n, labels, stats, _centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    if n <= 1:
+        return binary
+
+    lid = int(labels[cy, cx])
+    if lid > 0 and stats[lid, cv2.CC_STAT_AREA] >= 32:
+        return ((labels == lid).astype(np.uint8) * 255)
+
+    best_li = -1
+    best_score = -1.0
+    for li in range(1, n):
+        area = int(stats[li, cv2.CC_STAT_AREA])
+        if area < 32:
+            continue
+        m = labels == li
+        ys, xs = np.where(m)
+        dist2 = float((xs.mean() - cx) ** 2 + (ys.mean() - cy) ** 2)
+        score = float(area) / (1.0 + dist2 * 1e-4)
+        if score > best_score:
+            best_score = score
+            best_li = li
+    if best_li < 0:
+        return binary
+    return ((labels == best_li).astype(np.uint8) * 255)
+
+
 class SamSegmenter:
     """SAM-backed masking; optional ellipse demo when allow_placeholder_pipeline is True."""
 
@@ -45,10 +76,8 @@ class SamSegmenter:
         else:
             device = torch.device(device_str)
 
-        mode = self.settings.sam_segmentation_mode if self.settings else "center_point"
+        mode = self.settings.sam_segmentation_mode if self.settings else "center_subject"
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-        h, w = image_rgb.shape[:2]
-
         sam = self._ensure_sam(model_type, ckpt, device)
 
         use_amp = (
@@ -62,12 +91,14 @@ class SamSegmenter:
             amp_ctx = contextlib.nullcontext()
 
         with amp_ctx:
-            if mode == "center_point":
-                mask = self._predict_center_point(sam, image_rgb, h, w)
+            if mode == "center_subject":
+                mask = self._predict_center_subject(sam, image_rgb)
+            elif mode == "center_point":
+                mask = self._predict_center_point(sam, image_rgb)
             elif mode == "auto_masks_largest_area":
                 mask = self._predict_auto_largest(sam, image_rgb)
             else:
-                mask = self._predict_auto_center_bias(sam, image_rgb, h, w)
+                mask = self._predict_auto_center_bias(sam, image_rgb)
 
         if mask is None or mask.size == 0:
             return self._fallback_center_mask(image_bgr)
@@ -95,7 +126,7 @@ class SamSegmenter:
             self._sam_model = sam
         return self._sam_model
 
-    def _predict_center_point(self, sam, image_rgb: np.ndarray, h: int, w: int) -> np.ndarray:
+    def _predict_center_point(self, sam, image_rgb: np.ndarray) -> np.ndarray:
         """Prompt SAM with a positive point at the image center — best for a subject in the middle."""
         from segment_anything import SamPredictor
 
@@ -103,6 +134,7 @@ class SamSegmenter:
             self._predictor = SamPredictor(sam)
 
         self._predictor.set_image(image_rgb)
+        h, w = image_rgb.shape[:2]
         cx, cy = w // 2, h // 2
         point_coords = np.array([[float(cx), float(cy)]], dtype=np.float32)
         point_labels = np.array([1], dtype=np.int32)
@@ -115,7 +147,43 @@ class SamSegmenter:
             return None
         best_idx = int(np.argmax(scores))
         seg = masks[best_idx]
-        return (seg.astype(np.uint8) * 255)
+        raw = (seg.astype(np.uint8) * 255)
+        return refine_binary_mask_to_center_subject(raw)
+
+    def _predict_center_subject(self, sam, image_rgb: np.ndarray) -> np.ndarray:
+        """Centre foreground prompt + corner background prompts, then keep the FG component touching the centre.
+
+        Stronger background removal than ``center_point`` alone when the backdrop is homogeneous.
+        """
+        from segment_anything import SamPredictor
+
+        if self._predictor is None:
+            self._predictor = SamPredictor(sam)
+
+        self._predictor.set_image(image_rgb)
+        h, w = image_rgb.shape[:2]
+        cx, cy = w // 2, h // 2
+        point_coords = np.array(
+            [
+                [float(cx), float(cy)],
+                [0.0, 0.0],
+                [float(w - 1), 0.0],
+                [0.0, float(h - 1)],
+                [float(w - 1), float(h - 1)],
+            ],
+            dtype=np.float32,
+        )
+        point_labels = np.array([1, 0, 0, 0, 0], dtype=np.int32)
+        masks, scores, _logits = self._predictor.predict(
+            point_coords=point_coords,
+            point_labels=point_labels,
+            multimask_output=True,
+        )
+        if masks is None or len(masks) == 0:
+            return None
+        best_idx = int(np.argmax(scores))
+        raw = masks[best_idx].astype(np.uint8) * 255
+        return refine_binary_mask_to_center_subject(raw)
 
     def _predict_auto_largest(self, sam, image_rgb: np.ndarray) -> np.ndarray:
         """Original behavior: largest automatic mask by pixel area."""
@@ -131,7 +199,7 @@ class SamSegmenter:
         seg = best["segmentation"]
         return (seg.astype(np.uint8) * 255)
 
-    def _predict_auto_center_bias(self, sam, image_rgb: np.ndarray, h: int, w: int) -> np.ndarray:
+    def _predict_auto_center_bias(self, sam, image_rgb: np.ndarray) -> np.ndarray:
         """Score each auto-mask by log(area) × Gaussian falloff from image center."""
         from segment_anything import SamAutomaticMaskGenerator
 
@@ -142,6 +210,7 @@ class SamSegmenter:
         if not masks:
             return None
 
+        h, w = image_rgb.shape[:2]
         cx_img, cy_img = w / 2.0, h / 2.0
         max_dist = float(np.hypot(cx_img, cy_img)) + 1e-6
 
@@ -161,7 +230,8 @@ class SamSegmenter:
 
         best = max(masks, key=score)
         seg = best["segmentation"]
-        return (seg.astype(np.uint8) * 255)
+        raw = (seg.astype(np.uint8) * 255)
+        return refine_binary_mask_to_center_subject(raw)
 
     @staticmethod
     def _fallback_center_mask(image_bgr: np.ndarray) -> np.ndarray:

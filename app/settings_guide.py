@@ -87,6 +87,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "CUDA AMP fp16 for SAM forward passes (lower VRAM on small GPUs).",
         },
         {
+            "key": "sam_segmentation_mode",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "center_subject (default): SAM point at centre + corners as background + single blob at centre. center_point: centre click only. auto_masks_center_bias: auto masks biased to centre mass. auto_masks_largest_area: largest segment (often backdrop).",
+        },
+        {
             "key": "max_input_image_side",
             "scope": "both",
             "worker_env": None,

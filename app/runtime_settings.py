@@ -33,10 +33,11 @@ class RuntimeSettings(BaseModel):
     sam_checkpoint_path: str | None = None
     sam_model_type: str = "vit_h"
     sam_segmentation_mode: Literal[
+        "center_subject",
         "center_point",
         "auto_masks_center_bias",
         "auto_masks_largest_area",
-    ] = "center_point"
+    ] = "center_subject"
     sam_use_fp16: bool = True
 
     # With ``reconstruction_backend == "gaussian_splatting"``, emit ``<job_id>_compare_mesh.glb`` (MapAnything mesh)

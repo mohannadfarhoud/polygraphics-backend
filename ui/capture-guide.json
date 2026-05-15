@@ -36,7 +36,7 @@
     {
       "id": "center_subject",
       "severity": "warning",
-      "rule": "SAM default is center_point — show “keep object centered in frame” during capture/onboarding."
+      "rule": "SAM default is center_subject — show “keep object centered in frame” during capture/onboarding."
     },
     {
       "id": "steady",
@@ -103,7 +103,7 @@
       { "key": "reconstruction_backend", "value": "gaussian_splatting", "rationale": "Match PolyCam-class splat export." },
       { "key": "mapanything_minibatch_size", "value": 1, "rationale": "Lower VRAM during MapAnything scene seed on 8 GB." },
       { "key": "gs_train_with_original_images", "value": true, "rationale": "Supervise GS with real colours—not SAM black padding." },
-      { "key": "sam_segmentation_mode", "value": "center_point", "rationale": "Fast, predictable foreground when the object is centred (like guided capture)." },
+      { "key": "sam_segmentation_mode", "value": "center_subject", "rationale": "Centre foreground + corner background cues in SAM; single blob around centre removes stray FG islands." },
       { "key": "max_input_image_side", "value": 1600, "rationale": "Balance detail vs SAM/MapAnything/GS VRAM on 8 GB." },
       { "key": "gs_sh_degree", "value": 2, "rationale": "Softer than 3 for VRAM; raise to 3 for final renders if stable." },
       { "key": "gs_iterations", "value": 12000, "rationale": "Better colour/geometry than 7k; increase to 20000–30000 for finals if heat/VRAM allow." },
@@ -113,7 +113,7 @@
     "mesh_glb_friendly": [
       { "key": "reconstruction_backend", "value": "mapanything", "rationale": "Feed-forward metric mesh from masked views (Meta MapAnything)." },
       { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "Bake vertex RGB from originals when cameras succeed." },
-      { "key": "sam_segmentation_mode", "value": "center_point", "rationale": "Matches centred object capture UI." },
+      { "key": "sam_segmentation_mode", "value": "center_subject", "rationale": "Stronger masked subject on black background when the object is centred in frame." },
       { "key": "max_input_image_side", "value": 1600, "rationale": "Matches default server cap; raise to 1920 for sharper bake if VRAM allows." }
     ]
   }

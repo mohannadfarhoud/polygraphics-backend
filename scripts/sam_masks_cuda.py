@@ -26,6 +26,12 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from app.segmentation import refine_binary_mask_to_center_subject
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="SAM binary masks on CUDA")
@@ -36,8 +42,8 @@ def main() -> int:
     parser.add_argument("--model-type", default="vit_b", choices=("vit_h", "vit_l", "vit_b"))
     parser.add_argument(
         "--mode",
-        default="center_point",
-        choices=("center_point", "auto_masks_center_bias", "auto_masks_largest_area"),
+        default="center_subject",
+        choices=("center_subject", "center_point", "auto_masks_center_bias", "auto_masks_largest_area"),
     )
     parser.add_argument("--device", default="cuda", help="cuda or cpu")
     parser.add_argument(
@@ -87,13 +93,26 @@ def main() -> int:
         return torch.cuda.amp.autocast(dtype=torch.float16) if use_amp else contextlib.nullcontext()
 
     def predict_one(rgb: np.ndarray, h: int, w: int) -> np.ndarray | None:
-        if args.mode == "center_point":
+        if args.mode in ("center_point", "center_subject"):
             with torch.inference_mode():
                 with _amp():
                     predictor.set_image(rgb)
                     cx, cy = w // 2, h // 2
-                    coords = np.array([[float(cx), float(cy)]], dtype=np.float32)
-                    labels = np.array([1], dtype=np.int32)
+                    if args.mode == "center_point":
+                        coords = np.array([[float(cx), float(cy)]], dtype=np.float32)
+                        labels = np.array([1], dtype=np.int32)
+                    else:
+                        coords = np.array(
+                            [
+                                [float(cx), float(cy)],
+                                [0.0, 0.0],
+                                [float(w - 1), 0.0],
+                                [0.0, float(h - 1)],
+                                [float(w - 1), float(h - 1)],
+                            ],
+                            dtype=np.float32,
+                        )
+                        labels = np.array([1, 0, 0, 0, 0], dtype=np.int32)
                     masks, scores, _ = predictor.predict(
                         point_coords=coords,
                         point_labels=labels,
@@ -101,7 +120,8 @@ def main() -> int:
                     )
             if masks is None or len(masks) == 0:
                 return None
-            return (masks[int(np.argmax(scores))].astype(np.uint8) * 255)
+            raw = masks[int(np.argmax(scores))].astype(np.uint8) * 255
+            return refine_binary_mask_to_center_subject(raw)
 
         if args.mode == "auto_masks_largest_area":
             with torch.inference_mode():
@@ -136,7 +156,8 @@ def main() -> int:
         if not masks:
             return None
         best = max(masks, key=score)
-        return (best["segmentation"].astype(np.uint8) * 255)
+        raw = best["segmentation"].astype(np.uint8) * 255
+        return refine_binary_mask_to_center_subject(raw)
 
     for i, p in enumerate(paths):
         bgr = cv2.imread(str(p), cv2.IMREAD_COLOR)

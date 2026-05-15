@@ -133,7 +133,7 @@ These map to tunable fields in `PUT /settings`:
 | `mesh_glb_draco_compression` | `true` | mesh | Compressed GLB when Open3D allows. |
 | `sam_use_fp16` | `true` | 1 | CUDA AMP fp16 for SAM. |
 | `poisson_depth` | `9` | mesh | Open3D Poisson depth — lower tends to tame noisy neural clouds. |
-| `sam_segmentation_mode` | `center_point` | 1 | Use **`auto_masks_center_bias`** when subject is off-centre. |
+| `sam_segmentation_mode` | `center_subject` | 1 | **`center_subject`**: SAM centre FG + corners BG + lone blob around centre (**default**). Use **`center_point`** for a plain centre tap; **`auto_masks_center_bias`** when subject is off-centre. |
 | `gs_train_with_original_images` | `true` | 5 | Replace `scene/images` pixels with originals before `train.py` (fixes dark splats). |
 | `compare_mesh_preview_with_gs` | `false` | — | When GS: emit **`{job}_compare_mesh.glb`** (MapAnything) before `.ply`. |
 | `gs_opacity_reset_interval` | `3000` | 5 | Passed to `--opacity_reset_interval` (worker may lengthen on short runs). |
@@ -224,9 +224,9 @@ The default **`reconstruction_backend` is `mapanything`** (feed-forward metric m
 
 To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`** and a **CUDA GPU** with extensions built as above. MapAnything still seeds the COLMAP-text scene. The API outputs `.ply` and sets **`model_format`: `"ply"`**.
 
-### SAM: centre the subject (default foreground prompt)
+### SAM: centre the subject and drop the backdrop
 
-`sam_segmentation_mode` defaults to **`center_point`**: Segment Anything receives a foreground **click at image centre**. Your UI must tell users to **frame the object in the centre** (PolyCam-style object mode). Switch to **`auto_masks_center_bias`** when subjects are deliberately off-centre; avoid **`auto_masks_largest_area`** unless you know background is weaker than foreground.
+`sam_segmentation_mode` defaults to **`center_subject`**: Segment Anything gets a **foreground point at the image centre** and **background points at all four corners** (so flats / tables read as BG), then the mask is tightened to the **single connected foreground component that touches the centre** — fewer stray blobs on black padding. **`center_point`** is the simpler “one centre tap”; switch to **`auto_masks_center_bias`** when the object is deliberately off-centre; avoid **`auto_masks_largest_area`** unless you know the largest segment is still the subject.
 
 ### Improving mesh quality (MapAnything + Open3D)
 
