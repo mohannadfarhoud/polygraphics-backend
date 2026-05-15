@@ -92,12 +92,13 @@ def _assert_official_gs_train_imports(train_py: Path, py_executable: str) -> Non
         f"Interpreter checked: {py_executable}\n"
         f"Gaussians repo: {gs_root}\n"
         f"Import check stderr: {err or '(empty)'}\n\n"
-        "Fix (Windows, from an elevated or dev shell with nvcc + VS C++ build tools):\n"
+        "Fix (Windows, from 'x64 Native Tools Command Prompt for VS 2022' or Developer PowerShell):\n"
         "  1) Ensure submodules exist: cd the gaussian-splatting clone; "
         "git submodule update --init --recursive\n"
-        f"  2) Build into this exact Python:\n"
-        f'     "{py_executable}" -m pip install --no-build-isolation "{dgr}"\n'
-        f'     "{py_executable}" -m pip install --no-build-isolation "{skn}"\n'
+        "  2) Install extension wheels into this interpreter (PowerShell needs the call operator &):\n"
+        f'     & "{py_executable}" -m pip install --no-build-isolation "{dgr}"\n'
+        f'     & "{py_executable}" -m pip install --no-build-isolation "{skn}"\n'
+        "     (In cmd.exe, omit the & and keep the quoted python path.)\n"
         "Or run (from polyGraphics-backend checkout, uses your interpreter for the submodule build):\n"
         f'  .\\scripts\\install_gaussian_splatting_windows.ps1 -SkipTorchCuda '
         f'-PythonExe "{py_executable}" -ThirdPartyRoot "{third_party_root}"'
