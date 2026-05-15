@@ -19,6 +19,9 @@
   when train.py is not run from the backend project's .venv (e.g. polygraph_worker\.venv).
   Combine with -SkipTorchCuda if that venv already has the right CUDA PyTorch.
 
+.PARAMETER TorchCudaArchList
+  Optional; sets TORCH_CUDA_ARCH_LIST for the submodule build (e.g. 8.6 for Ampere / RTX 30xx).
+
 .EXAMPLE
   .\scripts\install_gaussian_splatting_windows.ps1
 
@@ -37,6 +40,8 @@ param(
     [string]$PythonExe = "",
     [switch]$SkipTorchCuda,
     [string]$TorchCudaIndexUrl = "https://download.pytorch.org/whl/cu124",
+    # e.g. 8.6 (Ampere RTX30), 8.9 (Ada RTX40), 7.5 (Turing). Omit to let setuptools guess (can fail).
+    [string]$TorchCudaArchList = "",
     [switch]$SkipSubmoduleBuild
 )
 
@@ -110,16 +115,49 @@ if ($SkipSubmoduleBuild) {
     # Reuse the active Visual Studio developer prompt environment for setuptools builds.
     $env:DISTUTILS_USE_SDK = "1"
 
+    Step "Pre-build diagnostics (Torch vs CUDA toolkit — compare major versions)"
+    $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
+    if ($nvcc) {
+        Write-Host ("nvcc:" + " " + $nvcc.Source) -ForegroundColor Gray
+        & nvcc --version
+    }
+    else {
+        Write-Host "WARNING: nvcc not on PATH. Open 'x64 Native Tools Command Prompt for VS 2022' (or VS Developer PowerShell) and rerun." -ForegroundColor Yellow
+    }
+    Write-Host "--- PyTorch ---" -ForegroundColor Gray
+    & $venvPython -c @"
+import torch
+try:
+    v = getattr(torch.version, 'cuda', None)
+except Exception:
+    v = None
+print('torch', torch.__version__, 'torch.version.cuda', v)
+print('cuda_available', torch.cuda.is_available())
+"@
+    if ($TorchCudaArchList) {
+        $env:TORCH_CUDA_ARCH_LIST = $TorchCudaArchList
+        Write-Host "Using TORCH_CUDA_ARCH_LIST=$($env:TORCH_CUDA_ARCH_LIST)" -ForegroundColor Gray
+    }
+    elseif ($env:TORCH_CUDA_ARCH_LIST) {
+        Write-Host "TORCH_CUDA_ARCH_LIST=$($env:TORCH_CUDA_ARCH_LIST) (inherited from shell)" -ForegroundColor Gray
+    }
+    else {
+        Write-Host "Tip: if nvcc dies with unclear arch errors, pass -TorchCudaArchList (e.g. 8.6 for RTX 30xx)." -ForegroundColor DarkYellow
+    }
+
     Step "Building diff-gaussian-rasterization (CUDA - requires nvcc)"
     Push-Location $dgr
     & $venvPython -m pip install --no-build-isolation .
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
         Write-Host ""
-        Write-Host "BUILD FAILED. Typical fixes:" -ForegroundColor Red
-        Write-Host "  - Install CUDA Toolkit; open a new shell and run: nvcc --version" -ForegroundColor Yellow
-        Write-Host "  - Install VS 2022 Build Tools (C++ workload)" -ForegroundColor Yellow
-        Write-Host "  - Use -TorchCudaIndexUrl that matches your CUDA major version" -ForegroundColor Yellow
+        Write-Host "BUILD FAILED — scroll PIP OUTPUT ABOVE for the first nvcc/cl error line." -ForegroundColor Red
+        Write-Host "Typical fixes (Windows):" -ForegroundColor Yellow
+        Write-Host "  1) Run from 'x64 Native Tools Command Prompt for VS 2022' so cl.exe/msvc env is initialized." -ForegroundColor Yellow
+        Write-Host "  2) Match PyTorch to your toolkit: reinstall torch from the cu12x/cu118 index that matches CUDA on PATH;" -ForegroundColor Yellow
+        Write-Host "     e.g. cu121 wheel + CUDA Toolkit 12.1+; set CUDA_HOME to that toolkit root if needed." -ForegroundColor Yellow
+        Write-Host '  3) Try explicit arch: .\scripts\install_gaussian_splatting_windows.ps1 ... -TorchCudaArchList "8.6"' -ForegroundColor Yellow
+        Write-Host "  4) If MSVC is 'unsupported' for your CUDA revision, patch CUDA toolkit or upgrade CUDA to match CUDA-MSVS matrix." -ForegroundColor Yellow
         exit $LASTEXITCODE
     }
     Pop-Location
