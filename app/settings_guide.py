@@ -60,7 +60,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "skip_sam_segmentation",
             "scope": "both",
             "worker_env": None,
-            "notes": "When true: no Segment Anything. Upload PNG with alpha (precut subject) or opaque RGB; masked views become ``masked_*.png`` with alpha flattened onto ``mapanything_alpha_flatten_gray`` grey for MapAnything (alpha is not passed through upstream). SAM checkpoint not required.",
+            "notes": "When false (default for full-camera photos): SAM segments the centred subject so the tabletop/room can stay black-backed. Requires sam_checkpoint_path on the worker unless allow_placeholder_pipeline. When true: you must upload pre-cut PNGs whose **opaque pixels are only the object** — the table cannot be painted out later.",
         },
         {
             "key": "mapanything_alpha_flatten_gray",
@@ -114,7 +114,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "sam_segmentation_mode",
             "scope": "both",
             "worker_env": None,
-            "notes": "center_subject (default): SAM point at centre + corners as background + single blob at centre. center_point: centre click only. auto_masks_center_bias: auto masks biased to centre mass. auto_masks_largest_area: largest segment (often backdrop).",
+            "notes": "For a **toy centred in frame on a table**: use skip_sam_segmentation=false with center_subject — centre = foreground prompt, corners = background prompts. center_point only centre tap (weaker separation from tabletop). Place the car near the optical centre so the centroid matches the SAM prompt.",
         },
         {
             "key": "max_input_image_side",
