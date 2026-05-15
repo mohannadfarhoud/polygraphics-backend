@@ -14,16 +14,27 @@
 .PARAMETER TorchCudaIndexUrl
   PyTorch wheel index for CUDA (default cu124). Use cu118 if your toolkit is 11.8.
 
+.PARAMETER PythonExe
+  Optional full path to python.exe. Use this to install extensions into a *worker* virtualenv
+  when train.py is not run from the backend project's .venv (e.g. polygraph_worker\.venv).
+  Combine with -SkipTorchCuda if that venv already has the right CUDA PyTorch.
+
 .EXAMPLE
   .\scripts\install_gaussian_splatting_windows.ps1
 
 .EXAMPLE
   .\scripts\install_gaussian_splatting_windows.ps1 -TorchCudaIndexUrl "https://download.pytorch.org/whl/cu118"
+
+.EXAMPLE
+  # Build only the CUDA wheels into your *worker* venv (API / MapAnything python already OK):
+  .\scripts\install_gaussian_splatting_windows.ps1 -SkipTorchCuda `
+    -PythonExe "C:\Users\me\polygraph_worker\.venv\Scripts\python.exe"
 #>
 
 param(
     [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\..").Path,
     [string]$ThirdPartyRoot = "C:\polyGraphics\third_party",
+    [string]$PythonExe = "",
     [switch]$SkipTorchCuda,
     [string]$TorchCudaIndexUrl = "https://download.pytorch.org/whl/cu124",
     [switch]$SkipSubmoduleBuild
@@ -32,9 +43,17 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $ProjectRoot
 
-$venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
-if (-not (Test-Path $venvPython)) {
-    Write-Error "Virtualenv not found at $venvPython. Run scripts\setup_windows.ps1 first."
+if ($PythonExe) {
+    if (-not (Test-Path -LiteralPath $PythonExe)) {
+        Write-Error "PythonExe not found: $PythonExe"
+    }
+    $venvPython = [string](Resolve-Path -LiteralPath $PythonExe).Path
+}
+else {
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) {
+        Write-Error "Virtualenv not found at $venvPython. Run scripts\setup_windows.ps1 first or pass -PythonExe to your worker ``.venv\Scripts\python.exe``."
+    }
 }
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }

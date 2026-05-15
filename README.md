@@ -163,6 +163,13 @@ CUDA 11.8 toolkit example:
 .\scripts\install_gaussian_splatting_windows.ps1 -TorchCudaIndexUrl "https://download.pytorch.org/whl/cu118"
 ```
 
+If **MapAnything / PyTorch already live in another venv** (e.g. `polygraph_worker\.venv`) but the backend repo `.venv` does not run `train.py`, build the GS extensions into that interpreter:
+
+```powershell
+.\scripts\install_gaussian_splatting_windows.ps1 -SkipTorchCuda `
+  -PythonExe "C:\path\to\polygraph_worker\.venv\Scripts\python.exe"
+```
+
 Clone only (skip compiling extensions):
 
 ```powershell

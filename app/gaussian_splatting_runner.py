@@ -83,6 +83,7 @@ def _assert_official_gs_train_imports(train_py: Path, py_executable: str) -> Non
         return
     err = (proc.stderr or proc.stdout or "").strip()
     gs_root = train_py.parent
+    third_party_root = str(gs_root.parent)
     dgr = gs_root / "submodules" / "diff-gaussian-rasterization"
     skn = gs_root / "submodules" / "simple-knn"
     raise RuntimeError(
@@ -97,8 +98,9 @@ def _assert_official_gs_train_imports(train_py: Path, py_executable: str) -> Non
         f"  2) Build into this exact Python:\n"
         f'     "{py_executable}" -m pip install --no-build-isolation "{dgr}"\n'
         f'     "{py_executable}" -m pip install --no-build-isolation "{skn}"\n'
-        "See also scripts/install_gaussian_splatting_windows.ps1 — point it at your worker venv "
-        "or run the two pip lines above manually with paths adjusted."
+        "Or run (from polyGraphics-backend checkout, uses your interpreter for the submodule build):\n"
+        f'  .\\scripts\\install_gaussian_splatting_windows.ps1 -SkipTorchCuda '
+        f'-PythonExe "{py_executable}" -ThirdPartyRoot "{third_party_root}"'
     )
 
 
