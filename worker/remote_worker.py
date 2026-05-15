@@ -10,6 +10,7 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_WS_PING_INTERVAL`` / ``POLYGRAPH_WS_PING_TIMEOUT`` — WebSocket keepalive seconds (defaults ``30`` / ``600``) while **waiting** for work only; the socket is **closed after each job_assigned** and stays disconnected until the job finishes (progress uses REST ``POST .../progress``), then reconnects — avoids 1011 ping timeouts during long GPU runs
 * ``POLYGRAPH_OVERRIDE_DEVICE`` — optional ``cuda`` / ``cpu`` / ``auto``; if unset, worker uses ``cuda`` when ``torch.cuda.is_available()`` else keeps API ``device``
 * ``POLYGRAPH_POLL_SECONDS`` — fallback polling interval for ``GET /internal/worker/next`` (default ``30``)
+* ``POLYGRAPH_POLL_WHILE_WEBSOCKET`` — when ``1``/``true``, keep that interval even if WebSocket is on; default is **off** so REST polling is slowed (min ~180s) while WS carries ``job_assigned`` — fewer duplicate wakes / log spam
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
 * ``POLYGRAPH_REQUIRE_CUDA`` — ``1``/``true`` to exit immediately if ``torch.cuda.is_available()`` is false
 """
@@ -323,6 +324,18 @@ def _get_assignment(client: httpx.Client, base: str, token: str, job_id: str) ->
     )
 
 
+def _effective_poll_seconds(*, use_websocket: bool, configured_poll: float) -> float:
+    """When WebSocket carries ``job_assigned``, slow down REST polling to reduce duplicate wakeups/logs.
+
+    Set ``POLYGRAPH_POLL_WHILE_WEBSOCKET=1`` to keep polling at ``POLYGRAPH_POLL_SECONDS`` while WS is on.
+    """
+    if not use_websocket:
+        return configured_poll
+    if os.getenv("POLYGRAPH_POLL_WHILE_WEBSOCKET", "").strip().lower() in ("1", "true", "yes"):
+        return configured_poll
+    return max(float(configured_poll), 180.0)
+
+
 def _poll_next(client: httpx.Client, base: str, token: str) -> httpx.Response:
     return client.get(
         f"{base.rstrip('/')}/internal/worker/next",
@@ -519,6 +532,7 @@ def main() -> None:
 
     poll_interval = float(os.environ.get("POLYGRAPH_POLL_SECONDS", "30"))
     use_ws = os.getenv("POLYGRAPH_USE_WEBSOCKET", "1").strip().lower() in ("1", "true", "yes")
+    poll_eff = _effective_poll_seconds(use_websocket=use_ws, configured_poll=poll_interval)
 
     try:
         import torch
@@ -527,12 +541,15 @@ def main() -> None:
     except ImportError:
         pass
 
+    poll_note = ""
+    if use_ws and poll_eff > poll_interval + 1e-6:
+        poll_note = " (REST slowed while WS on; POLYGRAPH_POLL_WHILE_WEBSOCKET=1 to poll at POLYGRAPH_POLL_SECONDS)"
     print(
-        f"[polygraph-worker] API {base} | ws={'on' if use_ws else 'off'} | fallback poll {poll_interval}s",
+        f"[polygraph-worker] API {base} | ws={'on' if use_ws else 'off'} | fallback poll {poll_eff}s{poll_note}",
         flush=True,
     )
 
-    asyncio.run(_run_async(base, token, poll_interval, use_ws))
+    asyncio.run(_run_async(base, token, poll_eff, use_ws))
 
 
 async def _run_async(base: str, token: str, poll_interval: float, use_ws: bool) -> None:

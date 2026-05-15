@@ -420,8 +420,13 @@ async def internal_worker_websocket(websocket: WebSocket) -> None:
     hub: WorkerHub = app.state.worker_hub
     await hub.register(websocket)
     try:
+        # Keep the socket open for server → client ``job_assigned`` pushes only. Do not require text
+        # from the worker; exiting cleanly on disconnect avoids a busy receive loop if the client
+        # sends non-text frames (some proxies / libraries).
         while True:
-            await websocket.receive_text()
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
     except WebSocketDisconnect:
         pass
     finally:
