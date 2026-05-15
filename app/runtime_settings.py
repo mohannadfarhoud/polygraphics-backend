@@ -10,8 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class RuntimeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     # `dust3r`/`colmap` produce a meshed `.glb`; `gaussian_splatting` produces a `.ply` (3DGS).
-    # `auto` picks DUSt3R for fewer-than-`auto_dust3r_max_images` photos and COLMAP otherwise.
-    reconstruction_backend: Literal["auto", "dust3r", "colmap", "gaussian_splatting"] = "auto"
+    # Default `colmap` gives more stable SfM on textured backgrounds (e.g. tabletop scans) when
+    # colmap_binary_path is set. Use `dust3r` or `auto` for small sets / COLMAP-free setups.
+    reconstruction_backend: Literal["auto", "dust3r", "colmap", "gaussian_splatting"] = "colmap"
     # When reconstruction_backend == "auto", use DUSt3R strictly below this count, else COLMAP
     # (more stable SfM for many-phone object scans — thin objects + textured tables).
     auto_dust3r_max_images: int = Field(default=18, ge=2, le=10000)

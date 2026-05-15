@@ -130,5 +130,6 @@ Write-Host @"
     "max_image_side": 512
   }
 "@ -ForegroundColor Yellow
-Write-Host "Then: Restart-Service polygraphics" -ForegroundColor Yellow
+Write-Host "Then restart the API service." -ForegroundColor Yellow
+Write-Host "Default mesh backend is colmap — set colmap_binary_path in PUT /settings. Use dust3r if you skip COLMAP." -ForegroundColor DarkGray
 Write-Host 'Optional - Gaussian Splatting (NVIDIA + CUDA + VS Build Tools): .\scripts\install_gaussian_splatting_windows.ps1' -ForegroundColor DarkGray

@@ -135,7 +135,8 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `dust3r_max_inference_side` | `768` | 2 | Upper bound on DUSt3R resize side (`min` with `max_image_side`). |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. For `gs_iterations` ≤ 10000, the worker may increase this so no reset runs mid-training (reduces upstream “invalid gradient” / zero-splat failures on short runs). |
 | `gs_iterations` | `10000` | 5 | Default balances quality/time on RTX 3050-class VRAM; use `30000` for higher-quality `.ply`. |
-| `auto_dust3r_max_images` | `18` | auto | DUSt3R when image count `<` this value; **`colmap`** at ≥18 for mesh `auto` (better on busy backgrounds + many-phone scans). |
+| `reconstruction_backend` | `colmap` | — | Mesh path: **`colmap`** (default) for classic SfM; **`dust3r`** mono-depth mesh; **`auto`** switches by image count (needs both backends configured); **`gaussian_splatting`** for `.ply`. |
+| `auto_dust3r_max_images` | `18` | auto | Only when `reconstruction_backend` is **`auto`**: DUSt3R when **`n_images` <** this value, else COLMAP. |
 | `sam_segmentation_mode` | `center_point` | 1 | Keeps centred object mode predictable; switch to **`auto_masks_center_bias`** for off-centre subjects. |
 | `gs_train_with_original_images` | `true` | 5 | Before GPU `train.py`, replace `scene/images` pixels with originals (masked filenames unchanged) so optimisation is not anchored to SAM black paddings—major fix for **dark/black** coloured splats. |
 | `poisson_depth` | `9` | mesh | Open3D Poisson depth — **lower** tends to suppress spike noise vs very high depths on messy clouds (raise only when the cloud is clean). |
@@ -181,7 +182,7 @@ Otherwise use mesh backends (`auto` / `dust3r` / `colmap`) for `.glb` surfaces w
 
 ### Mesh (`.glb`) vs Gaussian Splatting (`.ply`)
 
-The default **`reconstruction_backend` is `auto`** (DUSt3R when **`n_images` < `auto_dust3r_max_images`** (default 18); **COLMAP** at 18 views and above for mesh-side SfM). That path yields a **polygon mesh** (`.glb`).
+The default **`reconstruction_backend` is `colmap`** (SfM + mesh). Use **`dust3r`** or **`auto`** when COLMAP is unavailable or for very small image sets. **`auto`** uses DUSt3R when **`n_images` < `auto_dust3r_max_images`** (default 18), COLMAP otherwise—but **`assert_pipeline_ready`** still requires **both** COLMAP and DUSt3R to be configured on the worker.
 
 To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`**, **`colmap_binary_path`** (for `gs_init_source="colmap"`), and a **CUDA GPU** with the extensions built as above. The API then outputs `.ply` and sets **`model_format`: `"ply"`**.
 
