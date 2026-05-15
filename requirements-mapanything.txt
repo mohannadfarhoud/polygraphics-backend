@@ -1,0 +1,3 @@
+# Optional: mesh + GS scene seed via Meta MapAnything (facebookresearch/map-anything).
+# Requires a working PyTorch install first (CUDA wheel recommended for GPU workers).
+git+https://github.com/facebookresearch/map-anything.git
