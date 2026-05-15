@@ -186,6 +186,27 @@ def run_gaussian_splatting(
     cuda_ok = _torch_cuda_available()
     cpu_fallback = (not cuda_ok) and settings.gs_allow_cpu_fallback
 
+    if cuda_ok:
+        try:
+            import torch
+
+            gpu_name = torch.cuda.get_device_name(0)
+            _logger.info("[gs] CUDA OK — neural training will use train.py (%s)", gpu_name)
+            print(f"[polygraph-gs] CUDA device: {gpu_name} — running train.py (not CPU fallback)", flush=True)
+        except Exception:
+            _logger.info("[gs] CUDA OK — neural training via train.py")
+            print("[polygraph-gs] CUDA available — running train.py", flush=True)
+    elif cpu_fallback:
+        _logger.warning(
+            "[gs] torch.cuda.is_available() is False and gs_allow_cpu_fallback=true — skipping train.py; "
+            "exporting coloured PLY from sparse points only (not neural Gaussian optimisation)."
+        )
+        print(
+            "[polygraph-gs] WARNING: no CUDA for this interpreter — Gaussian Splatting is using CPU "
+            "**sparse fallback** only (no GPU train.py). Install CUDA-capable PyTorch on the worker for real splats.",
+            flush=True,
+        )
+
     if not cuda_ok and not settings.gs_allow_cpu_fallback:
         raise RuntimeError(
             "No CUDA GPU detected for Gaussian Splatting training. Install NVIDIA CUDA + "
