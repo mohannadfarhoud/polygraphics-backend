@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from .color_baking import CameraView
-from .runtime_settings import RuntimeSettings
+from .runtime_settings import RuntimeSettings, effective_reconstruction_backend
 
 
 @dataclass
@@ -48,7 +48,11 @@ class Dust3RReconstructor:
                 aligned_colors_rgb=None,
             )
 
-        backend = mesh_backend if mesh_backend is not None else self.settings.reconstruction_backend
+        backend = (
+            mesh_backend
+            if mesh_backend is not None
+            else effective_reconstruction_backend(self.settings)
+        )
 
         if backend == "gaussian_splatting":
             raise RuntimeError(
@@ -65,7 +69,7 @@ class Dust3RReconstructor:
         _ = n_images
         if self.settings is None:
             return "mapanything"
-        if self.settings.reconstruction_backend == "gaussian_splatting":
+        if effective_reconstruction_backend(self.settings) == "gaussian_splatting":
             return "gaussian_splatting"
         return "mapanything"
 

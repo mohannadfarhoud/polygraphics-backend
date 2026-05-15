@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -107,6 +108,19 @@ class RuntimeSettings(BaseModel):
         ):
             d.pop(dead, None)
         return d
+
+
+def gaussian_splatting_skipped_via_env() -> bool:
+    return os.getenv("POLYGRAPH_SKIP_GAUSSIAN_SPLATTING", "").strip().lower() in ("1", "true", "yes")
+
+
+def effective_reconstruction_backend(
+    settings: RuntimeSettings,
+) -> Literal["mapanything", "gaussian_splatting"]:
+    """What the pipeline actually runs (`POLYGRAPH_SKIP_GAUSSIAN_SPLATTING` forces mesh path)."""
+    if gaussian_splatting_skipped_via_env():
+        return "mapanything"
+    return settings.reconstruction_backend
 
 
 class SettingsStore:

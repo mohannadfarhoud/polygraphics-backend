@@ -191,7 +191,7 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         from app.pipeline import ReconstructionPipeline
         from app.pipeline_ready import assert_pipeline_ready
         from app.reconstruction import Dust3RReconstructor
-        from app.runtime_settings import RuntimeSettings
+        from app.runtime_settings import RuntimeSettings, effective_reconstruction_backend
         from app.segmentation import SamSegmenter
 
         from app.cuda_memory import bootstrap_worker_cuda
@@ -259,7 +259,7 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
 
         out_dir = work / settings.output_dir_name
         if (
-            settings.reconstruction_backend == "gaussian_splatting"
+            effective_reconstruction_backend(settings) == "gaussian_splatting"
             and settings.compare_mesh_preview_with_gs
         ):
             stem = f"{job_id}_compare_mesh"

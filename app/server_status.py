@@ -13,7 +13,7 @@ import psutil
 
 from . import jobs_db
 from .pipeline_ready import assert_pipeline_ready
-from .runtime_settings import RuntimeSettings
+from .runtime_settings import RuntimeSettings, effective_reconstruction_backend, gaussian_splatting_skipped_via_env
 
 
 def _safe_version(package_name: str) -> str | None:
@@ -171,7 +171,11 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
             ready_flag, ready_reason = False, str(exc)
 
     return {
-        "active_backend": settings.reconstruction_backend if settings else None,
+        "active_backend": effective_reconstruction_backend(settings)
+        if settings
+        else None,
+        "reconstruction_backend_settings": settings.reconstruction_backend if settings else None,
+        "gaussian_splatting_skipped_via_env": gaussian_splatting_skipped_via_env(),
         "device": settings.device if settings else None,
         "allow_placeholder_pipeline": settings.allow_placeholder_pipeline if settings else None,
         "ready": ready_flag,

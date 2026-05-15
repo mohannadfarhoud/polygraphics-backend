@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .runtime_settings import RuntimeSettings
+from .runtime_settings import RuntimeSettings, effective_reconstruction_backend
 
 
 def assert_pipeline_ready(settings: RuntimeSettings) -> None:
@@ -37,7 +37,7 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 "(see README). Original error: " + str(exc)
             ) from exc
 
-    backend = settings.reconstruction_backend
+    backend = effective_reconstruction_backend(settings)
 
     if backend == "mapanything":
         _need_mapanything()

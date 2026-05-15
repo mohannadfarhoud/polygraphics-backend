@@ -25,7 +25,7 @@ from .cuda_memory import effective_gpu_isolate_phases, purge_torch_cuda
 from .pipeline_ready import assert_pipeline_ready
 from .point_cloud import build_point_cloud, remove_statistical_outliers
 from .reconstruction import Dust3RReconstructor
-from .runtime_settings import RuntimeSettings
+from .runtime_settings import RuntimeSettings, effective_reconstruction_backend, gaussian_splatting_skipped_via_env
 from .segmentation import SamSegmenter
 
 _log = logging.getLogger(__name__)
@@ -67,6 +67,14 @@ class ReconstructionPipeline:
         try:
             assert_pipeline_ready(self.runtime_settings)
             self._raise_if_cancelled(cancel_event)
+            if (
+                gaussian_splatting_skipped_via_env()
+                and self.runtime_settings.reconstruction_backend == "gaussian_splatting"
+            ):
+                _log.warning(
+                    "POLYGRAPH_SKIP_GAUSSIAN_SPLATTING is set — running MapAnything mesh path instead of Gaussian Splatting"
+                )
+
             from .image_preprocess import downscale_job_images_if_needed
 
             image_paths = downscale_job_images_if_needed(
@@ -83,7 +91,7 @@ class ReconstructionPipeline:
             purge_torch_cuda()
             self._raise_if_cancelled(cancel_event)
 
-            if self.runtime_settings.reconstruction_backend == "gaussian_splatting":
+            if effective_reconstruction_backend(self.runtime_settings) == "gaussian_splatting":
                 if self.runtime_settings.compare_mesh_preview_with_gs:
                     self._publish(
                         job_id,
