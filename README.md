@@ -191,6 +191,8 @@ If **`pip` reports `nvcc` failed with exit code 1**, open the lines above `nvcc`
 
 - Optional: **`pip install ninja`** in the same venv for faster extension builds (removes the “falling back to distutils” warning).
 
+If **`simple_knn`** fails with **`Error compiling objects for extension`** / ninja **`RuntimeError`**, that line is generic—find the **`error C...`**, **`fatal error ...`**, or **`nvcc`/`cl`** message above it. Retry with **`MAX_JOBS=1`** and **`pip install -v`**, optionally **`pip uninstall ninja`** then reinstall `simple-knn` (slow distutils path), via **`invoke_vs_build_tools.ps1`** so **`cl`** stays visible.
+
 Then **`PUT /settings`**: `reconstruction_backend`, `gs_repo_path` (default clone: `C:\polyGraphics\third_party\gaussian-splatting`), `device`: `"cuda"`, install **MapAnything** in the same venv (`pip install git+https://github.com/facebookresearch/map-anything.git`), restart the API.
 
 **CPU-only machines:** leave **`gs_allow_cpu_fallback`: `true`** (default). The API still runs **MapAnything** to build COLMAP-text sparse points, then writes a **colored** 3DGS-format `.ply`: one Gaussian per sparse point with RGB in the SH DC bands — **no** official `train.py`, **no** CUDA extensions. **`gs_repo_path` is optional** on CPU when fallback is enabled.

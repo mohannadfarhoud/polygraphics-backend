@@ -156,6 +156,13 @@ print('cuda_available', torch.cuda.is_available())
         Write-Host "Tip: if nvcc dies with unclear arch errors, pass -TorchCudaArchList (e.g. 8.6 for RTX 30xx)." -ForegroundColor DarkYellow
     }
 
+    # Ninja is preferred by torch cpp_extension when present; avoids some slow distutils edge cases on Windows.
+    Step "Ensuring ninja (optional but recommended for submodule builds)"
+    Run-Pip @("install", "ninja")
+
+    # Parallel ninja jobs occasionally trip MSVC/CUDA races on consumer GPUs; sequential is slower but stabler.
+    $env:MAX_JOBS = "1"
+
     Step "Building diff-gaussian-rasterization (CUDA - requires nvcc)"
     Push-Location $dgr
     & $venvPython -m pip install --no-build-isolation .
@@ -178,6 +185,13 @@ print('cuda_available', torch.cuda.is_available())
     & $venvPython -m pip install --no-build-isolation .
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
+        Write-Host ""
+        Write-Host "simple-knn BUILD FAILED — PyTorch wraps the real error." -ForegroundColor Red
+        Write-Host "Scroll the log above for the first ninja/cl/nvcc error (not only the final RuntimeError)." -ForegroundColor Yellow
+        Write-Host "Try (PowerShell):" -ForegroundColor Yellow
+        Write-Host "  `$env:MAX_JOBS='1'" -ForegroundColor Gray
+        Write-Host "  .\scripts\invoke_vs_build_tools.ps1 `"$venvPython`" -m pip install -v --no-build-isolation `"$skn`"" -ForegroundColor Gray
+        Write-Host "If builds are flaky with ninja: & `"$venvPython`" -m pip uninstall -y ninja; then rerun pip for simple-knn (uses slow distutils backend)." -ForegroundColor Yellow
         exit $LASTEXITCODE
     }
     Pop-Location
