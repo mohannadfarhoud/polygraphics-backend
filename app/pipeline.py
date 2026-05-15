@@ -188,12 +188,17 @@ class ReconstructionPipeline:
                         masked_to_original[masked.name] = original
 
                     for cam in cams:
-                        original = masked_to_original.get(str(cam.image_path)) or masked_to_original.get(
-                            Path(cam.image_path).name
-                        ) or cam.image_path
+                        if self.runtime_settings.mesh_photo_vertex_bake_sample_source == "original":
+                            sample_path = (
+                                masked_to_original.get(str(cam.image_path))
+                                or masked_to_original.get(Path(cam.image_path).name)
+                                or cam.image_path
+                            )
+                        else:
+                            sample_path = Path(cam.image_path)
                         photo_views.append(
                             CameraView(
-                                image_path=original,
+                                image_path=sample_path,
                                 image_size=cam.image_size,
                                 K=cam.K,
                                 w2c=cam.w2c,

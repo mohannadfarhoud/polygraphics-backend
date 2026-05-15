@@ -129,7 +129,7 @@ These map to tunable fields in `PUT /settings`:
 | `nb_neighbors` | `26` | 3 | Open3D SOR neighbours before Poisson. |
 | `std_ratio` | `1.75` | 3 | Open3D SOR std-dev ratio (protocol ~1.5–2.0). |
 | `decimation_target_triangles` | `300000` | mesh | GLB triangle budget after Poisson. |
-| `mesh_photo_vertex_bake` | `true` | mesh | Sample vertex RGB from originals when poses exist. |
+| `mesh_photo_vertex_bake` | `true` | mesh | Sample vertex RGB when poses exist — use **`mesh_photo_vertex_bake_sample_source`** (`masked` = no backdrop smear from full photos; `original` = legacy). |
 | `mesh_glb_draco_compression` | `true` | mesh | Compressed GLB when Open3D allows. |
 | `sam_use_fp16` | `true` | 1 | CUDA AMP fp16 for SAM. |
 | `poisson_depth` | `9` | mesh | Open3D Poisson depth — lower tends to tame noisy neural clouds. |

@@ -78,7 +78,13 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "mesh_photo_vertex_bake",
             "scope": "both",
             "worker_env": None,
-            "notes": "Mesh (.glb): when true, project mesh vertex colours from original photos using estimated cameras (recommended for realistic colour).",
+            "notes": "When true: optional photo projection onto mesh vertices after Poisson.",
+        },
+        {
+            "key": "mesh_photo_vertex_bake_sample_source",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "`masked`: sample SAM black-background crops (recommended — avoids backdrop colours on vertices). `original`: sample full uploads (legacy; can smear clutter onto the mesh).",
         },
         {
             "key": "sam_use_fp16",
