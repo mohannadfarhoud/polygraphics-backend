@@ -99,6 +99,8 @@ def _assert_official_gs_train_imports(train_py: Path, py_executable: str) -> Non
         f'     & "{py_executable}" -m pip install --no-build-isolation "{dgr}"\n'
         f'     & "{py_executable}" -m pip install --no-build-isolation "{skn}"\n'
         "     (In cmd.exe, omit the & and keep the quoted python path.)\n"
+        "If pip fails with **Cannot find compiler 'cl.exe'**, use MSVC on PATH: open **x64 Native Tools for VS 2022**, "
+        "or run pip via **.\\scripts\\invoke_vs_build_tools.ps1** (see script help).\n"
         "Or run (from polyGraphics-backend checkout, uses your interpreter for the submodule build):\n"
         f'  .\\scripts\\install_gaussian_splatting_windows.ps1 -SkipTorchCuda '
         f'-PythonExe "{py_executable}" -ThirdPartyRoot "{third_party_root}"'

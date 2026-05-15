@@ -115,6 +115,17 @@ if ($SkipSubmoduleBuild) {
     # Reuse the active Visual Studio developer prompt environment for setuptools builds.
     $env:DISTUTILS_USE_SDK = "1"
 
+    if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
+        Write-Error @"
+cl.exe is not on PATH. GPU extension builds need MSVC (Visual Studio C++ toolset). nvcc will fail with: Cannot find compiler 'cl.exe'.
+
+Option A: Start Menu -> **x64 Native Tools Command Prompt for VS 2022**, cd to this repo, rerun this script.
+
+Option B: From PowerShell, run pip through:
+  .\scripts\invoke_vs_build_tools.ps1 "<venv>\Scripts\python.exe" -m pip install --no-build-isolation "<gs>\submodules\diff-gaussian-rasterization"
+"@
+    }
+
     Step "Pre-build diagnostics (Torch vs CUDA toolkit — compare major versions)"
     $nvcc = Get-Command nvcc -ErrorAction SilentlyContinue
     if ($nvcc) {

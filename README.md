@@ -176,7 +176,20 @@ Clone only (skip compiling extensions):
 .\scripts\install_gaussian_splatting_windows.ps1 -SkipSubmoduleBuild
 ```
 
-If **`pip` reports `nvcc` failed with exit code 1**: the real explanation is usually a few dozen lines above in the log ( MSVC / CUDA version mismatch or `cl` not found). Build from **`x64 Native Tools Command Prompt for VS 2022`**, align **PyTorch's `torch.version.cuda`** with your **CUDA toolkit** (`nvcc --version`), set **`CUDA_HOME`** to that toolkit if needed, or pass **`-TorchCudaArchList`** when retrying `install_gaussian_splatting_windows.ps1` (e.g. **`8.6`** for typical RTX 30-series).
+If **`pip` reports `nvcc` failed with exit code 1**, open the lines above `nvcc`:
+
+- **`Cannot find compiler 'cl.exe'`** means MSVC was not on `PATH`. Use **`x64 Native Tools Command Prompt for VS 2022`**, **or** from any repo checkout run pip through **`scripts\invoke_vs_build_tools.ps1`** so `vcvars64.bat` initializes the compiler env (same args you would pass to `python.exe`).
+
+  ```powershell
+  .\scripts\invoke_vs_build_tools.ps1 `
+      "C:\Users\you\polygraph_worker\.venv\Scripts\python.exe" `
+      -m pip install --no-build-isolation `
+      "C:\polyGraphics\third_party\gaussian-splatting\submodules\diff-gaussian-rasterization"
+  ```
+
+- **CUDA vs PyTorch**: align **PyTorch's `torch.version.cuda`** with your **CUDA toolkit** (`nvcc --version`) when possible; set **`CUDA_HOME`** if needed. Pass **`-TorchCudaArchList`** (e.g. **`8.6`**) on `install_gaussian_splatting_windows.ps1` if arch-related errors appear.
+
+- Optional: **`pip install ninja`** in the same venv for faster extension builds (removes the “falling back to distutils” warning).
 
 Then **`PUT /settings`**: `reconstruction_backend`, `gs_repo_path` (default clone: `C:\polyGraphics\third_party\gaussian-splatting`), `device`: `"cuda"`, install **MapAnything** in the same venv (`pip install git+https://github.com/facebookresearch/map-anything.git`), restart the API.
 
