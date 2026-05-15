@@ -191,7 +191,8 @@ print('cuda_available', torch.cuda.is_available())
         Write-Host "Try (PowerShell):" -ForegroundColor Yellow
         Write-Host "  `$env:MAX_JOBS='1'" -ForegroundColor Gray
         Write-Host "  .\scripts\invoke_vs_build_tools.ps1 `"$venvPython`" -m pip install -v --no-build-isolation `"$skn`"" -ForegroundColor Gray
-        Write-Host "If builds are flaky with ninja: & `"$venvPython`" -m pip uninstall -y ninja; then rerun pip for simple-knn (uses slow distutils backend)." -ForegroundColor Yellow
+        Write-Host "  pip uninstall ninja in that venv, then rerun pip (distutils path may print clearer errors)." -ForegroundColor Gray
+        Write-Host "If PyTorch reports torch.version.cuda 12.4 but nvcc is older, install CUDA Toolkit 12.4, set CUDA_HOME and PATH to v12.4 first." -ForegroundColor Yellow
         exit $LASTEXITCODE
     }
     Pop-Location

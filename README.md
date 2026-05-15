@@ -191,7 +191,24 @@ If **`pip` reports `nvcc` failed with exit code 1**, open the lines above `nvcc`
 
 - Optional: **`pip install ninja`** in the same venv for faster extension builds (removes the “falling back to distutils” warning).
 
-If **`simple_knn`** fails with **`Error compiling objects for extension`** / ninja **`RuntimeError`**, that line is generic—find the **`error C...`**, **`fatal error ...`**, or **`nvcc`/`cl`** message above it. Retry with **`MAX_JOBS=1`** and **`pip install -v`**, optionally **`pip uninstall ninja`** then reinstall `simple-knn` (slow distutils path), via **`invoke_vs_build_tools.ps1`** so **`cl`** stays visible.
+If **`simple_knn`** fails only with ninja’s **`RuntimeError: Error compiling objects for extension`**, PyTorch stripped the detail—capture a full transcript and align the CUDA toolkit:
+
+1. **Save everything** — search the log for **`error C`**, **`fatal error`**, **`cub`**, **`thrust`**, **`cannot open`**:
+
+   ```powershell
+   $env:MAX_JOBS = "1"
+   .\scripts\invoke_vs_build_tools.ps1 `
+       "C:\Users\you\polygraph_worker\.venv\Scripts\python.exe" `
+       -m pip install -vv --no-build-isolation `
+       "C:\polyGraphics\third_party\gaussian-splatting\submodules\simple-knn" `
+       2>&1 | Tee-Object -FilePath "$env:TEMP\simple_knn_build.log"
+   ```
+
+   If the log stays opaque, **`pip uninstall ninja`** in that venv and rerun the same line (**setuptools** / distutils path often prints clearer `cl`/header errors).
+
+2. **`torch.version.cuda` vs CUDA Toolkit**: if **`& "…\python.exe" -c "import torch; print(torch.version.cuda)"`** prints **`12.4`** but **`nvcc --version`** shows **12.1**, install NVIDIA **CUDA Toolkit 12.4**, set **`CUDA_HOME`** to that install, and ensure **`CUDA\v12.4\bin`** appears **before** any older **`CUDA\bin`** on `PATH`. Re-run **`invoke_vs_build_tools.ps1`** and the pip install.
+
+3. **Conda workflows only**: missing **`cub`** headers sometimes shows up against older stacks—see [**gaussian-splatting#1023**](https://github.com/graphdeco-inria/gaussian-splatting/issues/1023) (`conda install cccl`). Pip-only setups usually fix this by fixing toolkit / `CUDA_HOME`.
 
 Then **`PUT /settings`**: `reconstruction_backend`, `gs_repo_path` (default clone: `C:\polyGraphics\third_party\gaussian-splatting`), `device`: `"cuda"`, install **MapAnything** in the same venv (`pip install git+https://github.com/facebookresearch/map-anything.git`), restart the API.
 
