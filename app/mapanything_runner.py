@@ -19,6 +19,47 @@ def _resolve_torch_device(settings: RuntimeSettings):
     return torch.device(device_str)
 
 
+def _align_hw_mask(mask_np: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Squeeze/normalize mask to 2D and resize with nearest-neighbor to match pts (H,W)."""
+    import cv2
+
+    m = np.asarray(mask_np, dtype=np.float32)
+    m = np.squeeze(m)
+    while m.ndim > 2 and m.shape[-1] == 1:
+        m = m[..., 0]
+    if m.ndim != 2:
+        if m.size == h * w:
+            m = m.reshape(h, w)
+        else:
+            return np.ones((h, w), dtype=bool)
+    if m.shape[0] != h or m.shape[1] != w:
+        m = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
+    return m > 0.5
+
+
+def _align_hw_rgb(rgb: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Resize RGB to (H,W,3); MapAnything outputs can differ from ``pts3d`` grid."""
+    import cv2
+
+    x = np.asarray(rgb, dtype=np.float32)
+    if x.ndim == 4:
+        x = x[0]
+    if x.ndim == 3 and x.shape[-1] >= 3:
+        rgb3 = x[..., :3]
+    elif x.ndim == 2:
+        return np.full((h, w, 3), 200, dtype=np.uint8)
+    else:
+        return np.full((h, w, 3), 200, dtype=np.uint8)
+
+    if rgb3.shape[0] == h and rgb3.shape[1] == w:
+        return np.clip(np.round(rgb3), 0, 255).astype(np.uint8)
+
+    bgr = cv2.cvtColor(rgb3, cv2.COLOR_RGB2BGR)
+    resized = cv2.resize(bgr, (w, h), interpolation=cv2.INTER_LINEAR)
+    out = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+    return np.clip(np.round(out), 0, 255).astype(np.uint8)
+
+
 def _subsample_paths(paths: list[Path], max_n: int) -> list[Path]:
     if len(paths) <= max_n:
         return list(paths)
@@ -108,9 +149,7 @@ def run_mapanything_scene(masked_image_paths: list[Path], settings: RuntimeSetti
                 m = mask_t.detach().float().cpu().numpy()
             else:
                 m = np.asarray(mask_t, dtype=np.float32)
-            while m.ndim > 2:
-                m = m[..., 0]
-            keep = m > 0.5
+            keep = _align_hw_mask(m, h, w)
         else:
             keep = np.ones((h, w), dtype=bool)
 
@@ -119,12 +158,10 @@ def run_mapanything_scene(masked_image_paths: list[Path], settings: RuntimeSetti
             rgb = np.full((h, w, 3), 200, dtype=np.uint8)
         else:
             if hasattr(rgb_t, "detach"):
-                rgb = rgb_t.detach().float().cpu().numpy()
+                rgb_raw = rgb_t.detach().float().cpu().numpy()
             else:
-                rgb = np.asarray(rgb_t, dtype=np.float32)
-            if rgb.ndim == 4:
-                rgb = rgb[0]
-            rgb = np.clip(np.round(rgb), 0, 255).astype(np.uint8)
+                rgb_raw = np.asarray(rgb_t, dtype=np.float32)
+            rgb = _align_hw_rgb(rgb_raw, h, w)
 
         flat_keep = keep.reshape(-1)
         flat_pts = pts.reshape(-1, 3).astype(np.float32, copy=False)
