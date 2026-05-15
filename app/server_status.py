@@ -24,8 +24,7 @@ def _safe_version(package_name: str) -> str | None:
 
 
 def _module_importable(module_name: str) -> tuple[bool, str | None]:
-    """Return (importable, error_message). Does a real ``import`` so namespace-packages
-    like ``dust3r`` (added via .pth file) are detected even when not on PyPI."""
+    """Return (importable, error_message). Does a real ``import`` so namespace-packages work."""
     try:
         importlib.import_module(module_name)
         return True, None
@@ -104,28 +103,9 @@ def _read_gpu_status() -> dict:
     return status
 
 
-def _colmap_status(binary_path: str | None) -> dict:
-    info = _path_info(binary_path, must_be_file=True)
-    info["version"] = None
-    if binary_path and info.get("is_file"):
-        try:
-            proc = subprocess.run(
-                [binary_path, "--version"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=5,
-            )
-            out = (proc.stdout or proc.stderr or "").strip().splitlines()
-            info["version"] = out[0] if out else None
-        except Exception:
-            pass
-    return info
-
-
 def _pipeline_status(settings: RuntimeSettings | None) -> dict:
     sam_importable, sam_err = _module_importable("segment_anything")
-    dust3r_importable, dust3r_err = _module_importable("dust3r")
+    ma_importable, ma_err = _module_importable("mapanything")
     torch_importable, _torch_err = _module_importable("torch")
 
     sam = {
@@ -141,26 +121,16 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
         ),
     }
 
-    dust3r = {
-        "package": "dust3r (naver/dust3r, source install)",
-        "importable": dust3r_importable,
-        "import_error": dust3r_err,
+    mapanything = {
+        "package": "mapanything (facebookresearch/map-anything)",
+        "importable": ma_importable,
+        "import_error": ma_err,
         "torch": {"installed": torch_importable, "version": _safe_version("torch")},
-        "repo_path": _path_info(
-            settings.dust3r_repo_path if settings else None,
-            must_be_dir=True,
-        ),
-        "checkpoint": _path_info(
-            settings.dust3r_checkpoint_path if settings else None,
-        ),
-        "aligner": {
-            "iters": settings.dust3r_aligner_iters if settings else None,
-            "lr": settings.dust3r_aligner_lr if settings else None,
-            "confidence_threshold": settings.dust3r_confidence_threshold if settings else None,
-        },
+        "pretrained_model_id": settings.mapanything_pretrained_id if settings else None,
+        "memory_efficient_inference": settings.mapanything_memory_efficient_inference if settings else None,
+        "minibatch_size": settings.mapanything_minibatch_size if settings else None,
+        "max_input_views": settings.mapanything_max_input_views if settings else None,
     }
-
-    colmap = _colmap_status(settings.colmap_binary_path if settings else None)
 
     gs_repo = _path_info(
         settings.gs_repo_path if settings else None,
@@ -183,7 +153,6 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
         "repo_path": gs_repo,
         "train_py": gs_train_py,
         "python_executable": settings.gs_python_executable if settings else None,
-        "init_source": settings.gs_init_source if settings else None,
         "iterations": settings.gs_iterations if settings else None,
         "sh_degree": settings.gs_sh_degree if settings else None,
         "resolution": settings.gs_resolution if settings else None,
@@ -208,8 +177,7 @@ def _pipeline_status(settings: RuntimeSettings | None) -> dict:
         "ready": ready_flag,
         "ready_reason": ready_reason,
         "sam": sam,
-        "dust3r": dust3r,
-        "colmap": colmap,
+        "mapanything": mapanything,
         "gaussian_splatting": gaussian_splatting,
     }
 

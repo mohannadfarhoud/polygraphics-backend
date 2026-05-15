@@ -12,19 +12,43 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "reconstruction_backend",
             "scope": "both",
             "worker_env": None,
-            "notes": "Primary pipeline: mesh (dust3r/colmap/auto) or gaussian_splatting (.ply).",
+            "notes": "Mesh: mapanything (.glb); or gaussian_splatting (.ply, scene seed still built with MapAnything COLMAP-text).",
         },
         {
-            "key": "compare_mesh_dust3r_colmap_with_gs",
+            "key": "mapanything_pretrained_id",
+            "scope": "both",
+            "worker_env": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL (optional Hugging Face id or path)",
+            "notes": "Default facebook/map-anything-apache — Apache-licensed MapAnything weights.",
+        },
+        {
+            "key": "mapanything_memory_efficient_inference",
             "scope": "both",
             "worker_env": None,
-            "notes": "When backend is gaussian_splatting, also write job_id_compare_dust3r.glb and job_id_compare_colmap.glb before the PLY.",
+            "notes": "Passes through to model.infer(memory_efficient_inference=...). Recommended true on 8 GB GPUs.",
+        },
+        {
+            "key": "mapanything_minibatch_size",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Infer minibatch in memory-efficient mode; 1 minimizes VRAM.",
+        },
+        {
+            "key": "mapanything_max_input_views",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Uniformly subsample masked views before MapAnything when the job has more photos.",
+        },
+        {
+            "key": "compare_mesh_preview_with_gs",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When backend is gaussian_splatting: also write job_id_compare_mesh.glb (MapAnything mesh) before the PLY.",
         },
         {
             "key": "device",
             "scope": "both",
             "worker_env": "POLYGRAPH_OVERRIDE_DEVICE (optional)",
-            "notes": "PyTorch device for SAM/DUSt3R/GS. Worker defaults to cuda when a GPU is present unless overridden.",
+            "notes": "PyTorch device for SAM/MapAnything/GS. Worker defaults to cuda when a GPU is present unless overridden.",
         },
         {
             "key": "gpu_isolate_phases",
@@ -37,30 +61,6 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "stored_on_api",
             "worker_env": "POLYGRAPH_OVERRIDE_SAM_CHECKPOINT",
             "notes": "Must exist on the machine that runs SAM (worker path in split deploy).",
-        },
-        {
-            "key": "dust3r_checkpoint_path",
-            "scope": "stored_on_api",
-            "worker_env": "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT",
-            "notes": "Must exist on the worker for remote jobs.",
-        },
-        {
-            "key": "dust3r_repo_path",
-            "scope": "stored_on_api",
-            "worker_env": "POLYGRAPH_OVERRIDE_DUST3R_REPO",
-            "notes": "DUSt3R clone path on the worker.",
-        },
-        {
-            "key": "colmap_binary_path",
-            "scope": "stored_on_api",
-            "worker_env": "POLYGRAPH_OVERRIDE_COLMAP_PATH",
-            "notes": "COLMAP executable on the worker.",
-        },
-        {
-            "key": "colmap_sift_gpu",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "COLMAP feature_extractor SiftExtraction.use_gpu when true (requires CUDA COLMAP build).",
         },
         {
             "key": "gs_repo_path",
@@ -87,40 +87,10 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "CUDA AMP fp16 for SAM forward passes (lower VRAM on small GPUs).",
         },
         {
-            "key": "dust3r_use_fp16",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "CUDA AMP fp16 for DUSt3R inference + global alignment.",
-        },
-        {
-            "key": "dust3r_inference_batch_size",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "DUSt3R inference batch size; use 1 on 8 GB GPUs.",
-        },
-        {
             "key": "max_input_image_side",
             "scope": "both",
             "worker_env": None,
-            "notes": "Longest edge cap when a job starts: phone 4K images are downscaled before SAM (default 1920).",
-        },
-        {
-            "key": "dust3r_max_inference_side",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "Caps longest side passed to DUSt3R load_images (min with max_image_side).",
-        },
-        {
-            "key": "dust3r_max_input_views",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "Uniform subsampling cap before DUSt3R (default 36) — many photos + dense graphs OOM global alignment on 8 GB.",
-        },
-        {
-            "key": "dust3r_scene_graph",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "naver/dust3r make_pairs scene_graph; auto uses complete for few views else swin-6-noncyclic.",
+            "notes": "Longest edge cap when a job starts: phone 4K images are downscaled before SAM.",
         },
         {
             "key": "gs_densify_until_iter",
@@ -164,11 +134,10 @@ def settings_deployment_guide() -> dict[str, Any]:
             {"name": "POLYGRAPH_API_BASE", "purpose": "HTTPS root of the API (same host as uploads)."},
             {"name": "POLYGRAPH_WORKER_TOKEN", "purpose": "Must match APP_WORKER_TOKEN on the API."},
             {"name": "POLYGRAPH_REQUIRE_CUDA", "purpose": "If 1, worker exits when torch.cuda.is_available() is false."},
-            {"name": "POLYGRAPH_WS_PING_TIMEOUT", "purpose": "WebSocket keepalive for long jobs."},
+            {"name": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL", "purpose": "Optional override for mapanything_pretrained_id (HF id)."},
         ],
         "fields": fields,
         "limitations": (
-            "Some steps are inherently CPU-only in this codebase (Open3D Poisson/decimate, parts of COLMAP). "
-            "CUDA is used for SAM, DUSt3R, COLMAP SIFT when enabled, and GS train.py on GPU."
+            "Open3D mesh steps are CPU-bound. CUDA is used for SAM, MapAnything inference, and GS train.py on GPU workers."
         ),
     }

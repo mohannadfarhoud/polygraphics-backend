@@ -74,7 +74,7 @@ class SamSegmenter:
         return mask
 
     def release_gpu_memory(self) -> None:
-        """Drop Segment Anything tensors so DUSt3R / GS fit on ~8 GB GPUs (worker single-process)."""
+        """Drop Segment Anything tensors so MapAnything / GS fit on ~8 GB GPUs (worker single-process)."""
         self._sam_model = None
         self._predictor = None
         self._mask_generator = None

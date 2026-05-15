@@ -1,7 +1,7 @@
 """CPU-friendly export of a 3D Gaussian Splatting ``.ply`` from sparse colored points.
 
 This is **not** the result of optimizing Gaussians with the official CUDA trainer.
-It builds one isotropic Gaussian per COLMAP/DUSt3R sparse point with RGB encoded in
+It builds one isotropic Gaussian per COLMAP-text sparse point (MapAnything seed) with RGB encoded in
 the DC spherical-harmonics bands — enough for many `.ply` viewers to show **color**
 without a GPU.
 

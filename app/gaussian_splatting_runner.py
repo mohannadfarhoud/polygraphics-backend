@@ -2,7 +2,7 @@
 Gaussian Splatting integration.
 
 GPU path (CUDA + official repo):
-  1. Build a COLMAP scene from masked images, or DUSt3R → COLMAP-text bridge.
+  1. Build COLMAP-*text* scene seed from masked images via MapAnything.
   2. Run ``python <gs_repo_path>/train.py`` from graphdeco-inria/gaussian-splatting.
   3. Copy ``point_cloud/iteration_<N>/point_cloud.ply`` to ``output/<job_id>.ply``.
 
@@ -71,7 +71,7 @@ def _torch_cuda_available() -> bool:
 
 
 def _vacuum_cuda_cache() -> None:
-    """Free Python-held CUDA allocations before spawning ``train.py`` (SAM+DUSt3R then GS)."""
+    """Free Python-held CUDA allocations before spawning ``train.py`` (SAM+MapAnything then GS)."""
     purge_torch_cuda()
 
 
@@ -92,25 +92,19 @@ def build_gaussian_scene_workspace(
     *,
     progress_callback: ProgressCallback | None = None,
 ) -> None:
-    """Create ``scene/`` + ``model/`` under ``work_dir`` and fill COLMAP/DUSt3R inputs for ``train.py``."""
+    """Create ``scene/`` + ``model/`` under ``work_dir`` and fill MapAnything-derived COLMAP-text for ``train.py``."""
     scene_dir = work_dir / "scene"
     model_dir = work_dir / "model"
     scene_dir.mkdir(parents=True, exist_ok=True)
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    if settings.gs_init_source == "colmap":
-        _emit(progress_callback, "phase_4_colmap_scene", 50)
-        _build_colmap_scene(masked_images, scene_dir, settings)
-    elif settings.gs_init_source == "dust3r":
-        _emit(progress_callback, "phase_2_alignment", 45)
-        _build_dust3r_scene(
-            masked_images,
-            scene_dir,
-            settings,
-            progress_callback=progress_callback,
-        )
-    else:
-        raise RuntimeError(f"Unknown gs_init_source {settings.gs_init_source!r}")
+    _emit(progress_callback, "phase_2_alignment", 45)
+    _build_mapanything_scene(
+        masked_images,
+        scene_dir,
+        settings,
+        progress_callback=progress_callback,
+    )
 
 
 def _swap_gs_scene_training_images_with_originals(
@@ -226,8 +220,8 @@ def run_gaussian_splatting(
     scene_dir = work_dir / "scene"
     model_dir = work_dir / "model"
 
-    # DUSt3R holds multi‑GB CUDA allocations. Run COLMAP/DUSt3R scene prep in a subprocess that exits
-    # before ``train.py`` so VRAM is actually released on single‑GPU 8 GB boxes.
+    # MapAnything can hold multi‑GB CUDA allocations. Run scene prep in a subprocess that exits before
+    # ``train.py`` so VRAM is actually released on single‑GPU 8 GB boxes.
     isolate_prepare = cuda_ok and not cpu_fallback
     prep_env = os.environ.copy()
 
@@ -257,7 +251,7 @@ def run_gaussian_splatting(
         if proc_prep.returncode != 0:
             tail = (proc_prep.stderr or proc_prep.stdout or "").strip().splitlines()[-40:]
             raise RuntimeError(
-                "Gaussian Splatting scene preparation failed (DUSt3R/COLMAP subprocess).\n"
+                "Gaussian Splatting scene preparation failed (MapAnything subprocess).\n"
                 + "\n".join(tail)
             )
     else:
@@ -286,7 +280,7 @@ def run_gaussian_splatting(
         if xyz.shape[0] < 8:
             raise RuntimeError(
                 "Too few sparse 3D points for CPU Gaussian export. Try more overlapping photos "
-                "or gs_init_source=dust3r."
+                "or loosen MapAnything masking in settings."
             )
         write_gaussian_ply_from_colored_points(
             xyz,
@@ -358,104 +352,21 @@ def _find_latest_ply(model_dir: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _build_colmap_scene(masked_images: list[Path], scene_dir: Path, settings: RuntimeSettings) -> None:
-    """
-    Run COLMAP CLI to produce a scene the gaussian-splatting trainer can consume.
-    Layout produced:
-      scene_dir/
-        images/                      (copied input images)
-        sparse/0/{cameras,images,points3D}.bin
-    """
-    colmap = settings.colmap_binary_path
-    if not colmap or not Path(colmap).exists():
-        raise RuntimeError(
-            "GS init=colmap requires colmap_binary_path. "
-            "Install COLMAP and set its executable path in settings."
-        )
-
-    images_dir = scene_dir / "images"
-    images_dir.mkdir(parents=True, exist_ok=True)
-    for src in masked_images:
-        dst = images_dir / src.name
-        if not dst.exists():
-            shutil.copyfile(str(src), str(dst))
-
-    db_path = scene_dir / "database.db"
-    sparse_dir = scene_dir / "sparse"
-    sparse_dir.mkdir(parents=True, exist_ok=True)
-
-    def _run(args: list[str]) -> None:
-        proc = subprocess.run(args, capture_output=True, text=True, check=False)
-        if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-20:]
-            raise RuntimeError(f"COLMAP step failed: {' '.join(args)}\n" + "\n".join(tail))
-
-    fe_base_args = [
-        colmap,
-        "feature_extractor",
-        "--database_path",
-        str(db_path),
-        "--image_path",
-        str(images_dir),
-        "--ImageReader.single_camera",
-        "1",
-    ]
-    want_gpu = bool(getattr(settings, "colmap_sift_gpu", True))
-    if want_gpu:
-        gpu_variants = (
-            fe_base_args + ["--FeatureExtraction.use_gpu", "1"],
-            fe_base_args + ["--SiftExtraction.use_gpu", "1"],
-        )
-        for i, args in enumerate(gpu_variants):
-            try:
-                _run(args)
-                break
-            except RuntimeError as exc:
-                msg = str(exc)
-                if "unrecognised option" in msg and i + 1 < len(gpu_variants):
-                    continue
-                if "unrecognised option" in msg and i + 1 == len(gpu_variants):
-                    _run(fe_base_args)
-                    break
-                raise
-    else:
-        _run(fe_base_args)
-    _run([colmap, "exhaustive_matcher", "--database_path", str(db_path)])
-    _run([colmap, "mapper", "--database_path", str(db_path),
-          "--image_path", str(images_dir), "--output_path", str(sparse_dir)])
-
-    sub = [d for d in sparse_dir.iterdir() if d.is_dir()]
-    if not sub:
-        raise RuntimeError(
-            "COLMAP mapper produced no reconstruction. "
-            "Check that the input photos have enough texture and overlap."
-        )
-
-
-def _build_dust3r_scene(
+def _build_mapanything_scene(
     masked_images: list[Path],
     scene_dir: Path,
     settings: RuntimeSettings,
     *,
     progress_callback: ProgressCallback | None = None,
 ) -> None:
-    """Phases 2-4 of the protocol: run DUSt3R on the masked images, sanitize the cloud,
-    then write a COLMAP sparse reconstruction (text format) the gaussian-splatting
-    trainer can consume.
-
-    Layout produced::
-
-        scene_dir/
-            images/
-            sparse/0/{cameras.txt, images.txt, points3D.txt}
-    """
+    """Run MapAnything, then emit COLMAP text sparse reconstruction for ``train.py``."""
     from .colmap_bridge import write_colmap_text
-    from .dust3r_runner import run_dust3r_scene
+    from .mapanything_runner import run_mapanything_scene
 
-    dust3r_scene = run_dust3r_scene(masked_images, settings)
+    scene_mv = run_mapanything_scene(masked_images, settings)
     _emit(progress_callback, "phase_3_sanitization", 55)
     _emit(progress_callback, "phase_4_colmap_bridge", 60)
-    write_colmap_text(dust3r_scene, scene_dir=scene_dir)
+    write_colmap_text(scene_mv, scene_dir=scene_dir)
 
 
 def _write_placeholder_gs_ply(path: Path, n_points: int = 8000) -> None:

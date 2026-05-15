@@ -1,4 +1,4 @@
-"""Subprocess entry: build GS COLMAP/DUSt3R workspace then exit (releases CUDA before train.py).
+"""Subprocess entry: build GS workspace (MapAnything → COLMAP-text) then exit (releases CUDA before train.py).
 
 Run via ``python -m worker.gs_scene_prepare`` from the repo root — see ``run_gaussian_splatting``.
 """
@@ -33,7 +33,7 @@ def main() -> int:
     masked = [Path(p) for p in json.loads(Path(args.masked_json).read_text(encoding="utf-8"))]
     work_dir = Path(args.work_dir)
 
-    print("[gs_scene_prepare] building scene workspace (DUSt3R or COLMAP)…", flush=True)
+    print("[gs_scene_prepare] building scene workspace (MapAnything)…", flush=True)
     build_gaussian_scene_workspace(
         masked,
         work_dir,

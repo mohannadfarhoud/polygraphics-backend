@@ -17,7 +17,7 @@
     {
       "id": "phase_2_alignment",
       "progress": { "min": 40, "max": 60, "typical": 45 },
-      "label": "Global alignment (DUSt3R)"
+      "label": "Metric reconstruction (MapAnything)"
     },
     {
       "id": "phase_3_sanitization",
@@ -27,62 +27,52 @@
     {
       "id": "phase_4_colmap_bridge",
       "progress": { "min": 60, "max": 60, "typical": 60 },
-      "label": "COLMAP bridge (DUSt3R seed)",
-      "note": "Gaussian Splatting with gs_init_source=dust3r only."
+      "label": "Sparse text for GS (COLMAP format)",
+      "note": "Gaussian Splatting: MapAnything cameras + points written as COLMAP text for train.py."
     },
     {
       "id": "phase_4_colmap_scene",
       "progress": { "min": 50, "max": 50, "typical": 50 },
-      "label": "COLMAP reconstruction",
-      "note": "Gaussian Splatting with gs_init_source=colmap only."
+      "label": "(deprecated stage id)",
+      "note": "Classic COLMAP CLI runner removed; stage id kept for older clients only."
     },
     {
       "id": "phase_5_gaussian_splatting",
       "progress": { "min": 65, "max": 95, "typical": 80 },
       "label": "Gaussian Splatting training",
-      "note": "Long-running; progress stays at the emitted value until training ends (no per-iteration updates yet)."
+      "note": "Long-running; progress stays at the emitted value until training ends."
     },
     {
       "id": "meshing",
       "progress": { "min": 75, "max": 75, "typical": 75 },
       "label": "Meshing",
-      "note": "Mesh (.glb) path only: Poisson meshing; optional photo-projected vertex colours when enabled in settings."
+      "note": "Mesh (.glb) path only: Poisson meshing."
     },
     {
       "id": "mesh_cleanup",
       "progress": { "min": 79, "max": 79, "typical": 79 },
-      "label": "Mesh cleanup",
-      "note": "Mesh path: keep largest connected component and remove disconnected fragments."
+      "label": "Mesh cleanup"
     },
-        {
-            "id": "vertex_color_transfer",
-            "progress": { "min": 77, "max": 77, "typical": 77 },
-            "label": "Vertex colours from point cloud",
-            "note": "Mesh path: nearest-point colours onto mesh vertices (vectorized when scipy is installed)."
-        },
-        {
-            "id": "photo_vertex_bake",
-            "progress": { "min": 86, "max": 86, "typical": 86 },
-            "label": "Photo-projected vertex colours",
-            "note": "Mesh path: multi-view colour sampling from originals when cameras exist and mesh_photo_vertex_bake is true."
-        },
-        {
-            "id": "color_autobalance",
+    {
+      "id": "vertex_color_transfer",
+      "progress": { "min": 77, "max": 77, "typical": 77 },
+      "label": "Vertex colours from point cloud"
+    },
+    {
+      "id": "photo_vertex_bake",
+      "progress": { "min": 86, "max": 86, "typical": 86 },
+      "label": "Photo-projected vertex colours"
+    },
+    {
+      "id": "color_autobalance",
       "progress": { "min": 90, "max": 90, "typical": 90 },
-      "label": "Color balancing + centering",
-      "note": "Mesh path: auto-lift dark colors when needed, then center and scale around origin."
+      "label": "Color balancing + centering"
     },
     {
-      "id": "compare_mesh_dust3r",
-      "progress": { "min": 41, "max": 41, "typical": 41 },
-      "label": "Comparison mesh (DUSt3R)",
-      "note": "Only when compare_mesh_dust3r_colmap_with_gs and gaussian_splatting."
-    },
-    {
-      "id": "compare_mesh_colmap",
-      "progress": { "min": 44, "max": 44, "typical": 44 },
-      "label": "Comparison mesh (COLMAP)",
-      "note": "Only when compare_mesh_dust3r_colmap_with_gs and gaussian_splatting."
+      "id": "compare_mesh_preview",
+      "progress": { "min": 42, "max": 42, "typical": 42 },
+      "label": "Preview mesh (MapAnything)",
+      "note": "When compare_mesh_preview_with_gs and reconstruction_backend=gaussian_splatting."
     },
     {
       "id": "exporting",
@@ -96,8 +86,8 @@
     }
   ],
   "flows": {
-    "mesh_dust3r_glb": {
-      "reconstruction_backend": "dust3r",
+    "mesh_mapanything_glb": {
+      "reconstruction_backend": "mapanything",
       "order": [
         { "id": "starting", "progress": 5 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
@@ -112,31 +102,20 @@
         { "id": "completed", "progress": 100 }
       ]
     },
-    "gaussian_splatting_init_colmap": {
+    "gaussian_splatting": {
       "reconstruction_backend": "gaussian_splatting",
-      "gs_init_source": "colmap",
       "order": [
         { "id": "starting", "progress": 5 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
-        { "id": "phase_4_colmap_scene", "progress": 50 },
-        { "id": "phase_5_gaussian_splatting", "progress": 65 },
-        { "id": "exporting", "progress": 95 },
-        { "id": "completed", "progress": 100 }
-      ]
-    },
-    "gaussian_splatting_init_dust3r": {
-      "reconstruction_backend": "gaussian_splatting",
-      "gs_init_source": "dust3r",
-      "order": [
-        { "id": "starting", "progress": 5 },
-        { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "compare_mesh_preview", "progress": 42 },
         { "id": "phase_2_alignment", "progress": 45 },
         { "id": "phase_3_sanitization", "progress": 55 },
         { "id": "phase_4_colmap_bridge", "progress": 60 },
         { "id": "phase_5_gaussian_splatting", "progress": 65 },
         { "id": "exporting", "progress": 95 },
         { "id": "completed", "progress": 100 }
-      ]
+      ],
+      "note": "compare_mesh_preview step emitted only when compare_mesh_preview_with_gs is true."
     }
   }
 }

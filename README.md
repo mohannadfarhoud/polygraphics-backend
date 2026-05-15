@@ -1,6 +1,6 @@
 # polyGraphics backend
 
-Backend pipeline to convert multi-view 2D images into either a meshed `.glb` (DUSt3R/COLMAP path) or a Gaussian Splatting `.ply` (3DGS path).
+Backend pipeline to convert multi-view 2D images into either a meshed `.glb` (**MapAnything**) or a Gaussian Splatting `.ply` (**3DGS**, seeded via MapAnything then `train.py`).
 
 ## Free GPU demo on Google Colab
 
@@ -10,17 +10,17 @@ Backend pipeline to convert multi-view 2D images into either a meshed `.glb` (DU
 Switch to the **T4 GPU** runtime (`Runtime > Change runtime type > T4 GPU`), then `Runtime > Run all`. The notebook:
 
 1. Downloads this repo as a **ZIP** into the Colab VM (**no `git clone`** — avoids Colab credential / “could not read Username” errors),
-2. Runs `scripts/colab_setup.sh` (installs DUSt3R, SAM, deps, downloads the SAM checkpoint, points the API at HF for DUSt3R weights),
+2. Runs `scripts/colab_setup.sh` (SAM, deps, Meta **MapAnything** from GitHub, SAM checkpoint — HF pulls MapAnything weights on first reconstruct),
 3. Runs `scripts/colab_serve.sh` which starts `uvicorn` and opens a free **Cloudflare Quick Tunnel** (`trycloudflare.com`) — no account, no token.
 
-The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudflare.com`. Open `<URL>/swagger` to drive it. Limits: ~12 h max session, ~90 min idle disconnect, disk wiped on session end. Perfect for short demos with full-speed GPU DUSt3R / Gaussian Splatting.
+The last cell prints a public HTTPS URL like `https://random-words-xyz.trycloudflare.com`. Open `<URL>/swagger` to drive it. Limits: ~12 h max session, ~90 min idle disconnect, disk wiped on session end. Perfect for short demos with full-speed GPU **MapAnything** / Gaussian Splatting.
 
 **Colab / GitHub fetch:** The notebook downloads **`main` as a ZIP** (anonymous HTTPS). If you still see old cells mentioning `git clone`, open the notebook via the badge link above — do not use an uploaded `.ipynb` copy from your laptop. If `/content/polygraphics-backend` is half-broken, run `!rm -rf /content/polygraphics-backend` once, then re-run from section 2.
 
 ## Pipeline (mesh / `.glb`)
 
 1. SAM segmentation creates binary masks and forces a black background.
-2. DUSt3R (or COLMAP) reconstruction produces aligned 3D points.
+2. **MapAnything** (Meta) predicts metric depths, rays, poses, then we merge masked pixels into a unified world-frame point cloud.
 3. Open3D statistical outlier removal cleans noise.
 4. Poisson meshing + decimation creates a lightweight surface mesh; vertex colours come from the point cloud, then optional **multi-view photo projection** onto vertices (see `mesh_photo_vertex_bake` in `PUT /settings`) for a closer match to the real photos.
 5. `.glb` export → `output/<job_id>.glb` (optional Draco-style compression via Open3D when `mesh_glb_draco_compression` is true).
@@ -32,10 +32,10 @@ Tune `PUT /settings` roughly like this for mesh + splats on a single GPU:
 ```json
 {
   "device": "cuda",
+  "reconstruction_backend": "mapanything",
+  "mapanything_memory_efficient_inference": true,
+  "mapanything_minibatch_size": 1,
   "sam_use_fp16": true,
-  "dust3r_use_fp16": true,
-  "dust3r_inference_batch_size": 1,
-  "dust3r_max_inference_side": 768,
   "max_input_image_side": 1600,
   "max_image_side": 1024,
   "gs_iterations": 10000,
@@ -59,10 +59,9 @@ Batch binary masks outside the API:
 Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`, set **`gs_repo_path`** to your local clone of [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) (with CUDA extensions built on the worker). Default **`gs_iterations`** is **`10000`**; raise toward **`30000`** for final-quality `.ply` when VRAM/time allow.
 
 1. SAM segmentation (same as above). When **`save_raw_masks = true`** (default), 1‑channel `.png` masks are written to `masks/<job_id>/mask_NNN.png` alongside the masked colour images.
-2. **Initial scene** (Phase 4 of the pipeline protocol):
-   - `gs_init_source = "colmap"` runs COLMAP on the masked images to produce `cameras.bin` / `images.bin` / `points3D.bin`.
-   - **`gs_init_source = "dust3r"`** runs DUSt3R + `GlobalAligner` and writes a COLMAP **text** sparse reconstruction (`sparse/0/cameras.txt` / `images.txt` / `points3D.txt`). The 3D-points seed is the confidence-filtered DUSt3R cloud — exactly the “seed” described in the protocol.
-   - **`gs_train_with_original_images`** (default `true`): immediately before **`train.py`**, `scene/images` is rewritten per view using the **same downscaled originals** as the SAM stage (masked filenames unchanged). That way registration still uses masking-friendly views but the **Gaussian photometric loss** is supervised against real colours—avoids systematically **dark/black** optimisation when SAM blacks out backgrounds.
+2. **Initial scene**: **MapAnything** runs on the masked images (subprocess-isolated when `gpu_isolate_phases=true` + CUDA). We write a COLMAP-compatible **TEXT** sparse model (`sparse/0/cameras.txt`, `images.txt`, `points3D.txt`) that the upstream **gaussian-splatting** `train.py` can read alongside `scene/images/` (same layout as historical DUSt3R→COLMAP-text seeding).
+
+   **`gs_train_with_original_images`** (default `true`): immediately before **`train.py`**, `scene/images` is rewritten per view using the **same downscaled originals** as the SAM stage (masked filenames unchanged). That way registration still uses masking-friendly views but the **Gaussian photometric loss** is supervised against real colours—avoids systematically **dark/black** optimisation when SAM blacks out backgrounds.
 3. **Training**: shells out to `python <gs_repo_path>/train.py` with `--iterations`, `--sh_degree`, `--opacity_reset_interval`, optional `--resolution`, and `--densify_until_iter` when `gs_densify_until_iter > 0` from the official [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) repo.
 4. The latest `point_cloud/iteration_<N>/point_cloud.ply` is copied to `output/<job_id>.ply`.
 5. `model_url` points to that `.ply`; `model_format = "ply"`.
@@ -77,10 +76,10 @@ The canonical mapping (progress ranges + ordered flows) lives in **`ui/job-stage
 |---|---:|---|---|
 | `starting` | 5 | Job picked up; settings validated. | always |
 | `phase_1_segmentation` | 10 → 40 | SAM masks per image. Suffix is `(i/total)`. | always |
-| `phase_2_alignment` | 40 → 60 | DUSt3R inference + `GlobalAligner` (epochs/lr from settings). | mesh path; GS path with `gs_init_source=dust3r` |
-| `phase_3_sanitization` | 55 → 70 | Confidence filter + Open3D SOR. | mesh path; GS path with `gs_init_source=dust3r` |
-| `phase_4_colmap_bridge` | 60 | Writing `sparse/0/{cameras,images,points3D}.txt` from DUSt3R seed. | GS path with `gs_init_source=dust3r` |
-| `phase_4_colmap_scene` | 50 | Running COLMAP (`feature_extractor` → `exhaustive_matcher` → `mapper`). | GS path with `gs_init_source=colmap` |
+| `phase_2_alignment` | 40 → 60 | **MapAnything** metric reconstruction. | mesh + GS |
+| `phase_3_sanitization` | 55 → 70 | Confidence filter + Open3D SOR on mesh path; GS aligns with staged progress. | mesh + GS seed |
+| `phase_4_colmap_bridge` | 60 | Write COLMAP-text sparse (`sparse/0/*.txt`) for `train.py` from MapAnything poses/points. | GS path |
+| `phase_4_colmap_scene` | — | Unused (legacy COLMAP CLI SfM removed). | — |
 | `phase_5_gaussian_splatting` | 65 → 95 | `train.py` running. | GS path |
 | `meshing` | 75 | Poisson + decimation. | mesh path only |
 | `vertex_color_transfer` | 77 | Transfer nearest cloud colors to mesh vertices. | mesh path only |
@@ -96,10 +95,10 @@ The list of valid base values is also exported as `app.job_stages.ALL_STAGES`. E
 const STAGE_LABELS: Record<string, string> = {
   starting: "Preparing job…",
   phase_1_segmentation: "Masking subject (SAM)",
-  phase_2_alignment: "Aligning views (DUSt3R)",
+  phase_2_alignment: "MapAnything reconstruction",
   phase_3_sanitization: "Cleaning point cloud",
-  phase_4_colmap_bridge: "Building COLMAP scene from DUSt3R",
-  phase_4_colmap_scene: "Building COLMAP scene",
+  phase_4_colmap_bridge: "Writing sparse COLMAP text for GS",
+  phase_4_colmap_scene: "(unused legacy stage)",
   phase_5_gaussian_splatting: "Training Gaussian Splatting",
   meshing: "Meshing surface",
   vertex_color_transfer: "Applying point-cloud colors",
@@ -113,35 +112,33 @@ const base = (job.stage ?? "").split(" ")[0];
 const label = STAGE_LABELS[base] ?? job.stage ?? "Working…";
 ```
 
-### Pipeline protocol settings (DUSt3R + GS)
+### Pipeline protocol settings (MapAnything + mesh + GS)
 
-These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `PUT /settings`:
+These map to tunable fields in `PUT /settings`:
 
 | Setting | Default | Phase | Notes |
 |---|---:|---|---|
 | `save_raw_masks` | `true` | 1 | Save binary `.png` masks to `masks/<job_id>/`. |
-| `max_input_image_side` | `1600` | 0–1 | Longest edge of uploads after ingest (4K phone shots downscaled **before** SAM). Raise to `1920` for sharper bakes if VRAM allows; `1280` / `1080` for lighter jobs. |
-| `dust3r_aligner_iters` | `380` | 2 | `niter` for `compute_global_alignment` (≥ 300 for stable floors). |
-| `dust3r_aligner_lr` | `0.01` | 2 | Learning rate for the global aligner. |
-| `dust3r_confidence_threshold` | `0` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
-| `nb_neighbors` | `26` | 3 | Open3D SOR neighbours (tighter rejects spike noise before Poisson). |
-| `std_ratio` | `1.75` | 3 | Open3D SOR std-dev ratio (protocol range 1.5–2.0). |
-| `decimation_target_triangles` | `300000` | mesh | Higher keeps more detail (slower / larger GLB). |
-| `mesh_photo_vertex_bake` | `true` | mesh | When true and cameras are available, sample vertex colours from original photos (best realism for `.glb`). |
-| `mesh_glb_draco_compression` | `true` | mesh | Open3D compressed binary GLB (smaller web downloads). Falls back to uncompressed trimesh export if needed. |
-| `sam_use_fp16` | `true` | 1 | CUDA mixed precision for SAM (lower VRAM). |
-| `dust3r_use_fp16` | `true` | 2–3 | CUDA mixed precision for DUSt3R inference + alignment. |
-| `dust3r_inference_batch_size` | `1` | 2 | DUSt3R pair batch size (`2` uses more VRAM). |
-| `dust3r_max_inference_side` | `768` | 2 | Upper bound on DUSt3R resize side (`min` with `max_image_side`). |
-| `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. For `gs_iterations` ≤ 10000, the worker may increase this so no reset runs mid-training (reduces upstream “invalid gradient” / zero-splat failures on short runs). |
-| `gs_iterations` | `10000` | 5 | Default balances quality/time on RTX 3050-class VRAM; use `30000` for higher-quality `.ply`. |
-| `reconstruction_backend` | `colmap` | — | Mesh path: **`colmap`** (default) for classic SfM; **`dust3r`** mono-depth mesh; **`auto`** switches by image count (needs both backends configured); **`gaussian_splatting`** for `.ply`. |
-| `auto_dust3r_max_images` | `18` | auto | Only when `reconstruction_backend` is **`auto`**: DUSt3R when **`n_images` <** this value, else COLMAP. |
-| `sam_segmentation_mode` | `center_point` | 1 | Keeps centred object mode predictable; switch to **`auto_masks_center_bias`** for off-centre subjects. |
-| `gs_train_with_original_images` | `true` | 5 | Before GPU `train.py`, replace `scene/images` pixels with originals (masked filenames unchanged) so optimisation is not anchored to SAM black paddings—major fix for **dark/black** coloured splats. |
-| `poisson_depth` | `9` | mesh | Open3D Poisson depth — **lower** tends to suppress spike noise vs very high depths on messy clouds (raise only when the cloud is clean). |
-| `gs_densify_until_iter` | `7000` | 5 | Stops Gaussian densification earlier; forwarded to `train.py --densify_until_iter`. Use `0` to omit (upstream default ~15000). |
-| `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |
+| `max_input_image_side` | `1600` | 0–1 | Longest edge after ingest — downscale before SAM / MapAnything. |
+| `reconstruction_backend` | `mapanything` | — | **`mapanything`** for `.glb` mesh; **`gaussian_splatting`** for `.ply`. |
+| `mapanything_pretrained_id` | `facebook/map-anything-apache` | 2–4 | Hugging Face hub id passed to `MapAnything.from_pretrained`. |
+| `mapanything_memory_efficient_inference` | `true` | 2 | Prefer `True` on 8 GB GPUs. |
+| `mapanything_minibatch_size` | `1` | 2 | VRAM-friendly infer minibatch when memory-efficient mode is on. |
+| `mapanything_max_input_views` | `48` | 2 | Subsample uniformly when many photos — avoids OOM. |
+| `mapanything_apply_confidence_mask` | `false` | 2 | Optional learned-confidence filtering (`model.infer`). |
+| `nb_neighbors` | `26` | 3 | Open3D SOR neighbours before Poisson. |
+| `std_ratio` | `1.75` | 3 | Open3D SOR std-dev ratio (protocol ~1.5–2.0). |
+| `decimation_target_triangles` | `300000` | mesh | GLB triangle budget after Poisson. |
+| `mesh_photo_vertex_bake` | `true` | mesh | Sample vertex RGB from originals when poses exist. |
+| `mesh_glb_draco_compression` | `true` | mesh | Compressed GLB when Open3D allows. |
+| `sam_use_fp16` | `true` | 1 | CUDA AMP fp16 for SAM. |
+| `poisson_depth` | `9` | mesh | Open3D Poisson depth — lower tends to tame noisy neural clouds. |
+| `sam_segmentation_mode` | `center_point` | 1 | Use **`auto_masks_center_bias`** when subject is off-centre. |
+| `gs_train_with_original_images` | `true` | 5 | Replace `scene/images` pixels with originals before `train.py` (fixes dark splats). |
+| `compare_mesh_preview_with_gs` | `false` | — | When GS: emit **`{job}_compare_mesh.glb`** (MapAnything) before `.ply`. |
+| `gs_opacity_reset_interval` | `3000` | 5 | Passed to `--opacity_reset_interval` (worker may lengthen on short runs). |
+| `gs_iterations` | `10000` | 5 | Default RTX‑3050 friendly; raise toward `30000` for finals. |
+| `gs_densify_until_iter` | `7000` | 5 | Forwarded to `train.py --densify_until_iter`. |
 
 > Real GS training officially needs a CUDA GPU. On CPU it’s impractical (or unsupported, depending on fork).
 
@@ -172,25 +169,25 @@ Clone only (skip compiling extensions):
 .\scripts\install_gaussian_splatting_windows.ps1 -SkipSubmoduleBuild
 ```
 
-Then **`PUT /settings`**: `reconstruction_backend`, `gs_repo_path` (default clone: `C:\polyGraphics\third_party\gaussian-splatting`), `colmap_binary_path`, `device`: `"cuda"`, restart the API.
+Then **`PUT /settings`**: `reconstruction_backend`, `gs_repo_path` (default clone: `C:\polyGraphics\third_party\gaussian-splatting`), `device`: `"cuda"`, install **MapAnything** in the same venv (`pip install git+https://github.com/facebookresearch/map-anything.git`), restart the API.
 
-**CPU-only machines:** leave **`gs_allow_cpu_fallback`: `true`** (default). The API still builds the COLMAP or DUSt3R scene, then writes a **colored** 3DGS-format `.ply`: one Gaussian per sparse point with RGB in the SH DC bands — **no** official `train.py`, **no** CUDA extensions. This is **not** the same quality as GPU optimization, but **you get real colors** and most splat viewers open the file. You only need **`colmap_binary_path`** (for `gs_init_source="colmap"`) or DUSt3R settings (for `dust3r`); **`gs_repo_path` is optional** on CPU when fallback is enabled.
+**CPU-only machines:** leave **`gs_allow_cpu_fallback`: `true`** (default). The API still runs **MapAnything** to build COLMAP-text sparse points, then writes a **colored** 3DGS-format `.ply`: one Gaussian per sparse point with RGB in the SH DC bands — **no** official `train.py`, **no** CUDA extensions. **`gs_repo_path` is optional** on CPU when fallback is enabled.
 
 Set **`gs_allow_cpu_fallback`: `false`** only if you install an **NVIDIA GPU**, CUDA, and **graphdeco-inria/gaussian-splatting** as described above — then full training runs.
 
-Otherwise use mesh backends (`auto` / `dust3r` / `colmap`) for `.glb` surfaces without GS.
+Use **`reconstruction_backend`: `mapanything`** for `.glb` surfaces without GS.
 
 ### Mesh (`.glb`) vs Gaussian Splatting (`.ply`)
 
-The default **`reconstruction_backend` is `colmap`** (SfM + mesh). Use **`dust3r`** or **`auto`** when COLMAP is unavailable or for very small image sets. **`auto`** uses DUSt3R when **`n_images` < `auto_dust3r_max_images`** (default 18), COLMAP otherwise—but **`assert_pipeline_ready`** still requires **both** COLMAP and DUSt3R to be configured on the worker.
+The default **`reconstruction_backend` is `mapanything`** (feed-forward metric mesh). **`assert_pipeline_ready`** checks **SAM** + importable **`mapanything`** + PyTorch for both mesh and GS paths; GPU GS additionally needs **`gs_repo_path`** with `train.py` unless CPU fallback is allowed.
 
-To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`**, **`colmap_binary_path`** (for `gs_init_source="colmap"`), and a **CUDA GPU** with the extensions built as above. The API then outputs `.ply` and sets **`model_format`: `"ply"`**.
+To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`** and a **CUDA GPU** with extensions built as above. MapAnything still seeds the COLMAP-text scene. The API outputs `.ply` and sets **`model_format`: `"ply"`**.
 
 ### SAM: centre the subject (default foreground prompt)
 
 `sam_segmentation_mode` defaults to **`center_point`**: Segment Anything receives a foreground **click at image centre**. Your UI must tell users to **frame the object in the centre** (PolyCam-style object mode). Switch to **`auto_masks_center_bias`** when subjects are deliberately off-centre; avoid **`auto_masks_largest_area`** unless you know background is weaker than foreground.
 
-### Improving mesh quality (DUSt3R + Open3D)
+### Improving mesh quality (MapAnything + Open3D)
 
 - Use **≥ 24 recommended, 40+ ideal** overlapping orbit photos around a **fixed object** (`GET /capture-guide` for onboarding copy).
 - Default **`poisson_depth`** is **`9`** to limit spike artefacts on noisy clouds; **raise** toward `10–11` only once reconstructions look clean (`PUT /settings`).
@@ -202,26 +199,29 @@ To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatt
 By default **`allow_placeholder_pipeline` is `false`** (`PUT /settings`). In that mode:
 
 - **`COMPLETED` only happens** after real segmentation + reconstruction (and either real meshing or real GS training) + a non-empty `.glb` / `.ply` export.
-- For DUSt3R: configure **`sam_checkpoint_path`** + **`dust3r_checkpoint_path`** and install **DUSt3R from source** (`https://github.com/naver/dust3r`).
-- For Gaussian Splatting: configure **`gs_repo_path`** (clone of `graphdeco-inria/gaussian-splatting`) plus **`colmap_binary_path`** (when `gs_init_source="colmap"`).
+- For mesh / GS seed: **`sam_checkpoint_path`** plus install **Meta MapAnything** (`https://github.com/facebookresearch/map-anything`) — default HF id **`facebook/map-anything-apache`**.
+- For GPU Gaussian Splatting: **`gs_repo_path`** (clone of `graphdeco-inria/gaussian-splatting`).
 
 If **`allow_placeholder_pipeline` is `true`**, the API uses a **fake center mask** + **fake points** for the mesh path, and writes a **dummy GS-style PLY** for the GS path — **wiring tests only**, not real geometry.
 
 ## Current implementation status
 
 - HTTP job API, meshing (Open3D), GLB export, and model URL handling are implemented.
-- With **`allow_placeholder_pipeline=false`**, SAM runs via **`segment_anything`** when installed; DUSt3R runs via **`dust3r`** when installed.
+- With **`allow_placeholder_pipeline=false`**, SAM runs via **`segment_anything`** when installed; reconstruction uses **`mapanything`** when installed.
 
 ### One-shot ML install (Windows)
 
 After the base `setup_windows.ps1` has created `.venv`, run:
 
 ```powershell
-.\scripts\install_ml_windows.ps1            # SAM vit_b + DUSt3R 224_linear (CPU-friendly)
-.\scripts\install_ml_windows.ps1 -SamModel vit_h -Dust3rModel 512_dpt   # GPU-class
+.\scripts\install_ml_windows.ps1
 ```
 
-The script installs PyTorch (CPU build), `segment-anything`, clones and `pip install -e .` DUSt3R into `C:\polyGraphics\third_party\dust3r`, and downloads the checkpoints into `C:\polyGraphics\models\{sam,dust3r}`. It is idempotent — re-running only re-does missing steps. After it finishes, push the suggested paths via `PUT /settings` and `Restart-Service polygraphics`.
+The script installs PyTorch (**CPU baseline** from the PyTorch CPU index), **`segment-anything`**, **MapAnything (`pip` from GitHub)**, and downloads the SAM checkpoint under `C:\polyGraphics\models\sam`. Upgrade to a **CUDA PyTorch** wheel on GPU workers, then reinstall / verify imports. MapAnything weights download from Hugging Face on the first job (`mapanything_pretrained_id`).
+
+```powershell
+Restart-Service polygraphics   # or your service wrapper
+```
 
 ## Run
 

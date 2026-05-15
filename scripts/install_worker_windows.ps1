@@ -7,7 +7,7 @@ param(
     [switch]$InstallService
 )
 
-# GPU worker PC (outbound-only): venv, CUDA PyTorch, SAM + DUSt3R via install_ml_windows.ps1 -SkipTorch,
+# GPU worker PC (outbound-only): venv, CUDA PyTorch, SAM + MapAnything via install_ml_windows.ps1 -SkipTorch,
 # optional .env.worker from example.
 
 $ErrorActionPreference = "Stop"
@@ -25,7 +25,7 @@ Write-Host "==> Installing PyTorch + torchvision ($CudaTorchIndex)" -ForegroundC
 & $venvPython -m pip install --upgrade pip setuptools wheel
 & $venvPython -m pip install torch torchvision --index-url "https://download.pytorch.org/whl/$CudaTorchIndex"
 
-Write-Host "==> SAM + DUSt3R stack (skipping duplicate torch install)" -ForegroundColor Cyan
+Write-Host "==> SAM + MapAnything stack (skipping duplicate torch install)" -ForegroundColor Cyan
 & "$PSScriptRoot\install_ml_windows.ps1" -ProjectRoot $ProjectRoot -SkipTorch
 
 $workerEnv = Join-Path $ProjectRoot ".env.worker"

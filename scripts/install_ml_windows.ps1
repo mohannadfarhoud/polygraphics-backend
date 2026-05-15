@@ -2,20 +2,15 @@ param(
     [string]$ProjectRoot = (Resolve-Path "$PSScriptRoot\..").Path,
     [ValidateSet("vit_b", "vit_l", "vit_h")]
     [string]$SamModel = "vit_b",
-    [ValidateSet("224_linear", "512_dpt")]
-    [string]$Dust3rModel = "224_linear",
     [string]$ModelsRoot = "C:\polyGraphics\models",
-    [string]$ThirdPartyRoot = "C:\polyGraphics\third_party",
     [switch]$SkipTorch,
-    [switch]$SkipDust3r,
     [switch]$SkipSam,
-    [switch]$SkipCheckpoints
+    [switch]$SkipCheckpoints,
+    [switch]$SkipMapAnything
 )
 
-# One-shot installer for the optional ML stack (PyTorch CPU + SAM + DUSt3R)
-# plus their model checkpoints. Idempotent: re-running only does missing steps.
-# Run from an Administrator PowerShell with the project's venv in place.
-
+# One-shot installer: PyTorch (CPU baseline) + SAM + Meta MapAnything (pip from GitHub) + SAM checkpoint.
+# For GPU reconstruction, reinstall torch with your CUDA wheel (see PyTorch homepage) instead of cpu index.
 $ErrorActionPreference = "Stop"
 Set-Location $ProjectRoot
 
@@ -43,34 +38,12 @@ if (-not $SkipSam) {
     Step "Skipping SAM package install (-SkipSam)"
 }
 
-# ---------- 3. DUSt3R ----------
-# DUSt3R ships no setup.py / pyproject.toml. Make it importable by adding
-# the repo root to the venv via a .pth file in site-packages.
-$dust3rRepo = Join-Path $ThirdPartyRoot "dust3r"
-if (-not $SkipDust3r) {
-    Step "Cloning + wiring DUSt3R at $dust3rRepo"
-    if (-not (Test-Path $ThirdPartyRoot)) { New-Item -ItemType Directory -Path $ThirdPartyRoot | Out-Null }
-
-    if (-not (Test-Path $dust3rRepo)) {
-        git clone --recursive https://github.com/naver/dust3r.git $dust3rRepo
-    } else {
-        Push-Location $dust3rRepo
-        git submodule update --init --recursive
-        Pop-Location
-    }
-
-    Push-Location $dust3rRepo
-    if (Test-Path "requirements.txt") {
-        & $venvPython -m pip install -r "requirements.txt"
-    }
-    Pop-Location
-
-    $sitePkgs = & $venvPython -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
-    $pthFile  = Join-Path $sitePkgs.Trim() "dust3r_repo.pth"
-    Set-Content -Path $pthFile -Value $dust3rRepo -Encoding ASCII
-    Step "Wrote $pthFile -> $dust3rRepo"
+# ---------- 3. MapAnything ----------
+if (-not $SkipMapAnything) {
+    Step "Installing MapAnything (facebookresearch/map-anything from GitHub; weights load from Hugging Face on first run)"
+    & $venvPython -m pip install --upgrade "git+https://github.com/facebookresearch/map-anything.git"
 } else {
-    Step "Skipping DUSt3R package install (-SkipDust3r)"
+    Step "Skipping MapAnything (-SkipMapAnything)"
 }
 
 # ---------- 4. Model checkpoints ----------
@@ -80,32 +53,17 @@ $samCheckpoints = @{
     "vit_h" = @{ name = "sam_vit_h_4b8939.pth"; url = "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth" }
 }
 
-$dust3rCheckpoints = @{
-    "224_linear" = @{ name = "DUSt3R_ViTLarge_BaseDecoder_224_linear.pth"; url = "https://download.europe.naverlabs.com/ComputerVision/DUSt3R/DUSt3R_ViTLarge_BaseDecoder_224_linear.pth" }
-    "512_dpt"    = @{ name = "DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth";    url = "https://download.europe.naverlabs.com/ComputerVision/DUSt3R/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth" }
-}
-
 $samDir = Join-Path $ModelsRoot "sam"
-$dust3rDir = Join-Path $ModelsRoot "dust3r"
 $samCkpt = Join-Path $samDir $samCheckpoints[$SamModel].name
-$dust3rCkpt = Join-Path $dust3rDir $dust3rCheckpoints[$Dust3rModel].name
 
 if (-not $SkipCheckpoints) {
-    if (-not (Test-Path $samDir))    { New-Item -ItemType Directory -Path $samDir    | Out-Null }
-    if (-not (Test-Path $dust3rDir)) { New-Item -ItemType Directory -Path $dust3rDir | Out-Null }
+    if (-not (Test-Path $samDir)) { New-Item -ItemType Directory -Path $samDir | Out-Null }
 
     if (-not (Test-Path $samCkpt)) {
         Step "Downloading SAM checkpoint ($SamModel) -> $samCkpt"
         Invoke-WebRequest -Uri $samCheckpoints[$SamModel].url -OutFile $samCkpt
     } else {
         Step "SAM checkpoint already present: $samCkpt"
-    }
-
-    if (-not (Test-Path $dust3rCkpt)) {
-        Step "Downloading DUSt3R checkpoint ($Dust3rModel) -> $dust3rCkpt"
-        Invoke-WebRequest -Uri $dust3rCheckpoints[$Dust3rModel].url -OutFile $dust3rCkpt
-    } else {
-        Step "DUSt3R checkpoint already present: $dust3rCkpt"
     }
 } else {
     Step "Skipping checkpoint downloads (-SkipCheckpoints)"
@@ -115,21 +73,21 @@ if (-not $SkipCheckpoints) {
 Step "Verifying imports inside the venv"
 & $venvPython -c "import torch, torchvision; print('torch', torch.__version__, 'tv', torchvision.__version__, 'cuda', torch.cuda.is_available())"
 & $venvPython -c "from segment_anything import sam_model_registry; print('segment-anything ok')"
-& $venvPython -c "from dust3r.inference import inference; print('dust3r ok')"
+& $venvPython -c "import mapanything; print('mapanything ok')"
 
 Write-Host ""
 Step "Done. Apply paths to the API via PUT /settings, e.g.:"
 Write-Host @"
   {
-    "reconstruction_backend": "dust3r",
+    "reconstruction_backend": "mapanything",
+    "mapanything_pretrained_id": "facebook/map-anything-apache",
     "device": "cpu",
     "sam_model_type": "$SamModel",
     "sam_checkpoint_path": "$samCkpt",
-    "dust3r_checkpoint_path": "$dust3rCkpt",
     "allow_placeholder_pipeline": false,
     "max_image_side": 512
   }
 "@ -ForegroundColor Yellow
 Write-Host "Then restart the API service." -ForegroundColor Yellow
-Write-Host "Default mesh backend is colmap — set colmap_binary_path in PUT /settings. Use dust3r if you skip COLMAP." -ForegroundColor DarkGray
+Write-Host "For GPU reconstruction: reinstall torch torchvision with CUDA, then rerun import check." -ForegroundColor DarkGray
 Write-Host 'Optional - Gaussian Splatting (NVIDIA + CUDA + VS Build Tools): .\scripts\install_gaussian_splatting_windows.ps1' -ForegroundColor DarkGray

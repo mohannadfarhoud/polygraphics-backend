@@ -472,8 +472,8 @@ class JobManager:
                 f"Job {job_id} is not PROCESSING (got {job.status.value}); comparison GLB upload is only valid mid-run."
             )
         v = variant.strip().lower()
-        if v not in ("dust3r", "colmap"):
-            raise ValueError("variant must be dust3r or colmap")
+        if v not in ("mesh",):
+            raise ValueError("variant must be mesh")
         settings = self.settings_store.load()
         out_dir = self.root_dir / settings.output_dir_name
         out_dir.mkdir(parents=True, exist_ok=True)

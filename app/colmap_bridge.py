@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .dust3r_runner import Dust3rScene
+from .multiview_scene import MultiviewMetricScene
 
 
 def _rotation_matrix_to_quaternion(R: np.ndarray) -> tuple[float, float, float, float]:
@@ -57,14 +57,14 @@ def _rotation_matrix_to_quaternion(R: np.ndarray) -> tuple[float, float, float, 
 
 
 def write_colmap_text(
-    scene: Dust3rScene,
+    scene: MultiviewMetricScene,
     *,
     scene_dir: Path,
     images_subdir: str = "images",
     sparse_subdir: str = "sparse/0",
     max_points: int = 200_000,
 ) -> Path:
-    """Write a minimal COLMAP text reconstruction from a ``Dust3rScene``.
+    """Write a minimal COLMAP text reconstruction from a metric multi-view scene.
 
     Returns the path of the ``sparse/0`` directory.
     """

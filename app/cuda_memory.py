@@ -5,7 +5,7 @@ Strategy on consumer single-GPU boxes (~8 GB):
 1. **Allocator**: Prefer ``expandable_segments`` (PyTorch 2.x) to reduce fragmentation — set via
    ``ensure_cuda_allocator_env()`` early (worker job start + subprocess entries).
 
-2. **Process isolation**: SAM (phase 1) and DUSt3R/COLMAP GS scene prep each run in **short-lived
+2. **Process isolation**: SAM (phase 1) and MapAnything GS scene prep each run in **short-lived
    subprocesses** when ``gpu_isolate_phases`` is true so CUDA contexts tear down between peaks.
 
 3. **Purge**: ``purge_torch_cuda()`` runs aggressive GC + ``empty_cache`` + ``synchronize`` between

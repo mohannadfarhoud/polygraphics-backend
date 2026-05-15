@@ -87,7 +87,7 @@ Write-Host ""
 Write-Host "API .env updated at $envPath" -ForegroundColor Green
 if ($SingleMachine) {
     Write-Host "Single-machine mode: jobs run in-process on this PC (APP_REMOTE_WORKERS=false)." -ForegroundColor Green
-    Write-Host "Install SAM/DUSt3R if needed: .\scripts\install_ml_windows.ps1 then PUT /settings for checkpoint paths." -ForegroundColor DarkGray
+    Write-Host "Install SAM/MapAnything if needed: .\scripts\install_ml_windows.ps1 then PUT /settings for checkpoint paths." -ForegroundColor DarkGray
 } else {
     if ((-not $existingToken) -or $RegenerateWorkerToken) {
         Write-Host "Copy this token to each GPU worker .env.worker as POLYGRAPH_WORKER_TOKEN:" -ForegroundColor Yellow

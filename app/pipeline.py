@@ -84,36 +84,20 @@ class ReconstructionPipeline:
             self._raise_if_cancelled(cancel_event)
 
             if self.runtime_settings.reconstruction_backend == "gaussian_splatting":
-                if self.runtime_settings.compare_mesh_dust3r_colmap_with_gs:
+                if self.runtime_settings.compare_mesh_preview_with_gs:
                     self._publish(
                         job_id,
                         JobStatus.PROCESSING,
-                        stage="compare_mesh_dust3r",
-                        progress=41,
+                        stage="compare_mesh_preview",
+                        progress=42,
                     )
                     self._run_mesh_pipeline(
                         job_id,
                         masked_paths,
                         image_paths,
                         cancel_event=cancel_event,
-                        mesh_backend="dust3r",
-                        output_basename=f"{job_id}_compare_dust3r",
-                        publish_completed=False,
-                    )
-                    self._raise_if_cancelled(cancel_event)
-                    self._publish(
-                        job_id,
-                        JobStatus.PROCESSING,
-                        stage="compare_mesh_colmap",
-                        progress=44,
-                    )
-                    self._run_mesh_pipeline(
-                        job_id,
-                        masked_paths,
-                        image_paths,
-                        cancel_event=cancel_event,
-                        mesh_backend="colmap",
-                        output_basename=f"{job_id}_compare_colmap",
+                        mesh_backend="mapanything",
+                        output_basename=f"{job_id}_compare_mesh",
                         publish_completed=False,
                     )
                     self._raise_if_cancelled(cancel_event)
@@ -139,13 +123,12 @@ class ReconstructionPipeline:
         original_paths: list[Path],
         *,
         cancel_event: threading.Event | None = None,
-        mesh_backend: Literal["dust3r", "colmap"] | None = None,
+        mesh_backend: Literal["mapanything"] | None = None,
         output_basename: str | None = None,
         publish_completed: bool = True,
     ) -> str:
         stem = output_basename or job_id
-        # Phase 2 of the protocol: DUSt3R/COLMAP reconstruction (also applies the
-        # confidence filter from Phase 3 before merging per-view clouds for DUSt3R).
+        # Phase 2 of the protocol: MapAnything metric reconstruction (+ optional confidence masking there).
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)
         reconstruction = self.reconstructor.reconstruct(
             masked_paths, job_id=job_id, mesh_backend=mesh_backend

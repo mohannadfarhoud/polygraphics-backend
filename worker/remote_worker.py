@@ -33,9 +33,7 @@ import httpx
 def _apply_local_overrides(settings_dict: dict) -> dict:
     mapping = (
         ("sam_checkpoint_path", "POLYGRAPH_OVERRIDE_SAM_CHECKPOINT"),
-        ("dust3r_checkpoint_path", "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT"),
-        ("colmap_binary_path", "POLYGRAPH_OVERRIDE_COLMAP_PATH"),
-        ("dust3r_repo_path", "POLYGRAPH_OVERRIDE_DUST3R_REPO"),
+        ("mapanything_pretrained_id", "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL"),
         ("gs_repo_path", "POLYGRAPH_OVERRIDE_GS_REPO"),
     )
     out = dict(settings_dict)
@@ -262,29 +260,26 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         out_dir = work / settings.output_dir_name
         if (
             settings.reconstruction_backend == "gaussian_splatting"
-            and settings.compare_mesh_dust3r_colmap_with_gs
+            and settings.compare_mesh_preview_with_gs
         ):
-            for variant, stem in (
-                ("dust3r", f"{job_id}_compare_dust3r"),
-                ("colmap", f"{job_id}_compare_colmap"),
-            ):
-                sidecar = out_dir / f"{stem}.glb"
-                if not sidecar.is_file():
-                    print(
-                        f"[polygraph-worker] job {job_id}: no comparison GLB at {sidecar.name} (skipping upload)",
-                        flush=True,
-                    )
-                    continue
+            stem = f"{job_id}_compare_mesh"
+            sidecar = out_dir / f"{stem}.glb"
+            if not sidecar.is_file():
+                print(
+                    f"[polygraph-worker] job {job_id}: no comparison GLB at {sidecar.name} (skipping upload)",
+                    flush=True,
+                )
+            else:
                 body = sidecar.read_bytes()
                 ur = client.post(
                     f"{base}/internal/worker/jobs/{job_id}/comparison-glb",
                     headers={"X-Worker-Token": token},
-                    data={"variant": variant},
+                    data={"variant": "mesh"},
                     files={"file": (f"{stem}.glb", body, "model/gltf-binary")},
                 )
                 ur.raise_for_status()
                 print(
-                    f"[polygraph-worker] job {job_id}: uploaded comparison GLB variant={variant} ({len(body)} bytes)",
+                    f"[polygraph-worker] job {job_id}: uploaded preview comparison GLB ({len(body)} bytes)",
                     flush=True,
                 )
 

@@ -1,4 +1,4 @@
-"""Subprocess entry: run SAM masking for all inputs then exit (releases CUDA before DUSt3R/GS).
+"""Subprocess entry: run SAM masking for all inputs then exit (releases CUDA before MapAnything/GS).
 
 Invoked from ``ReconstructionPipeline._run_segmentation`` when ``gpu_isolate_phases`` is enabled.
 

@@ -2,112 +2,111 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class RuntimeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    # `dust3r`/`colmap` produce a meshed `.glb`; `gaussian_splatting` produces a `.ply` (3DGS).
-    # Default `colmap` gives more stable SfM on textured backgrounds (e.g. tabletop scans) when
-    # colmap_binary_path is set. Use `dust3r` or `auto` for small sets / COLMAP-free setups.
-    reconstruction_backend: Literal["auto", "dust3r", "colmap", "gaussian_splatting"] = "colmap"
-    # When reconstruction_backend == "auto", use DUSt3R strictly below this count, else COLMAP
-    # (more stable SfM for many-phone object scans — thin objects + textured tables).
-    auto_dust3r_max_images: int = Field(default=18, ge=2, le=10000)
+    # `mapanything` meshes a `.glb`; `gaussian_splatting` yields a `.ply` (3DGS, seeded from MapAnything → COLMAP-text).
+    reconstruction_backend: Literal["mapanything", "gaussian_splatting"] = "mapanything"
+
+    # Hugging Face model id (or local snapshot path) for Meta MapAnything.
+    mapanything_pretrained_id: str = "facebook/map-anything-apache"
+    mapanything_memory_efficient_inference: bool = True
+    mapanything_minibatch_size: int = Field(default=1, ge=1, le=128)
+    mapanything_use_amp: bool = True
+    mapanything_apply_mask: bool = True
+    mapanything_mask_edges: bool = True
+    mapanything_apply_confidence_mask: bool = False
+    mapanything_confidence_percentile: int = Field(default=10, ge=0, le=99)
+    mapanything_use_multiview_confidence: bool = False
+    mapanything_max_input_views: int = Field(default=48, ge=2, le=512)
+
     device: Literal["auto", "cpu", "cuda"] = "auto"
-    # When True (default): phase 1 (SAM) and GS COLMAP/DUSt3R scene prep run in subprocesses on CUDA so
-    # each PyTorch workload exits before the next — strongly recommended on single 8 GB GPUs.
+    # When True (default): phase 1 (SAM) and GS MapAnything scene prep run in subprocesses on CUDA so
+    # each PyTorch workload exits before the next — recommended on single 8 GB GPUs.
     gpu_isolate_phases: bool = True
+
     sam_checkpoint_path: str | None = None
     sam_model_type: str = "vit_h"
-    # How to pick the foreground mask (SAM). `center_point` uses a click at the image center — best for a subject in the middle.
-    # `auto_masks_center_bias` scores auto-generated masks by size × proximity to center. `auto_masks_largest_area` picks the largest mask (old behavior).
     sam_segmentation_mode: Literal[
         "center_point",
         "auto_masks_center_bias",
         "auto_masks_largest_area",
     ] = "center_point"
-    # AMP fp16 on CUDA for SAM forward passes (saves VRAM on e.g. RTX 3050 8GB).
     sam_use_fp16: bool = True
-    dust3r_repo_path: str | None = None
-    dust3r_checkpoint_path: str | None = None
-    # DUSt3R global aligner (Phase 2 of the pipeline protocol).
-    dust3r_aligner_iters: int = Field(default=380, ge=10, le=5000)
-    dust3r_aligner_lr: float = Field(default=0.01, gt=0.0, le=1.0)
-    # Drop DUSt3R points below this per-pixel confidence (0..1). 0 disables (Phase 3).
-    dust3r_confidence_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
-    # DUSt3R inference / aligner on CUDA: mixed precision to stay under ~6–8 GB VRAM on consumer GPUs.
-    dust3r_use_fp16: bool = True
-    # Pair batch size for DUSt3R ``inference()`` (use 1 on RTX 3050).
-    dust3r_inference_batch_size: int = Field(default=1, ge=1, le=8)
-    # Internal longest-side cap for DUSt3R ``load_images`` (combined with max_image_side via min).
-    dust3r_max_inference_side: int = Field(default=768, ge=256, le=8192)
-    # Cap how many views DUSt3R sees (uniform subsampling). Large sets + a dense pair graph OOM the
-    # global aligner on single 8 GB GPUs.
-    dust3r_max_input_views: int = Field(default=36, ge=2, le=500)
-    # Passed to naver/dust3r ``make_pairs(..., scene_graph=…)``. ``auto`` uses ``complete`` when the
-    # view count ≤ ``dust3r_complete_graph_max_views``, else ``swin-6-noncyclic`` (fewer pairs).
-    dust3r_scene_graph: str = Field(default="auto")
-    dust3r_complete_graph_max_views: int = Field(default=24, ge=2, le=200)
-    colmap_binary_path: str | None = None
-    # When True, COLMAP ``feature_extractor`` gets ``--SiftExtraction.use_gpu 1`` (needs a CUDA COLMAP build).
-    colmap_sift_gpu: bool = True
-    # With ``reconstruction_backend == "gaussian_splatting"``, also emit mesh GLBs for A/B comparison
-    # (DUSt3R vs COLMAP) before training GS: ``<job_id>_compare_dust3r.glb`` and ``<job_id>_compare_colmap.glb``.
-    compare_mesh_dust3r_colmap_with_gs: bool = False
-    # Gaussian Splatting (https://github.com/graphdeco-inria/gaussian-splatting)
+
+    # With ``reconstruction_backend == "gaussian_splatting"``, emit ``<job_id>_compare_mesh.glb`` (MapAnything mesh)
+    # before neural GS training when True.
+    compare_mesh_preview_with_gs: bool = False
+
     gs_repo_path: str | None = None
     gs_python_executable: str | None = None  # leave null to use the API's Python
-    gs_init_source: Literal["colmap", "dust3r"] = "colmap"
-    # 10k improves colour/geometry vs 7k on 8 GB when opacity-reset safety logic still applies below ~10k.
     gs_iterations: int = Field(default=10000, ge=100, le=60000)
     gs_sh_degree: int = Field(default=2, ge=0, le=4)
-    # Official train.py OptimizationParams.densify_until_iter — lower stops densification earlier (VRAM safety).
     gs_densify_until_iter: int = Field(default=7000, ge=0, le=60000)
     gs_resolution: int = Field(default=-1, ge=-1, le=8192)  # -1 = original
-    # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000. On runs with
-    # gs_iterations <= 10000, the worker may pass a larger value so no reset occurs mid-run (avoids
-    # prune-to-zero / rasterizer backward crashes on short consumer-GPU jobs).
     gs_opacity_reset_interval: int = Field(default=3000, ge=100, le=60000)
-    # When True and PyTorch sees no CUDA device, skip official train.py and write a
-    # valid 3DGS-format .ply from sparse colored points (no GPU / no CUDA extensions).
     gs_allow_cpu_fallback: bool = True
     gs_cpu_max_points: int = Field(default=250_000, ge=1000, le=2_000_000)
-    # When True (default): after COLMAP/DUSt3R scene layout is built from masked SAM images,
-    # replace files in scene/images/ with aligned **original** photos (same per-view indices) before
-    # ``train.py``. Filenames stay as the masked filenames so COLMAP/SfM bookkeeping matches;
-    # photometric loss then supervises against real colour—not black paddings—from each view (major
-    # fix for unrealistically dark / black-ish splats when SAM uses apply_black_background).
     gs_train_with_original_images: bool = True
+
     meshing_method: Literal["poisson", "bpa"] = "poisson"
     output_dir_name: str = "output"
     masked_dir_name: str = "masked"
-    # Where raw binary masks (.png) are saved alongside the masked color images.
     masks_dir_name: str = "masks"
-    # If True, also write 1-channel mask PNGs to `<masks_dir_name>/<job_id>/mask_NNN.png`.
     save_raw_masks: bool = True
     nb_neighbors: int = Field(default=26, ge=1)
     std_ratio: float = Field(default=1.75, gt=0)
     poisson_depth: int = Field(default=9, ge=4, le=14)
     poisson_density_quantile: float = Field(default=0.02, ge=0.0, le=1.0)
     decimation_target_triangles: int = Field(default=300_000, ge=1000)
-    # Mesh (.glb) only: project vertex colours from original (unmasked) photos using estimated cameras.
-    # Strongly improves realism vs point-cloud colours alone. Set false for faster jobs or if colours look wrong.
     mesh_photo_vertex_bake: bool = True
-    # Write mesh GLB with Open3D compressed mode (Draco-style mesh compression for smaller web payloads).
     mesh_glb_draco_compression: bool = True
-    # Public URL prefix for generated model files (must match where this API serves /output/…).
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)
-    # Longest-edge cap for **input** photos as soon as a job starts (before SAM). Phone 4K images
-    # are downscaled (aspect-preserving) so segmentation and later stages use HD-class resolution.
-    # DUSt3R/COLMAP may still apply ``max_image_side`` / ``dust3r_max_inference_side`` on top.
     max_input_image_side: int = Field(default=1600, ge=256, le=8192)
     max_image_side: int = Field(default=1024, ge=128, le=8192)
-    # When True: fake masks/points/GS PLY (demo only). When False: real checkpoints + packages required.
     allow_placeholder_pipeline: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_keys(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        rb = d.get("reconstruction_backend")
+        if rb in ("auto", "dust3r", "colmap"):
+            d["reconstruction_backend"] = "mapanything"
+
+        preview = bool(d.get("compare_mesh_preview_with_gs", False)) or bool(
+            d.pop("compare_mesh_dust3r_colmap_with_gs", False)
+        )
+        d["compare_mesh_preview_with_gs"] = preview
+
+        # Drop obsolete keys silently (were ignored via extra="ignore" but tidy common ones).
+        for dead in (
+            "mesh_colmap_failure_fallback_dust3r",
+            "auto_dust3r_max_images",
+            "dust3r_repo_path",
+            "dust3r_checkpoint_path",
+            "dust3r_aligner_iters",
+            "dust3r_aligner_lr",
+            "dust3r_confidence_threshold",
+            "dust3r_use_fp16",
+            "dust3r_inference_batch_size",
+            "dust3r_max_inference_side",
+            "dust3r_max_input_views",
+            "dust3r_scene_graph",
+            "dust3r_complete_graph_max_views",
+            "colmap_binary_path",
+            "colmap_sift_gpu",
+            "gs_init_source",
+        ):
+            d.pop(dead, None)
+        return d
 
 
 class SettingsStore:
@@ -128,4 +127,3 @@ class SettingsStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(settings.model_dump_json(indent=2), encoding="utf-8")
         return settings
-

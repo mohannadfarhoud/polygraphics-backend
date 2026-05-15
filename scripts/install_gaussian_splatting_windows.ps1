@@ -125,8 +125,6 @@ Write-Host @"
 {
   "reconstruction_backend": "gaussian_splatting",
   "gs_repo_path": "$jsonPath",
-  "colmap_binary_path": "C:\\\\COLMAP\\\\COLMAP.bat",
-  "gs_init_source": "colmap",
   "device": "cuda",
   "allow_placeholder_pipeline": false
 }

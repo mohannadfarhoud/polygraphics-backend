@@ -16,16 +16,13 @@ class ReconstructionResult:
     aligned_points_xyz: np.ndarray  # (N, 3) float32 in a unified frame
     aligned_colors_rgb: np.ndarray | None = None  # (N, 3) uint8 RGB; same length as points
     cameras: list[CameraView] = field(default_factory=list)
-    # Original (UNMASKED) image paths in the same order as `cameras`. Optional —
-    # callers may supply these later to bake colours from photographs.
     original_image_paths: list[Path] = field(default_factory=list)
 
 
 class Dust3RReconstructor:
-    """Runs the active mesh-path backend (DUSt3R / COLMAP / auto).
+    """Historical name — runs metric mesh reconstruction via MapAnything (``mapanything_runner``).
 
-    The class name is historical; today it dispatches on
-    ``settings.reconstruction_backend`` (or ``auto`` based on image count).
+    ``gaussian_splatting`` skips this class for the main GS path (scene workspace uses MapAnything directly).
     """
 
     def __init__(self, settings: RuntimeSettings | None = None) -> None:
@@ -36,8 +33,9 @@ class Dust3RReconstructor:
         masked_images: list[Path],
         *,
         job_id: str | None = None,
-        mesh_backend: Literal["dust3r", "colmap"] | None = None,
+        mesh_backend: Literal["mapanything"] | None = None,
     ) -> ReconstructionResult:
+        del job_id  # MapAnything workspaces are ephemeral; GS uses its own scene dir.
         if len(masked_images) < 2:
             raise ValueError("Need at least 2 masked images")
 
@@ -50,72 +48,48 @@ class Dust3RReconstructor:
                 aligned_colors_rgb=None,
             )
 
-        if mesh_backend is not None:
-            backend = mesh_backend
-        else:
-            backend = self.resolve_backend(len(masked_images))
+        backend = mesh_backend if mesh_backend is not None else self.settings.reconstruction_backend
+
         if backend == "gaussian_splatting":
             raise RuntimeError(
-                "reconstruct() does not run Gaussian Splatting; pass mesh_backend='dust3r' or 'colmap', "
-                "or set reconstruction_backend to auto/dust3r/colmap for mesh jobs."
+                "reconstruct() does not run Gaussian Splatting; set reconstruction_backend to mapanything for mesh,"
+                " or gaussian_splatting for .ply exports."
             )
 
-        if backend == "dust3r":
-            from .dust3r_runner import run_dust3r_scene
+        if backend == "mapanything":
+            return self._mapanything_reconstruct(masked_images, self.settings)
 
-            scene = run_dust3r_scene(masked_images, self.settings)
-            cameras: list[CameraView] = []
-            for i, masked_path in enumerate(scene.image_paths):
-                if i >= len(scene.image_sizes) or i >= len(scene.intrinsics) or i >= len(scene.poses_w2c):
-                    break
-                cameras.append(
-                    CameraView(
-                        image_path=masked_path,
-                        image_size=scene.image_sizes[i],
-                        K=np.asarray(scene.intrinsics[i], dtype=np.float64),
-                        w2c=np.asarray(scene.poses_w2c[i], dtype=np.float64),
-                    )
-                )
-            return ReconstructionResult(
-                aligned_points_xyz=scene.points,
-                aligned_colors_rgb=scene.colors,
-                cameras=cameras,
-            )
-
-        if backend == "colmap":
-            from .colmap_runner import run_colmap_sparse_with_cameras
-
-            workspace = self._colmap_workspace(masked_images, job_id)
-            res = run_colmap_sparse_with_cameras(masked_images, self.settings, workspace=workspace)
-            return ReconstructionResult(
-                aligned_points_xyz=res.points_xyz,
-                aligned_colors_rgb=res.colors_rgb,
-                cameras=list(res.cameras or []),
-            )
-
-        raise RuntimeError(
-            f"Unsupported mesh backend {backend!r}. "
-            "Use 'auto', 'dust3r', or 'colmap' (or set reconstruction_backend='gaussian_splatting' for the .ply path)."
-        )
+        raise RuntimeError(f"Unsupported mesh backend {backend!r}.")
 
     def resolve_backend(self, n_images: int) -> str:
-        """Return the concrete backend ('dust3r' or 'colmap') given current settings."""
+        _ = n_images
         if self.settings is None:
-            return "dust3r"
-        backend = self.settings.reconstruction_backend
-        if backend != "auto":
-            return backend
-        threshold = int(self.settings.auto_dust3r_max_images)
-        return "dust3r" if n_images < threshold else "colmap"
+            return "mapanything"
+        if self.settings.reconstruction_backend == "gaussian_splatting":
+            return "gaussian_splatting"
+        return "mapanything"
 
-    @staticmethod
-    def _colmap_workspace(masked_images: list[Path], job_id: str | None) -> Path:
-        if job_id:
-            return Path("data") / "colmap_workspace" / job_id
-        # Derive a stable workspace from the masked dir layout
-        # (masked/<job_id>/masked_NNN.<ext>) so we don't pile up temp dirs.
-        first_parent = masked_images[0].parent
-        return first_parent.parent.parent / "data" / "colmap_workspace" / first_parent.name
+    def _mapanything_reconstruct(self, masked_images: list[Path], settings: RuntimeSettings) -> ReconstructionResult:
+        from .mapanything_runner import run_mapanything_scene
+
+        scene = run_mapanything_scene(masked_images, settings)
+        cameras: list[CameraView] = []
+        for i, masked_path in enumerate(scene.image_paths):
+            if i >= len(scene.image_sizes) or i >= len(scene.intrinsics) or i >= len(scene.poses_w2c):
+                break
+            cameras.append(
+                CameraView(
+                    image_path=masked_path,
+                    image_size=scene.image_sizes[i],
+                    K=np.asarray(scene.intrinsics[i], dtype=np.float64),
+                    w2c=np.asarray(scene.poses_w2c[i], dtype=np.float64),
+                )
+            )
+        return ReconstructionResult(
+            aligned_points_xyz=scene.points,
+            aligned_colors_rgb=scene.colors,
+            cameras=cameras,
+        )
 
     def _placeholder_cloud(self, masked_images: list[Path]) -> np.ndarray:
         point_blocks: list[np.ndarray] = []

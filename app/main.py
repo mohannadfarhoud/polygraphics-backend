@@ -56,7 +56,7 @@ _root_path = _root_path.rstrip("/")
 
 app = FastAPI(
     title="polyGraphics 3D Backend",
-    description="API for 2D-to-3D reconstruction pipeline (SAM + DUSt3R + Open3D)",
+    description="API for 2D-to-3D reconstruction pipeline (SAM + MapAnything + Open3D)",
     version="1.0.0",
     # Custom /swagger + /redoc below: FastAPI defaults use scope root_path only; we do not set
     # FastAPI(root_path=…) because it breaks bare /output and /uploads behind strip-prefix proxies.
@@ -380,10 +380,10 @@ async def internal_worker_complete(
 @app.post("/internal/worker/jobs/{job_id}/comparison-glb", dependencies=[Depends(verify_worker_token)])
 async def internal_worker_comparison_glb(
     job_id: str,
-    variant: str = Form(..., description="dust3r or colmap"),
+    variant: str = Form(..., description="comparison GLB variant: mesh (MapAnything preview)"),
     file: UploadFile = File(...),
 ) -> dict[str, str]:
-    """Sidecar mesh from ``compare_mesh_dust3r_colmap_with_gs``; call before ``/complete`` while the job is PROCESSING."""
+    """Sidecar mesh from ``compare_mesh_preview_with_gs``; call before ``/complete`` while the job is PROCESSING."""
     body = await file.read()
     try:
         return job_manager.save_remote_comparison_glb(job_id, variant, body)

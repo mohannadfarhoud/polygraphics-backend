@@ -21,37 +21,28 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
             "Or set allow_placeholder_pipeline=true only for local demos."
         )
 
+    def _need_mapanything() -> None:
+        try:
+            import torch  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "MapAnything reconstruction needs PyTorch installed on the worker. "
+                "Install torch + CUDA for GPU jobs. Original error: " + str(exc)
+            ) from exc
+        try:
+            import mapanything  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "MapAnything Python package missing. pip install git+https://github.com/facebookresearch/map-anything.git "
+                "(see README). Original error: " + str(exc)
+            ) from exc
+
     backend = settings.reconstruction_backend
 
-    def _need_dust3r() -> None:
-        ck = (settings.dust3r_checkpoint_path or "").strip()
-        if not ck:
-            raise RuntimeError(
-                "Real DUSt3R is required: set dust3r_checkpoint_path (local checkpoint folder/file "
-                "or Hugging Face model id), install dust3r + torch (see README), "
-                "or set allow_placeholder_pipeline=true only for local demos."
-            )
-
-    def _need_colmap() -> None:
-        if not settings.colmap_binary_path or not Path(settings.colmap_binary_path).exists():
-            raise RuntimeError(
-                "COLMAP backend selected: set colmap_binary_path to the COLMAP executable "
-                "(e.g. C:\\COLMAP\\COLMAP.bat), or switch reconstruction_backend to dust3r."
-            )
-
-    if backend == "dust3r":
-        _need_dust3r()
-    elif backend == "colmap":
-        _need_colmap()
-    elif backend == "auto":
-        # Auto picks dust3r for small jobs and colmap for larger ones, so both
-        # need to be available; we don't know the image count at this point.
-        _need_dust3r()
-        _need_colmap()
+    if backend == "mapanything":
+        _need_mapanything()
     elif backend == "gaussian_splatting":
-        if bool(getattr(settings, "compare_mesh_dust3r_colmap_with_gs", False)):
-            _need_dust3r()
-            _need_colmap()
+        _need_mapanything()
         repo = Path(settings.gs_repo_path or "")
         try:
             import torch
@@ -59,17 +50,6 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
             cuda_ok = bool(torch.cuda.is_available())
         except Exception:
             cuda_ok = False
-
-        if settings.gs_init_source == "colmap":
-            if not settings.colmap_binary_path or not Path(settings.colmap_binary_path).exists():
-                raise RuntimeError(
-                    "Gaussian Splatting with gs_init_source='colmap' requires colmap_binary_path."
-                )
-        elif settings.gs_init_source == "dust3r":
-            if not (settings.dust3r_checkpoint_path or "").strip():
-                raise RuntimeError(
-                    "Gaussian Splatting with gs_init_source='dust3r' requires dust3r_checkpoint_path."
-                )
 
         need_repo = cuda_ok or not settings.gs_allow_cpu_fallback
         if need_repo:

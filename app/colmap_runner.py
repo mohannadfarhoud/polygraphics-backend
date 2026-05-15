@@ -1,25 +1,10 @@
-"""COLMAP sparse Structure-from-Motion → colored point cloud (mesh-path input).
+"""COLMAP sparse I/O utilities.
 
-This module is used by ``Dust3RReconstructor`` when the resolved backend is
-``colmap`` (which happens when ``reconstruction_backend == "colmap"`` or when
-``"auto"`` selects COLMAP for jobs with many photos).
+The mesh pipeline uses **MapAnything** for metric multi-view geometry. This module keeps COLMAP-era
+utilities for sparse **binary** conversion and ``points3D.txt`` parsing (Gaussian Splatting CPU fallback).
 
-What it does
-------------
-1. Copies the input (masked) images into ``<workspace>/images/``.
-2. Runs the standard COLMAP pipeline:
-     ``feature_extractor`` → ``exhaustive_matcher`` → ``mapper``.
-3. Converts the binary sparse model to text (``model_converter``) so we can
-   parse ``points3D.txt`` without depending on the binary format.
-4. Returns ``(points Nx3 float32, colors Nx3 uint8)`` — RGB sampled by COLMAP
-   from the original images, exactly what we need to color the mesh.
-
-Notes
------
-- Works on Windows with both ``colmap.exe`` and a wrapper ``COLMAP.bat``.
-- Sparse-only: dense reconstruction needs CUDA on Windows. The sparse cloud
-  is enough for a reasonable Poisson surface; per-vertex color is what we
-  want for the GLB.
+Legacy ``run_colmap_sparse*`` helpers remain for uncommon manual calls but expect a compat
+``colmap_binary_path`` attribute on settings when used.
 """
 
 from __future__ import annotations
@@ -50,11 +35,12 @@ def run_colmap_sparse(
     if len(masked_images) < 2:
         raise ValueError("COLMAP needs at least 2 images")
 
-    colmap_bin = (settings.colmap_binary_path or "").strip()
+    colmap_bin = (getattr(settings, "colmap_binary_path", None) or "").strip()
     if not colmap_bin or not Path(colmap_bin).exists():
         raise RuntimeError(
-            "COLMAP backend requires a valid colmap_binary_path "
-            "(set it via PUT /settings, e.g. C:\\COLMAP\\COLMAP.bat)."
+            "Classic COLMAP SfM is no longer wired to the mesh path; use reconstruction_backend "
+            "`mapanything`. If you reached this intentionally, supply colmap_binary_path on RuntimeSettings "
+            "(legacy field)."
         )
 
     workspace = workspace.resolve()
@@ -363,20 +349,19 @@ def _read_colmap_cameras_views(
 def load_sparse_points_from_gs_scene(scene_dir: Path, settings: RuntimeSettings) -> tuple[np.ndarray, np.ndarray]:
     """Read COLMAP sparse 3D points + RGB from a gaussian-splatting ``scene_dir``.
 
-    Handles both:
-      * DUSt3R bridge output: ``sparse/0/points3D.txt`` already on disk.
-      * Pure COLMAP mapper output: binary ``sparse/<id>/points3D.bin`` → run ``model_converter``.
+    Prefer ``sparse/0/points3D.txt`` (MapAnything/COLMAP-text bridge). If only binary models exist,
+    optionally run ``model_converter`` when ``colmap_binary_path`` is set on settings.
     """
     scene_dir = scene_dir.resolve()
     direct_txt = scene_dir / "sparse" / "0" / "points3D.txt"
     if direct_txt.is_file():
         return _read_points3d_txt(direct_txt)
 
-    colmap_bin = (settings.colmap_binary_path or "").strip()
+    colmap_bin = (getattr(settings, "colmap_binary_path", None) or "").strip()
     if not colmap_bin or not Path(colmap_bin).exists():
         raise RuntimeError(
-            "Reading binary COLMAP models requires colmap_binary_path (model_converter). "
-            "Set it to e.g. C:\\COLMAP\\COLMAP.bat"
+            "sparse/points3D.txt missing and COLMAP CLI unavailable: install COLMAP temporarily and set "
+            "colmap_binary_path to convert binaries, or rebuild the GS scene via MapAnything (writes text)."
         )
 
     sparse_root = scene_dir / "sparse"

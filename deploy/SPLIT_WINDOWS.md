@@ -27,9 +27,9 @@ Example status URL:
 ## GPU worker
 
 1. Clone the **same** repository on the worker.
-2. Run `scripts\install_worker_windows.ps1` (venv, CUDA PyTorch, SAM + DUSt3R stack from `install_ml_windows.ps1 -SkipTorch`, checkpoints).
+2. Run `scripts\install_worker_windows.ps1` (venv, CUDA PyTorch, SAM + MapAnything stack from `install_ml_windows.ps1 -SkipTorch`, checkpoints).
 3. Copy `.env.worker.example` to `.env.worker` and set **`POLYGRAPH_API_BASE`** and **`POLYGRAPH_WORKER_TOKEN`** (must match the API).
-4. Ensure **`PUT /settings`** paths (SAM/DUSt3R checkpoints, DUSt3R repo, COLMAP) exist on the worker machine, or use **`POLYGRAPH_OVERRIDE_*`** variables in `.env.worker` (see `.env.worker.example`).
+4. Ensure **`PUT /settings`** paths (SAM checkpoint, optional `mapanything_pretrained_id`) exist on the worker machine, or use **`POLYGRAPH_OVERRIDE_*`** variables in `.env.worker` (see `.env.worker.example`).
 5. Run `scripts\run_worker.ps1` or install an NSSM service that runs that script.
 
 ## Firewall
