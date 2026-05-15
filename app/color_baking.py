@@ -61,41 +61,56 @@ def bake_vertex_colors_from_views(
     color_cnt = np.zeros(n, dtype=np.int32)
     homog = np.concatenate([verts, np.ones((n, 1), dtype=np.float64)], axis=1)  # Nx4
 
-    for v, img in zip(views, images):
+    for view, img in zip(views, images):
         if img is None:
             continue
-        W, H = int(v.image_size[0]), int(v.image_size[1])
+        W, H = int(view.image_size[0]), int(view.image_size[1])
 
-        pcam = (np.asarray(v.w2c, dtype=np.float64) @ homog.T).T  # Nx4
+        pcam = (np.asarray(view.w2c, dtype=np.float64) @ homog.T).T  # Nx4
         z = pcam[:, 2]
         valid_z = z > 1e-6
         if not valid_z.any():
             continue
 
-        K = np.asarray(v.K, dtype=np.float64)
+        K = np.asarray(view.K, dtype=np.float64)
         x = pcam[valid_z, 0] / z[valid_z]
         y = pcam[valid_z, 1] / z[valid_z]
         u = K[0, 0] * x + K[0, 2]
-        vp = K[1, 1] * y + K[1, 2]
+        vc = K[1, 1] * y + K[1, 2]
 
-        ui = np.floor(u + 0.5).astype(np.int32)
-        vi = np.floor(vp + 0.5).astype(np.int32)
-        in_bounds = (ui >= 0) & (ui < W) & (vi >= 0) & (vi < H)
+        idx_valid = np.where(valid_z)[0]
+        in_bounds = (u >= 0) & (u < W) & (vc >= 0) & (vc < H)
         if not in_bounds.any():
             continue
 
-        global_idx = np.where(valid_z)[0][in_bounds]
-        ui_b = ui[in_bounds]
-        vi_b = vi[in_bounds]
+        global_idx = idx_valid[in_bounds]
+        u_b = u[in_bounds].astype(np.float64)
+        vc_b = vc[in_bounds].astype(np.float64)
 
-        rgb = img[vi_b, ui_b, :]  # uint8 RGB
-        sums = rgb.astype(np.int32).sum(axis=1)
+        x0 = np.floor(u_b).astype(np.int32)
+        y0 = np.floor(vc_b).astype(np.int32)
+        x1 = np.minimum(x0 + 1, W - 1)
+        y1 = np.minimum(y0 + 1, H - 1)
+        wx = u_b - x0.astype(np.float64)
+        wy = vc_b - y0.astype(np.float64)
+
+        I00 = img[y0, x0].astype(np.float64)
+        I01 = img[y0, x1].astype(np.float64)
+        I10 = img[y1, x0].astype(np.float64)
+        I11 = img[y1, x1].astype(np.float64)
+        rgb = (
+            (1.0 - wx)[:, None] * (1.0 - wy)[:, None] * I00
+            + wx[:, None] * (1.0 - wy)[:, None] * I01
+            + (1.0 - wx)[:, None] * wy[:, None] * I10
+            + wx[:, None] * wy[:, None] * I11
+        )
+        sums = rgb.sum(axis=1)
         non_dark = sums > int(skip_dark_threshold)
         if not non_dark.any():
             continue
 
         keep_idx = global_idx[non_dark]
-        keep_rgb = rgb[non_dark].astype(np.float64) / 255.0
+        keep_rgb = rgb[non_dark] / 255.0
         np.add.at(color_sum, keep_idx, keep_rgb)
         np.add.at(color_cnt, keep_idx, 1)
 

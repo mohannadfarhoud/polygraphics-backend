@@ -10,6 +10,21 @@ from .multiview_scene import MultiviewMetricScene
 from .runtime_settings import RuntimeSettings
 
 
+def _infer_mask_flags(settings: RuntimeSettings) -> tuple[bool, bool]:
+    """``(apply_mask, mask_edges)`` for MapAnything ``infer``.
+
+    Precut / skip-SAM inputs are already object-only; the feed-forward mask usually hurts
+    glossy or high-contrast toy subjects unless ``mapanything_apply_internal_mask_on_precut``.
+    """
+    base_mask = bool(getattr(settings, "mapanything_apply_mask", True))
+    base_edges = bool(getattr(settings, "mapanything_mask_edges", True))
+    if bool(getattr(settings, "skip_sam_segmentation", False)):
+        if bool(getattr(settings, "mapanything_apply_internal_mask_on_precut", False)):
+            return base_mask, base_edges
+        return False, False
+    return base_mask, base_edges
+
+
 def _resolve_torch_device(settings: RuntimeSettings):
     import torch
 
@@ -111,6 +126,8 @@ def run_mapanything_scene(masked_image_paths: list[Path], settings: RuntimeSetti
         use_amp = False
         amp_dtype = "fp32"
 
+    apply_mask, mask_edges = _infer_mask_flags(settings)
+
     with torch.no_grad():
         preds = model.infer(
             views,
@@ -118,8 +135,8 @@ def run_mapanything_scene(masked_image_paths: list[Path], settings: RuntimeSetti
             minibatch_size=mini if mem_eff else None,
             use_amp=use_amp,
             amp_dtype=amp_dtype if use_amp else "fp32",
-            apply_mask=bool(getattr(settings, "mapanything_apply_mask", True)),
-            mask_edges=bool(getattr(settings, "mapanything_mask_edges", True)),
+            apply_mask=apply_mask,
+            mask_edges=mask_edges,
             apply_confidence_mask=bool(getattr(settings, "mapanything_apply_confidence_mask", False)),
             confidence_percentile=int(getattr(settings, "mapanything_confidence_percentile", 10)),
             use_multiview_confidence=bool(getattr(settings, "mapanything_use_multiview_confidence", False)),

@@ -12,7 +12,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "reconstruction_backend",
             "scope": "both",
             "worker_env": None,
-            "notes": "Mesh: mapanything (.glb); or gaussian_splatting (.ply, scene seed still built with MapAnything COLMAP-text).",
+            "notes": "Mesh: mapanything (.glb); gaussian_splatting (.ply) — usually closer to photos for glossy objects when trained on GPU.",
         },
         {
             "key": "mapanything_pretrained_id",
@@ -67,6 +67,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": "Used only with ``skip_sam_segmentation`` and RGBA inputs: neutral grey (0–255, same on R/G/B) composited where alpha≈0 before MapAnything sees the view.",
+        },
+        {
+            "key": "mapanything_apply_internal_mask_on_precut",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Only when ``skip_sam_segmentation``: if false (default), MapAnything ``apply_mask``/``mask_edges`` are off — better for glossy/small toys on grey cutouts; set true when depth is fused with cluttered background pixels.",
         },
         {
             "key": "sam_checkpoint_path",

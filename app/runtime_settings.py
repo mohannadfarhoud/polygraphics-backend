@@ -26,6 +26,9 @@ class RuntimeSettings(BaseModel):
     mapanything_confidence_percentile: int = Field(default=10, ge=0, le=99)
     mapanything_use_multiview_confidence: bool = False
     mapanything_max_input_views: int = Field(default=48, ge=2, le=512)
+    # When ``skip_sam_segmentation``: subject is already cut out; MapAnything's internal inference
+    # mask often erodes specular / toy paint — keep false unless foreground is fused with noisy BG.
+    mapanything_apply_internal_mask_on_precut: bool = False
 
     device: Literal["auto", "cpu", "cuda"] = "auto"
     # When True (default): phase 1 (SAM) and GS MapAnything scene prep run in subprocesses on CUDA so
@@ -67,17 +70,17 @@ class RuntimeSettings(BaseModel):
     masks_dir_name: str = "masks"
     save_raw_masks: bool = True
     nb_neighbors: int = Field(default=26, ge=1)
-    std_ratio: float = Field(default=1.75, gt=0)
-    poisson_depth: int = Field(default=9, ge=4, le=14)
+    std_ratio: float = Field(default=2.0, gt=0)
+    poisson_depth: int = Field(default=10, ge=4, le=14)
     poisson_density_quantile: float = Field(default=0.02, ge=0.0, le=1.0)
-    decimation_target_triangles: int = Field(default=300_000, ge=1000)
+    decimation_target_triangles: int = Field(default=520_000, ge=1000)
     mesh_photo_vertex_bake: bool = True
     # When baking: sample ``masked`` (black outside SAM FG) vs full ``original`` photos — originals can smear backdrop onto the mesh.
     mesh_photo_vertex_bake_sample_source: Literal["masked", "original"] = "masked"
     mesh_glb_draco_compression: bool = True
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)
-    max_input_image_side: int = Field(default=1600, ge=256, le=8192)
+    max_input_image_side: int = Field(default=1920, ge=256, le=8192)
     max_image_side: int = Field(default=1024, ge=128, le=8192)
     allow_placeholder_pipeline: bool = False
 
