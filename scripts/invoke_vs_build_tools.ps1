@@ -8,6 +8,8 @@
     nvcc fatal : Cannot find compiler 'cl.exe' in PATH
 
   Starts cmd.exe with vcvars64.bat from the newest VS install that includes the MSVC toolset.
+  Pip and build tools write to stderr — this script temporarily sets $ErrorActionPreference to
+  Continue for the cmd.exe child so Tee-Object pipelines do not fail with NativeCommandError.
 
 .EXAMPLE
   .\scripts\invoke_vs_build_tools.ps1 `
@@ -22,14 +24,12 @@ param(
 )
 
 if ($Argv.Length -eq 0) {
-    Write-Error "Missing command (pass args after script name)."
+    throw "Missing command (pass args after script name)."
 }
-
-$ErrorActionPreference = "Stop"
 
 $vswhere = Join-Path "${env:ProgramFiles(x86)}" "Microsoft Visual Studio\Installer\vswhere.exe"
 if (-not (Test-Path -LiteralPath $vswhere)) {
-    Write-Error "vswhere not found under Program Files (x86). Install Visual Studio 2022 or Build Tools with 'Desktop development with C++'."
+    throw "vswhere not found under Program Files (x86). Install Visual Studio 2022 or Build Tools with 'Desktop development with C++'."
 }
 
 $installationPath = (
@@ -42,12 +42,12 @@ $installationPath = (
 ).Trim()
 
 if (-not $installationPath) {
-    Write-Error "No Visual Studio instance with MSVC (VC.Tools.x86.x64). Install workload 'Desktop development with C++'."
+    throw "No Visual Studio instance with MSVC (VC.Tools.x86.x64). Install workload 'Desktop development with C++'."
 }
 
 $vcvars64 = Join-Path $installationPath "VC\Auxiliary\Build\vcvars64.bat"
 if (-not (Test-Path -LiteralPath $vcvars64)) {
-    Write-Error "Missing vcvars64.bat: $vcvars64"
+    throw "Missing vcvars64.bat: $vcvars64"
 }
 
 function QuoteCmdArg([string]$s) {
@@ -70,8 +70,17 @@ try {
         "exit /b %ERRORLEVEL%"
     ) | Set-Content -Path $wrapper -Encoding OEM
 
-    & cmd.exe /s /c "`"$wrapper`""
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    # Pip writes progress to stderr; $ErrorActionPreference = 'Stop' turns that into terminating errors.
+    $priorEAP = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & cmd.exe /s /c "`"$wrapper`""
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $priorEAP
+    }
+    if ($exitCode -ne 0) { exit $exitCode }
 }
 finally {
     Remove-Item -LiteralPath $wrapper -ErrorAction SilentlyContinue
