@@ -70,6 +70,38 @@ def _torch_cuda_available() -> bool:
         return False
 
 
+def _assert_official_gs_train_imports(train_py: Path, py_executable: str) -> None:
+    """``train.py`` imports CUDA extensions built into the interpreter that launches it (often not the API venv)."""
+    proc = subprocess.run(
+        [py_executable, "-c", "import diff_gaussian_rasterization, simple_knn"],
+        cwd=str(train_py.parent),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode == 0:
+        return
+    err = (proc.stderr or proc.stdout or "").strip()
+    gs_root = train_py.parent
+    dgr = gs_root / "submodules" / "diff-gaussian-rasterization"
+    skn = gs_root / "submodules" / "simple-knn"
+    raise RuntimeError(
+        "Official Gaussian Splatting training needs CUDA-built Python packages in the same "
+        "environment as the process that runs train.py (ModuleNotFoundError if missing).\n\n"
+        f"Interpreter checked: {py_executable}\n"
+        f"Gaussians repo: {gs_root}\n"
+        f"Import check stderr: {err or '(empty)'}\n\n"
+        "Fix (Windows, from an elevated or dev shell with nvcc + VS C++ build tools):\n"
+        "  1) Ensure submodules exist: cd the gaussian-splatting clone; "
+        "git submodule update --init --recursive\n"
+        f"  2) Build into this exact Python:\n"
+        f'     "{py_executable}" -m pip install --no-build-isolation "{dgr}"\n'
+        f'     "{py_executable}" -m pip install --no-build-isolation "{skn}"\n'
+        "See also scripts/install_gaussian_splatting_windows.ps1 — point it at your worker venv "
+        "or run the two pip lines above manually with paths adjusted."
+    )
+
+
 def _vacuum_cuda_cache() -> None:
     """Free Python-held CUDA allocations before spawning ``train.py`` (SAM+MapAnything then GS)."""
     purge_torch_cuda()
@@ -291,10 +323,12 @@ def run_gaussian_splatting(
         return output_ply
 
     py = settings.gs_python_executable or sys.executable
+    train_py = repo / "train.py"
+    _assert_official_gs_train_imports(train_py, py)
     opacity_reset = _effective_opacity_reset_interval(settings)
     cmd = [
         py,
-        str(repo / "train.py"),
+        str(train_py),
         "-s",
         str(scene_dir),
         "-m",
