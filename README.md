@@ -36,11 +36,11 @@ Tune `PUT /settings` roughly like this for mesh + splats on a single GPU:
   "dust3r_use_fp16": true,
   "dust3r_inference_batch_size": 1,
   "dust3r_max_inference_side": 768,
-  "max_input_image_side": 1920,
+  "max_input_image_side": 1600,
   "max_image_side": 1024,
-  "gs_iterations": 7000,
-  "gs_sh_degree": 3,
-  "gs_densify_until_iter": 5000,
+  "gs_iterations": 10000,
+  "gs_sh_degree": 2,
+  "gs_densify_until_iter": 7000,
   "mesh_glb_draco_compression": true,
   "mesh_photo_vertex_bake": true
 }
@@ -56,7 +56,7 @@ Batch binary masks outside the API:
 
 ## Pipeline (Gaussian Splatting / `.ply`)
 
-Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`, set **`gs_repo_path`** to your local clone of [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) (with CUDA extensions built on the worker), and use **`gs_iterations`** around `7000` for quick runs or `30000` for higher quality `.ply` output.
+Set **`reconstruction_backend = "gaussian_splatting"`** in `PUT /settings`, set **`gs_repo_path`** to your local clone of [`graphdeco-inria/gaussian-splatting`](https://github.com/graphdeco-inria/gaussian-splatting) (with CUDA extensions built on the worker). Default **`gs_iterations`** is **`10000`**; raise toward **`30000`** for final-quality `.ply` when VRAM/time allow.
 
 1. SAM segmentation (same as above). When **`save_raw_masks = true`** (default), 1‑channel `.png` masks are written to `masks/<job_id>/mask_NNN.png` alongside the masked colour images.
 2. **Initial scene** (Phase 4 of the pipeline protocol):
@@ -120,12 +120,12 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | Setting | Default | Phase | Notes |
 |---|---:|---|---|
 | `save_raw_masks` | `true` | 1 | Save binary `.png` masks to `masks/<job_id>/`. |
-| `max_input_image_side` | `1920` | 0–1 | Longest edge of uploads after ingest (4K phone shots downscaled to HD-class **before** SAM). Set `1280` / `1080` for lighter jobs. |
-| `dust3r_aligner_iters` | `300` | 2 | `niter` for `compute_global_alignment` (≥ 300 for stable floors). |
+| `max_input_image_side` | `1600` | 0–1 | Longest edge of uploads after ingest (4K phone shots downscaled **before** SAM). Raise to `1920` for sharper bakes if VRAM allows; `1280` / `1080` for lighter jobs. |
+| `dust3r_aligner_iters` | `380` | 2 | `niter` for `compute_global_alignment` (≥ 300 for stable floors). |
 | `dust3r_aligner_lr` | `0.01` | 2 | Learning rate for the global aligner. |
 | `dust3r_confidence_threshold` | `0` | 3 | Drop DUSt3R points below this normalized per-pixel confidence. `0` disables. |
-| `nb_neighbors` | `20` | 3 | Open3D SOR neighbours. |
-| `std_ratio` | `2.0` | 3 | Open3D SOR std-dev ratio (protocol range: 1.5–2.0). |
+| `nb_neighbors` | `26` | 3 | Open3D SOR neighbours (tighter rejects spike noise before Poisson). |
+| `std_ratio` | `1.75` | 3 | Open3D SOR std-dev ratio (protocol range 1.5–2.0). |
 | `decimation_target_triangles` | `300000` | mesh | Higher keeps more detail (slower / larger GLB). |
 | `mesh_photo_vertex_bake` | `true` | mesh | When true and cameras are available, sample vertex colours from original photos (best realism for `.glb`). |
 | `mesh_glb_draco_compression` | `true` | mesh | Open3D compressed binary GLB (smaller web downloads). Falls back to uncompressed trimesh export if needed. |
@@ -134,9 +134,12 @@ These map 1‑to‑1 to the user-provided pipeline protocol and are tunable in `
 | `dust3r_inference_batch_size` | `1` | 2 | DUSt3R pair batch size (`2` uses more VRAM). |
 | `dust3r_max_inference_side` | `768` | 2 | Upper bound on DUSt3R resize side (`min` with `max_image_side`). |
 | `gs_opacity_reset_interval` | `3000` | 5 | Forwarded to `train.py --opacity_reset_interval`. For `gs_iterations` ≤ 10000, the worker may increase this so no reset runs mid-training (reduces upstream “invalid gradient” / zero-splat failures on short runs). |
-| `gs_iterations` | `7000` | 5 | Default targets RTX 3050-class VRAM; use `30000` for higher-quality `.ply`. |
+| `gs_iterations` | `10000` | 5 | Default balances quality/time on RTX 3050-class VRAM; use `30000` for higher-quality `.ply`. |
+| `auto_dust3r_max_images` | `18` | auto | DUSt3R when image count `<` this value; **`colmap`** at ≥18 for mesh `auto` (better on busy backgrounds + many-phone scans). |
+| `sam_segmentation_mode` | `center_point` | 1 | Keeps centred object mode predictable; switch to **`auto_masks_center_bias`** for off-centre subjects. |
 | `gs_train_with_original_images` | `true` | 5 | Before GPU `train.py`, replace `scene/images` pixels with originals (masked filenames unchanged) so optimisation is not anchored to SAM black paddings—major fix for **dark/black** coloured splats. |
-| `gs_densify_until_iter` | `5000` | 5 | Stops Gaussian densification earlier; forwarded to `train.py --densify_until_iter`. Use `0` to omit (upstream default ~15000). |
+| `poisson_depth` | `9` | mesh | Open3D Poisson depth — **lower** tends to suppress spike noise vs very high depths on messy clouds (raise only when the cloud is clean). |
+| `gs_densify_until_iter` | `7000` | 5 | Stops Gaussian densification earlier; forwarded to `train.py --densify_until_iter`. Use `0` to omit (upstream default ~15000). |
 | `gs_init_source` | `colmap` | 4 | Set to `dust3r` to seed GS from the DUSt3R cloud. |
 
 > Real GS training officially needs a CUDA GPU. On CPU it’s impractical (or unsupported, depending on fork).
@@ -178,18 +181,19 @@ Otherwise use mesh backends (`auto` / `dust3r` / `colmap`) for `.glb` surfaces w
 
 ### Mesh (`.glb`) vs Gaussian Splatting (`.ply`)
 
-The default **`reconstruction_backend` is `auto`** (DUSt3R for smaller sets, COLMAP at **`auto_dust3r_max_images`** and above). That path produces a **polygon mesh** (`.glb`). If your `model_format` is `glb`, you are on the mesh path.
+The default **`reconstruction_backend` is `auto`** (DUSt3R when **`n_images` < `auto_dust3r_max_images`** (default 18); **COLMAP** at 18 views and above for mesh-side SfM). That path yields a **polygon mesh** (`.glb`).
 
 To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatting"`** in `PUT /settings`, plus **`gs_repo_path`**, **`colmap_binary_path`** (for `gs_init_source="colmap"`), and a **CUDA GPU** with the extensions built as above. The API then outputs `.ply` and sets **`model_format`: `"ply"`**.
 
-### SAM: mask the center subject
+### SAM: centre the subject (default foreground prompt)
 
-`PUT /settings` includes **`sam_segmentation_mode`** (default **`auto_masks_center_bias`**): SAM auto-generates masks and scores them by size × closeness to center. Other modes: **`center_point`** (prompt with a positive point at image center) and **`auto_masks_largest_area`** (legacy: largest mask only — often the background).
+`sam_segmentation_mode` defaults to **`center_point`**: Segment Anything receives a foreground **click at image centre**. Your UI must tell users to **frame the object in the centre** (PolyCam-style object mode). Switch to **`auto_masks_center_bias`** when subjects are deliberately off-centre; avoid **`auto_masks_largest_area`** unless you know background is weaker than foreground.
 
 ### Improving mesh quality (DUSt3R + Open3D)
 
-- Use **20–40+ well-overlapping** photos of the same object, turntable style if possible.
-- Raise **`poisson_depth`** (e.g. 10–12) and/or increase **`decimation_target_triangles`** for a denser mesh (larger files, slower).
+- Use **≥ 24 recommended, 40+ ideal** overlapping orbit photos around a **fixed object** (`GET /capture-guide` for onboarding copy).
+- Default **`poisson_depth`** is **`9`** to limit spike artefacts on noisy clouds; **raise** toward `10–11` only once reconstructions look clean (`PUT /settings`).
+- Increase **`decimation_target_triangles`** for heavier meshes (slower / larger `.glb`).
 - On CPU, keep **`max_image_side`** moderate (512–768) to avoid OOM; on GPU you can go higher for more detail.
 
 ## Real 3D vs demo mode

@@ -12,8 +12,9 @@ class RuntimeSettings(BaseModel):
     # `dust3r`/`colmap` produce a meshed `.glb`; `gaussian_splatting` produces a `.ply` (3DGS).
     # `auto` picks DUSt3R for fewer-than-`auto_dust3r_max_images` photos and COLMAP otherwise.
     reconstruction_backend: Literal["auto", "dust3r", "colmap", "gaussian_splatting"] = "auto"
-    # When reconstruction_backend == "auto", switch to COLMAP at this image count or above.
-    auto_dust3r_max_images: int = Field(default=20, ge=2, le=10000)
+    # When reconstruction_backend == "auto", use DUSt3R strictly below this count, else COLMAP
+    # (more stable SfM for many-phone object scans — thin objects + textured tables).
+    auto_dust3r_max_images: int = Field(default=18, ge=2, le=10000)
     device: Literal["auto", "cpu", "cuda"] = "auto"
     # When True (default): phase 1 (SAM) and GS COLMAP/DUSt3R scene prep run in subprocesses on CUDA so
     # each PyTorch workload exits before the next — strongly recommended on single 8 GB GPUs.
@@ -26,13 +27,13 @@ class RuntimeSettings(BaseModel):
         "center_point",
         "auto_masks_center_bias",
         "auto_masks_largest_area",
-    ] = "auto_masks_center_bias"
+    ] = "center_point"
     # AMP fp16 on CUDA for SAM forward passes (saves VRAM on e.g. RTX 3050 8GB).
     sam_use_fp16: bool = True
     dust3r_repo_path: str | None = None
     dust3r_checkpoint_path: str | None = None
     # DUSt3R global aligner (Phase 2 of the pipeline protocol).
-    dust3r_aligner_iters: int = Field(default=300, ge=10, le=5000)
+    dust3r_aligner_iters: int = Field(default=380, ge=10, le=5000)
     dust3r_aligner_lr: float = Field(default=0.01, gt=0.0, le=1.0)
     # Drop DUSt3R points below this per-pixel confidence (0..1). 0 disables (Phase 3).
     dust3r_confidence_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -59,11 +60,11 @@ class RuntimeSettings(BaseModel):
     gs_repo_path: str | None = None
     gs_python_executable: str | None = None  # leave null to use the API's Python
     gs_init_source: Literal["colmap", "dust3r"] = "colmap"
-    # ~7000 is a practical quality/speed balance on 8 GB GPUs; raise for final-quality splats.
-    gs_iterations: int = Field(default=7000, ge=100, le=60000)
-    gs_sh_degree: int = Field(default=3, ge=0, le=4)
+    # 10k improves colour/geometry vs 7k on 8 GB when opacity-reset safety logic still applies below ~10k.
+    gs_iterations: int = Field(default=10000, ge=100, le=60000)
+    gs_sh_degree: int = Field(default=2, ge=0, le=4)
     # Official train.py OptimizationParams.densify_until_iter — lower stops densification earlier (VRAM safety).
-    gs_densify_until_iter: int = Field(default=5000, ge=0, le=60000)
+    gs_densify_until_iter: int = Field(default=7000, ge=0, le=60000)
     gs_resolution: int = Field(default=-1, ge=-1, le=8192)  # -1 = original
     # Reset Gaussian opacity every N iterations (Phase 5). vanilla default is 3000. On runs with
     # gs_iterations <= 10000, the worker may pass a larger value so no reset occurs mid-run (avoids
@@ -86,9 +87,9 @@ class RuntimeSettings(BaseModel):
     masks_dir_name: str = "masks"
     # If True, also write 1-channel mask PNGs to `<masks_dir_name>/<job_id>/mask_NNN.png`.
     save_raw_masks: bool = True
-    nb_neighbors: int = Field(default=20, ge=1)
-    std_ratio: float = Field(default=2.0, gt=0)
-    poisson_depth: int = Field(default=10, ge=4, le=14)
+    nb_neighbors: int = Field(default=26, ge=1)
+    std_ratio: float = Field(default=1.75, gt=0)
+    poisson_depth: int = Field(default=9, ge=4, le=14)
     poisson_density_quantile: float = Field(default=0.02, ge=0.0, le=1.0)
     decimation_target_triangles: int = Field(default=300_000, ge=1000)
     # Mesh (.glb) only: project vertex colours from original (unmasked) photos using estimated cameras.
@@ -102,7 +103,7 @@ class RuntimeSettings(BaseModel):
     # Longest-edge cap for **input** photos as soon as a job starts (before SAM). Phone 4K images
     # are downscaled (aspect-preserving) so segmentation and later stages use HD-class resolution.
     # DUSt3R/COLMAP may still apply ``max_image_side`` / ``dust3r_max_inference_side`` on top.
-    max_input_image_side: int = Field(default=1920, ge=256, le=8192)
+    max_input_image_side: int = Field(default=1600, ge=256, le=8192)
     max_image_side: int = Field(default=1024, ge=128, le=8192)
     # When True: fake masks/points/GS PLY (demo only). When False: real checkpoints + packages required.
     allow_placeholder_pipeline: bool = False

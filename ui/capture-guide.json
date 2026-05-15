@@ -31,22 +31,70 @@
     {
       "id": "count",
       "severity": "error",
-      "rule": "Enforce minimum image count ≥ 2 (API requirement); recommend ≥ 24–40 for GS object mode."
+      "rule": "Minimum 2 uploads (API). Block or warn heavily below 24 images for handheld object scans; 40+ is strongly recommended."
+    },
+    {
+      "id": "center_subject",
+      "severity": "warning",
+      "rule": "SAM default is center_point — show “keep object centered in frame” during capture/onboarding."
     },
     {
       "id": "steady",
       "severity": "warning",
-      "rule": "Warn if EXIF reports very slow shutter or large motion (if available from client)."
+      "rule": "Warn if EXIF shutter is slow (>1/60 s) when available."
+    },
+    {
+      "id": "ordering",
+      "severity": "info",
+      "rule": "Upload images in capture order when possible."
+    },
+    {
+      "id": "masks_link",
+      "severity": "info",
+      "rule": "After job starts, optionally link GET /jobs/{job_id}/... if you expose uploads; or tell users masks live under uploads/ with save_raw_masks (debug bad geometry)."
     },
     {
       "id": "progress",
       "severity": "info",
-      "rule": "Poll GET /jobs/{id}; map stage with GET /job-stages."
+      "rule": "Poll GET /jobs/{job_id}; label stages via GET /job-stages."
     },
     {
       "id": "viewer",
       "severity": "info",
-      "rule": ".ply splats need a 3DGS-capable viewer; .glb may need vertex-colour shading enabled."
+      "rule": ".ply: use a Gaussian Splatting viewer. .glb mesh: force vertex-colour/material mode (neutral grey ≠ missing colours if normals-only shader)."
+    }
+  ],
+  "frontend_implementation": [
+    {
+      "area": "Onboarding before camera",
+      "items": [
+        "Show short copy from capture_protocol.overlap / motion / exposure (fetch GET /capture-guide).",
+        "Recommend two rings of photos (table height + slight elevation) around a fixed object.",
+        "Ask user to enable AE-lock / consistent exposure if the platform allows."
+      ]
+    },
+    {
+      "area": "Upload screen",
+      "items": [
+        "Display estimated image count; soft warning below 24, stronger below 18.",
+        "Optional: thumbnails in capture order with drag reorder.",
+        "Show max_images from GET /settings if over limit."
+      ]
+    },
+    {
+      "area": "Job progress",
+      "items": [
+        "GET /job-stages once at app load; map job.stage base id to labels and progress bands.",
+        "When model_format is glb, hint: “If model looks grey, enable vertex colours in your viewer.”",
+        "When ply, link or embed a splat viewer (three.js splat, anti-aliased GS renderer, etc.)."
+      ]
+    },
+    {
+      "area": "Settings / admin",
+      "items": [
+        "GET /settings for admin; advanced users can merge recommended_settings_overlays from GET /capture-guide then PUT /settings.",
+        "After server upgrade, admins may DELETE or merge server config/runtime_settings.json to pick new server defaults—or PUT explicit fields."
+      ]
     }
   ],
   "recommended_settings_overlays": {
@@ -63,9 +111,10 @@
       { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "When using .glb mesh path, photo-true vertex colours." }
     ],
     "mesh_glb_friendly": [
-      { "key": "reconstruction_backend", "value": "dust3r", "rationale": "Classic mesh path in this stack (or colmap for many wide photos)." },
-      { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "Strong colour on GLB." },
-      { "key": "max_input_image_side", "value": 1920, "rationale": "Sharper textures for baked vertices." }
+      { "key": "reconstruction_backend", "value": "colmap", "rationale": "Prefer COLMAP SfM for textured tables + many overlaps when photo count ≥ auto_dust3r_max_images." },
+      { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "Bake vertex RGB from originals when cameras succeed." },
+      { "key": "sam_segmentation_mode", "value": "center_point", "rationale": "Matches centred object capture UI." },
+      { "key": "max_input_image_side", "value": 1600, "rationale": "Matches default server cap; raise to 1920 for sharper bake if VRAM allows." }
     ]
   }
 }
