@@ -13,13 +13,15 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
     if settings.allow_placeholder_pipeline:
         return
 
-    if not settings.sam_checkpoint_path or not Path(settings.sam_checkpoint_path).is_file():
-        raise RuntimeError(
-            "Real SAM is required: sam_checkpoint_path must point to an existing .pth on the machine "
-            "that runs the pipeline (see README). On a remote GPU worker use POLYGRAPH_OVERRIDE_SAM_CHECKPOINT "
-            "in .env.worker — PUT /settings paths refer to the API host, not the worker disk. "
-            "Or set allow_placeholder_pipeline=true only for local demos."
-        )
+    if not settings.skip_sam_segmentation:
+        if not settings.sam_checkpoint_path or not Path(settings.sam_checkpoint_path).is_file():
+            raise RuntimeError(
+                "Real SAM is required: sam_checkpoint_path must point to an existing .pth on the machine "
+                "that runs the pipeline (see README). On a remote GPU worker use POLYGRAPH_OVERRIDE_SAM_CHECKPOINT "
+                "in .env.worker — PUT /settings paths refer to the API host, not the worker disk. "
+                "Or set allow_placeholder_pipeline=true only for local demos. "
+                "With skip_sam_segmentation=true SAM is not loaded (use pre-cut RGBA / RGB uploads)."
+            )
 
     def _need_mapanything() -> None:
         try:

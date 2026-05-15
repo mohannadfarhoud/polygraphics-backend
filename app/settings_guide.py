@@ -57,10 +57,22 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "When true (default on CUDA): SAM and GS scene prep run in subprocesses so VRAM drops between peaks — recommended on single 8 GB GPUs.",
         },
         {
+            "key": "skip_sam_segmentation",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: no Segment Anything. Upload PNG with alpha (precut subject) or opaque RGB; masked views become ``masked_*.png`` with alpha flattened onto ``mapanything_alpha_flatten_gray`` grey for MapAnything (alpha is not passed through upstream). SAM checkpoint not required.",
+        },
+        {
+            "key": "mapanything_alpha_flatten_gray",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Used only with ``skip_sam_segmentation`` and RGBA inputs: neutral grey (0–255, same on R/G/B) composited where alpha≈0 before MapAnything sees the view.",
+        },
+        {
             "key": "sam_checkpoint_path",
             "scope": "stored_on_api",
             "worker_env": "POLYGRAPH_OVERRIDE_SAM_CHECKPOINT",
-            "notes": "Must exist on the machine that runs SAM (worker path in split deploy).",
+            "notes": "Must exist on the machine that runs SAM (worker path in split deploy). Ignored when ``skip_sam_segmentation`` is true.",
         },
         {
             "key": "gs_repo_path",
@@ -102,7 +114,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "max_input_image_side",
             "scope": "both",
             "worker_env": None,
-            "notes": "Longest edge cap when a job starts: phone 4K images are downscaled before SAM.",
+            "notes": "Longest edge cap when a job starts (before SAM/precut prep). Preserve alpha via PNG when resizing RGBA uploads.",
         },
         {
             "key": "gs_densify_until_iter",

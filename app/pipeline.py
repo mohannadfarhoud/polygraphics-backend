@@ -76,6 +76,7 @@ class ReconstructionPipeline:
                 )
 
             from .image_preprocess import downscale_job_images_if_needed
+            from .mapanything_input_prep import prepare_precut_opaque_views_for_mapanything
 
             image_paths = downscale_job_images_if_needed(
                 job_id,
@@ -83,7 +84,23 @@ class ReconstructionPipeline:
                 self.config.root_dir / "data" / "job_inputs",
                 int(self.runtime_settings.max_input_image_side),
             )
-            masked_paths = self._run_segmentation(job_id, image_paths, cancel_event=cancel_event)
+            if self.runtime_settings.skip_sam_segmentation:
+                self._publish(
+                    job_id,
+                    JobStatus.PROCESSING,
+                    stage="precut_opaque_views",
+                    progress=28,
+                )
+                masked_paths = prepare_precut_opaque_views_for_mapanything(
+                    job_id,
+                    image_paths,
+                    masked_dir=self.config.masked_dir,
+                    flatten_gray_0_255=int(self.runtime_settings.mapanything_alpha_flatten_gray),
+                )
+                originals_for_mesh = list(masked_paths)
+            else:
+                masked_paths = self._run_segmentation(job_id, image_paths, cancel_event=cancel_event)
+                originals_for_mesh = image_paths
             try:
                 self.segmenter.release_gpu_memory()
             except Exception:
@@ -102,7 +119,7 @@ class ReconstructionPipeline:
                     self._run_mesh_pipeline(
                         job_id,
                         masked_paths,
-                        image_paths,
+                        originals_for_mesh,
                         cancel_event=cancel_event,
                         mesh_backend="mapanything",
                         output_basename=f"{job_id}_compare_mesh",
@@ -110,12 +127,12 @@ class ReconstructionPipeline:
                     )
                     self._raise_if_cancelled(cancel_event)
                 model_url = self._run_gaussian_splatting(
-                    job_id, masked_paths, image_paths, cancel_event=cancel_event
+                    job_id, masked_paths, originals_for_mesh, cancel_event=cancel_event
                 )
                 return model_url
 
             model_url = self._run_mesh_pipeline(
-                job_id, masked_paths, image_paths, cancel_event=cancel_event
+                job_id, masked_paths, originals_for_mesh, cancel_event=cancel_event
             )
             return model_url
         except JobCancelled:

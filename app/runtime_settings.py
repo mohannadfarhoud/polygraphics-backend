@@ -15,6 +15,8 @@ class RuntimeSettings(BaseModel):
 
     # Hugging Face model id (or local snapshot path) for Meta MapAnything.
     mapanything_pretrained_id: str = "facebook/map-anything-apache"
+    # When ``skip_sam_segmentation`` and inputs have alpha: ``alpha=0`` RGB channels become this grey (0–255 each).
+    mapanything_alpha_flatten_gray: int = Field(default=200, ge=0, le=255)
     mapanything_memory_efficient_inference: bool = True
     mapanything_minibatch_size: int = Field(default=1, ge=1, le=128)
     mapanything_use_amp: bool = True
@@ -29,6 +31,10 @@ class RuntimeSettings(BaseModel):
     # When True (default): phase 1 (SAM) and GS MapAnything scene prep run in subprocesses on CUDA so
     # each PyTorch workload exits before the next — recommended on single 8 GB GPUs.
     gpu_isolate_phases: bool = True
+
+    # When True: skip Segment Anything; uploads must be **already cut out** (PNG RGBA or opaque RGB).
+    # RGBA alpha is flattened onto ``mapanything_alpha_flatten_gray`` grey before MapAnything reads views.
+    skip_sam_segmentation: bool = False
 
     sam_checkpoint_path: str | None = None
     sam_model_type: str = "vit_h"
