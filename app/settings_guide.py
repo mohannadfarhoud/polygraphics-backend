@@ -63,6 +63,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "When false (default for full-camera photos): SAM segments the centred subject so the tabletop/room can stay black-backed. Requires sam_checkpoint_path on the worker unless allow_placeholder_pipeline. When true: you must upload pre-cut PNGs whose **opaque pixels are only the object** — the table cannot be painted out later.",
         },
         {
+            "key": "expose_masked_views",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "After SAM/precut: isolated ``masked_*`` RGB copies appear under ``uploads/{job_id}/masked_views/`` for GET (remote worker POST ``/internal/worker/jobs/{id}/masked-views``). Mesh/GS still consume ``masked/`` paths internally.",
+        },
+        {
             "key": "mapanything_alpha_flatten_gray",
             "scope": "both",
             "worker_env": None,

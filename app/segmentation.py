@@ -41,7 +41,12 @@ def refine_binary_mask_to_center_subject(mask_u8: np.ndarray) -> np.ndarray:
 
 
 class SamSegmenter:
-    """SAM-backed masking; optional ellipse demo when allow_placeholder_pipeline is True."""
+    """SAM-backed masking for **isolating a centred foreground object** from the scene (table/backdrop).
+
+    Use ``sam_segmentation_mode=center_subject`` (default via settings) so prompts favour the rigid object
+    in the middle of each photo before MapAnything aligns those masked views.
+    Ellipse fallback only when ``allow_placeholder_pipeline`` is True.
+    """
 
     def __init__(self, settings: RuntimeSettings | None = None) -> None:
         self.settings = settings

@@ -5,7 +5,7 @@ import mimetypes
 import os
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 try:
     from dotenv import load_dotenv  # type: ignore[import-not-found]
@@ -342,6 +342,22 @@ def verify_worker_token(x_worker_token: str | None = Header(default=None, alias=
         raise HTTPException(status_code=403, detail="Invalid worker token")
 
 
+_MASKED_VIEW_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+
+
+def _safe_masked_view_basename(raw_name: str) -> str | None:
+    """Reject path traversal; only ``masked_*`` image names."""
+    base = Path(raw_name).name
+    if base != raw_name.strip():
+        return None
+    if not base.startswith("masked_"):
+        return None
+    suf = Path(base).suffix.lower()
+    if suf not in _MASKED_VIEW_SUFFIXES:
+        return None
+    return base
+
+
 @app.get(
     "/internal/worker/next",
     dependencies=[Depends(verify_worker_token)],
@@ -393,6 +409,47 @@ async def internal_worker_comparison_glb(
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.post("/internal/worker/jobs/{job_id}/masked-views", dependencies=[Depends(verify_worker_token)])
+async def internal_worker_masked_views(
+    job_id: str,
+    files: Annotated[list[UploadFile], File()],
+) -> dict[str, Any]:
+    """Persist SAM/precut isolated views under ``uploads/{job_id}/masked_views/`` (remote worker split deploy).
+
+    Multipart field name ``files`` — each part filename ``masked_*.png`` (or .jpg/.jpeg/.webp).
+    Call after segmentation succeeds on the worker and before ``/complete`` when ``expose_masked_views`` is true.
+    """
+    if not remote_workers_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Remote workers disabled. Set APP_REMOTE_WORKERS=true on the API server.",
+        )
+    if job_manager.get_job(job_id) is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not files:
+        raise HTTPException(status_code=400, detail="Expected at least one file upload")
+
+    dest = UPLOAD_DIR / job_id / "masked_views"
+    dest.mkdir(parents=True, exist_ok=True)
+    saved = 0
+    for uf in files:
+        safe = _safe_masked_view_basename(uf.filename or "")
+        if safe is None:
+            continue
+        data = await uf.read()
+        if len(data) < 32:
+            continue
+        (dest / safe).write_bytes(data)
+        saved += 1
+
+    if saved == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid masked_* image parts (.png/.jpg/.jpeg/.webp)",
+        )
+    return {"job_id": job_id, "saved": saved, "path_prefix": f"uploads/{job_id}/masked_views/"}
 
 
 @app.post("/internal/worker/jobs/{job_id}/fail", dependencies=[Depends(verify_worker_token)])

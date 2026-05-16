@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import threading
 import time
 from dataclasses import dataclass
@@ -14,6 +15,18 @@ from .job_models import JobRecord, ModelListItem
 from . import jobs_db
 from .pipeline import JobCancelled, ReconstructionPipeline
 from .runtime_settings import RuntimeSettings, SettingsStore
+
+
+def _mirror_masked_views_to_uploads(root_dir: Path, upload_dir: Path, masked_dir_name: str, job_id: str) -> None:
+    """Expose ``masked/{job_id}/masked_*`` under ``uploads/{job_id}/masked_views/``."""
+    src = root_dir / masked_dir_name / job_id
+    if not src.is_dir():
+        return
+    dst = upload_dir / job_id / "masked_views"
+    dst.mkdir(parents=True, exist_ok=True)
+    for p in sorted(src.glob("masked_*")):
+        if p.is_file():
+            shutil.copy2(p, dst / p.name)
 
 
 def _sorted_input_images(upload_dir: Path) -> list[Path]:
@@ -513,6 +526,13 @@ class JobManager:
             except Exception:
                 pass
             pipe.process_3d_job(job_id, paths, cancel_event=cancel_ev)
+            if settings.expose_masked_views:
+                _mirror_masked_views_to_uploads(
+                    self.root_dir,
+                    self.upload_dir,
+                    settings.masked_dir_name,
+                    job_id,
+                )
         except JobCancelled:
             self.update_job(job_id, JobStatus.STOPPED, error="Stopped by user")
         except Exception as exc:

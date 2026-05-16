@@ -10,7 +10,7 @@
       "NeRF or 3DGS optimisation against high-bit-depth colour targets, often with full-resolution supervision and proprietary colour pipelines."
     ],
     "this_backend_default": [
-      "Uploads are optionally downscaled (max_input_image_side) then SAM segments the subject (black background on masked copies).",
+      "Full-camera uploads (SAM path): resize cap → Segment Anything ``sam_segmentation_mode=center_subject`` prompts the centre as foreground and corners as background so the rigid object in the middle is isolated per frame → masked RGB stack → MapAnything multi-view alignment on that stack → mesh (.glb) or Gaussian splatting (.ply). Set ``expose_masked_views`` true to mirror ``masked_*`` under ``GET uploads/{job_id}/masked_views/``.",
       "Gaussian Splatting: MapAnything feeds a COLMAP-compatible text sparse seed; official graphdeco train.py refines splats.",
       "When gs_train_with_original_images is true (default), scene images used for the GS photometric loss are overwritten with the matching originals before train.py—geometry still uses masked-friendly views, colour supervision matches commercial-style full photos.",
       "Mesh (.glb) path: Poisson + vertex colour transfer + optional photo_vertex_bake from originals."
@@ -51,7 +51,7 @@
     {
       "id": "masks_link",
       "severity": "info",
-      "rule": "After job starts, optionally link GET /jobs/{job_id}/... if you expose uploads; or tell users masks live under uploads/ with save_raw_masks (debug bad geometry)."
+      "rule": "With expose_masked_views=true (PUT /settings), isolated SAM/precut RGB frames are GET-able under uploads/{job_id}/masked_views/masked_*.png; save_raw_masks still writes binary masks under masked/ for geometry QA."
     },
     {
       "id": "progress",

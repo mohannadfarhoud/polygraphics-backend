@@ -50,6 +50,10 @@ class RuntimeSettings(BaseModel):
     ] = "center_subject"
     sam_use_fp16: bool = True
 
+    # When True: copy SAM/precut isolated views (``masked_*``) under ``uploads/{job_id}/masked_views/`` for HTTP GET.
+    # Remote GPU workers POST the same files to the API after a successful run.
+    expose_masked_views: bool = False
+
     # With ``reconstruction_backend == "gaussian_splatting"``, emit ``<job_id>_compare_mesh.glb`` (MapAnything mesh)
     # before neural GS training when True.
     compare_mesh_preview_with_gs: bool = False

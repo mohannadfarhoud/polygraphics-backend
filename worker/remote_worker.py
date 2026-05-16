@@ -13,6 +13,7 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_POLL_WHILE_WEBSOCKET`` — when ``1``/``true``, keep that interval even if WebSocket is on; default is **off** so REST polling is slowed (min ~180s) while WS carries ``job_assigned`` — fewer duplicate wakes / log spam
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
 * ``POLYGRAPH_REQUIRE_CUDA`` — ``1``/``true`` to exit immediately if ``torch.cuda.is_available()`` is false
+* ``expose_masked_views`` (API ``PUT /settings``): when true, worker uploads SAM/precut ``masked_*`` images to ``POST /internal/worker/jobs/{id}/masked-views`` — browse via GET ``uploads/{job_id}/masked_views/``.
 """
 
 from __future__ import annotations
@@ -257,6 +258,9 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         paths = sorted(upload_dir.glob("input_*"))
         print(f"[polygraph-worker] job {job_id}: reconstructing 3D model from {len(paths)} local images...", flush=True)
         pipe.process_3d_job(job_id, paths)
+        if getattr(settings, "expose_masked_views", False):
+            masked_job_dir = work / settings.masked_dir_name / job_id
+            _upload_masked_views_to_api(client, base, token, job_id, masked_job_dir)
 
         out_dir = work / settings.output_dir_name
         if (
@@ -314,6 +318,44 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
 
 def _headers(token: str) -> dict[str, str]:
     return {"X-Worker-Token": token}
+
+
+def _upload_masked_views_to_api(
+    client: httpx.Client,
+    base: str,
+    token: str,
+    job_id: str,
+    masked_job_dir: Path,
+) -> None:
+    """POST ``masked_*`` crops to API ``uploads/{job_id}/masked_views/`` when ``expose_masked_views``."""
+    paths = sorted(masked_job_dir.glob("masked_*"))
+    paths = [
+        p
+        for p in paths
+        if p.is_file() and p.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")
+    ]
+    if not paths:
+        print(f"[polygraph-worker] job {job_id}: expose_masked_views: no masked_* files under {masked_job_dir}", flush=True)
+        return
+    mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+    }
+    multipart: list[tuple[str, tuple[str, bytes, str]]] = []
+    for p in paths:
+        suf = p.suffix.lower()
+        multipart.append(("files", (p.name, p.read_bytes(), mime.get(suf, "application/octet-stream"))))
+    url = f"{base.rstrip('/')}/internal/worker/jobs/{job_id}/masked-views"
+    r = client.post(url, headers=_headers(token), files=multipart, timeout=300.0)
+    if r.status_code >= 400:
+        print(
+            f"[polygraph-worker] job {job_id}: masked-views POST failed HTTP {r.status_code}: {(r.text or '')[:240]}",
+            flush=True,
+        )
+    else:
+        print(f"[polygraph-worker] job {job_id}: uploaded {len(paths)} isolated-view file(s)", flush=True)
 
 
 def _get_assignment(client: httpx.Client, base: str, token: str, job_id: str) -> httpx.Response:
