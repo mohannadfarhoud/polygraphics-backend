@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html as html_module
 import json
 import mimetypes
 import os
@@ -178,6 +179,13 @@ def _relative_base(suffix: str) -> str:
     return f"{rp}{suffix}" if rp else suffix
 
 
+def _relative_api_path(subpath: str) -> str:
+    """URL path for FastAPI routes when ``APP_ROOT_PATH`` prefixes public URLs."""
+    subpath = "/" + subpath.strip("/")
+    rp = _root_path.rstrip("/") if _root_path else ""
+    return f"{rp}{subpath}" if rp else subpath
+
+
 def _effective_model_base_url(settings: RuntimeSettings) -> str:
     """Prefix used in job.model_url. Defaults to ``/output`` (relative). Set
     APP_MODEL_BASE_URL to a non-loopback absolute URL (e.g. a CDN) to override."""
@@ -216,6 +224,23 @@ def _image_sample_url(job_id: str) -> str | None:
     return None
 
 
+def _masked_view_urls(job_id: str) -> list[str]:
+    """Public URLs for mirrored SAM/precut RGB under uploads/{job_id}/masked_views/."""
+    d = UPLOAD_DIR / job_id / "masked_views"
+    if not d.is_dir():
+        return []
+    base = _uploads_base_url().rstrip("/")
+    out: list[str] = []
+    for p in sorted(d.iterdir()):
+        if (
+            p.is_file()
+            and p.name.startswith("masked_")
+            and p.suffix.lower() in _IMAGE_EXTS
+        ):
+            out.append(f"{base}/{job_id}/masked_views/{p.name}")
+    return out
+
+
 def _should_rewrite_model_url(url: str | None) -> bool:
     if not url:
         return True
@@ -232,6 +257,8 @@ def _decorate_job_response(job: JobRecord) -> JobRecord:
     """Attach image_sample_url; rewrite stale loopback model_url from DB; backfill old rows."""
     settings = settings_store.load()
     job.image_sample_url = _image_sample_url(job.job_id)
+    job.masked_view_urls = _masked_view_urls(job.job_id)
+    job.masked_preview_page_url = _relative_api_path(f"jobs/{job.job_id}/masked-preview")
 
     if (
         job.model_format
@@ -599,6 +626,58 @@ def get_job(job_id: str) -> JobRecord:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return _decorate_job_response(job)
+
+
+@app.get("/jobs/{job_id}/masked-preview", response_class=HTMLResponse, tags=["jobs"])
+def job_masked_preview(job_id: str) -> HTMLResponse:
+    """Browse SAM-isolated RGB frames (same files as ``masked_view_urls`` on ``GET /jobs/{job_id}``)."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    urls = _masked_view_urls(job_id)
+    expose = settings_store.load().expose_masked_views
+    jid_esc = html_module.escape(job_id)
+    rows_parts: list[str] = []
+    for u in urls:
+        u_esc = html_module.escape(u, quote=True)
+        rows_parts.append(
+            f'<figure><img loading="lazy" src="{u_esc}" alt="masked"/>'
+            f"<figcaption><a href=\"{u_esc}\">{html_module.escape(u)}</a></figcaption></figure>"
+        )
+    rows_html = "".join(rows_parts)
+    hint = ""
+    if not urls:
+        hint = (
+            "<p><strong>No masked views on disk yet.</strong> "
+            "They appear after segmentation when <code>expose_masked_views</code> is true in "
+            "<code>PUT /settings</code> (in-process pipeline mirrors when the job completes SAM; "
+            "remote GPU workers POST files to <code>/internal/worker/jobs/{id}/masked-views</code>).</p>"
+        )
+        if not expose:
+            hint += (
+                "<p><strong>Tip:</strong> <code>expose_masked_views</code> is currently <strong>false</strong> "
+                "— set it <strong>true</strong> and run again so copies are written under "
+                "<code>uploads/{job_id}/masked_views/</code>.</p>"
+            )
+    body = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<title>Masked views — {jid_esc}</title>
+<style>
+body {{ font-family: system-ui, sans-serif; margin: 1rem 1.5rem; background: #111; color: #eee; }}
+h1 {{ font-size: 1.15rem; }}
+.grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }}
+figure {{ margin: 0; background: #1a1a1a; padding: 0.5rem; border-radius: 8px; }}
+img {{ width: 100%; height: auto; display: block; background: #000; border-radius: 4px; }}
+figcaption {{ font-size: 0.72rem; word-break: break-all; margin-top: 0.35rem; }}
+a {{ color: #8cf; }}
+code {{ background: #222; padding: 0.12em 0.35em; border-radius: 4px; }}
+</style></head><body>
+<h1>SAM / abstraction preview — job <code>{jid_esc}</code></h1>
+<p>{len(urls)} view(s). API fields: <code>masked_view_urls</code>, <code>masked_preview_page_url</code> on <code>GET /jobs/{jid_esc}</code>.</p>
+{hint}
+<div class="grid">{rows_html}</div>
+</body></html>"""
+    return HTMLResponse(content=body)
 
 
 @app.post("/jobs/{job_id}/stop", response_model=JobRecord)

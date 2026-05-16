@@ -40,6 +40,21 @@ class JobRecord(BaseModel):
         default=None,
         description="URL of the first uploaded image for this job (preview thumbnail). Relative by default; absolute when APP_MODEL_BASE_URL is set to a non-loopback URL. Derived per response; not persisted.",
     )
+    masked_view_urls: list[str] = Field(
+        default_factory=list,
+        description=(
+            "URLs of SAM-isolated RGB frames (black outside mask) under uploads/{job_id}/masked_views/ "
+            "when ``expose_masked_views`` mirroring ran or the worker POSTed masked views. "
+            "Derived per response; not persisted."
+        ),
+    )
+    masked_preview_page_url: str | None = Field(
+        default=None,
+        description=(
+            "Relative URL of an HTML page that lists masked_view_urls as thumbnails — open in a browser "
+            "(same origin as this API). Derived per response; not persisted."
+        ),
+    )
 
     @computed_field  # type: ignore[misc]
     @property

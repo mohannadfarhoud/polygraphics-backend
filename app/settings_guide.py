@@ -66,7 +66,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "expose_masked_views",
             "scope": "both",
             "worker_env": None,
-            "notes": "After SAM/precut: isolated ``masked_*`` RGB copies appear under ``uploads/{job_id}/masked_views/`` for GET (remote worker POST ``/internal/worker/jobs/{id}/masked-views``). Mesh/GS still consume ``masked/`` paths internally.",
+            "notes": "After SAM/precut: isolated ``masked_*`` RGB copies appear under ``uploads/{job_id}/masked_views/`` for GET (remote worker POST ``/internal/worker/jobs/{id}/masked-views``). Mesh/GS still consume ``masked/`` paths internally. Browse thumbnails at ``GET /jobs/{job_id}/masked-preview`` (HTML) or use ``masked_view_urls`` from ``GET /jobs/{job_id}``.",
         },
         {
             "key": "mapanything_alpha_flatten_gray",
