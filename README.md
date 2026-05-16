@@ -133,7 +133,8 @@ These map to tunable fields in `PUT /settings`:
 | `mesh_glb_draco_compression` | `true` | mesh | Compressed GLB when Open3D allows. |
 | `sam_use_fp16` | `true` | 1 | CUDA AMP fp16 for SAM. |
 | `poisson_depth` | `9` | mesh | Open3D Poisson depth — lower tends to tame noisy neural clouds. |
-| `sam_segmentation_mode` | `center_subject` | 1 | **`center_subject`**: SAM centre FG + corners BG + lone blob around centre (**default**). Use **`center_point`** for a plain centre tap; **`auto_masks_center_bias`** when subject is off-centre. |
+| `sam_segmentation_mode` | `center_subject_table` | 1 | **`center_subject_table`** (**default**): centre FG + corners BG + bottom-edge negatives (table plane). **`center_subject`**: corners only; **`center_point`** centre tap only; **`auto_masks_center_bias`** when subject is off-centre. |
+| `sam_table_edge_negative_points` | `11` | 1 | Used only with **`center_subject_table`**: count of negatives along the bottom strip (0–24); raise if table persists, lower if thin stands/feet vanish. |
 | `gs_train_with_original_images` | `true` | 5 | Replace `scene/images` pixels with originals before `train.py` (fixes dark splats). |
 | `compare_mesh_preview_with_gs` | `false` | — | When GS: emit **`{job}_compare_mesh.glb`** (MapAnything) before `.ply`. |
 | `gs_opacity_reset_interval` | `3000` | 5 | Passed to `--opacity_reset_interval` (worker may lengthen on short runs). |
@@ -226,7 +227,7 @@ To use **Gaussian Splatting**, set **`reconstruction_backend`: `"gaussian_splatt
 
 ### SAM: centre the subject and drop the backdrop
 
-`sam_segmentation_mode` defaults to **`center_subject`**: Segment Anything gets a **foreground point at the image centre** and **background points at all four corners** (so flats / tables read as BG), then the mask is tightened to the **single connected foreground component that touches the centre** — fewer stray blobs on black padding. **`center_point`** is the simpler “one centre tap”; switch to **`auto_masks_center_bias`** when the object is deliberately off-centre; avoid **`auto_masks_largest_area`** unless you know the largest segment is still the subject.
+`sam_segmentation_mode` defaults to **`center_subject_table`**: Segment Anything gets a **foreground point at the image centre**, **background points at all four corners**, plus **extra negatives along an inset strip near the bottom** (typical tabletop contact line). The mask is then tightened to the **single connected foreground component that touches the centre**. Use **`center_subject`** if that bottom strip wrongly removes thin bases; **`center_point`** is the simpler “one centre tap”; switch to **`auto_masks_center_bias`** when the object is deliberately off-centre; avoid **`auto_masks_largest_area`** unless you know the largest segment is still the subject.
 
 ### Improving mesh quality (MapAnything + Open3D)
 

@@ -42,8 +42,20 @@ def main() -> int:
     parser.add_argument("--model-type", default="vit_b", choices=("vit_h", "vit_l", "vit_b"))
     parser.add_argument(
         "--mode",
-        default="center_subject",
-        choices=("center_subject", "center_point", "auto_masks_center_bias", "auto_masks_largest_area"),
+        default="center_subject_table",
+        choices=(
+            "center_subject_table",
+            "center_subject",
+            "center_point",
+            "auto_masks_center_bias",
+            "auto_masks_largest_area",
+        ),
+    )
+    parser.add_argument(
+        "--table-edge-points",
+        type=int,
+        default=11,
+        help="With center_subject_table: negatives along bottom inset strip (0–24)",
     )
     parser.add_argument("--device", default="cuda", help="cuda or cpu")
     parser.add_argument(
@@ -93,26 +105,44 @@ def main() -> int:
         return torch.cuda.amp.autocast(dtype=torch.float16) if use_amp else contextlib.nullcontext()
 
     def predict_one(rgb: np.ndarray, h: int, w: int) -> np.ndarray | None:
-        if args.mode in ("center_point", "center_subject"):
+        if args.mode in ("center_point", "center_subject", "center_subject_table"):
             with torch.inference_mode():
                 with _amp():
                     predictor.set_image(rgb)
                     cx, cy = w // 2, h // 2
                     if args.mode == "center_point":
-                        coords = np.array([[float(cx), float(cy)]], dtype=np.float32)
-                        labels = np.array([1], dtype=np.int32)
+                        coords_list = [[float(cx), float(cy)]]
+                        labels_list = [1]
+                    elif args.mode == "center_subject":
+                        coords_list = [
+                            [float(cx), float(cy)],
+                            [0.0, 0.0],
+                            [float(w - 1), 0.0],
+                            [0.0, float(h - 1)],
+                            [float(w - 1), float(h - 1)],
+                        ]
+                        labels_list = [1, 0, 0, 0, 0]
                     else:
-                        coords = np.array(
-                            [
-                                [float(cx), float(cy)],
-                                [0.0, 0.0],
-                                [float(w - 1), 0.0],
-                                [0.0, float(h - 1)],
-                                [float(w - 1), float(h - 1)],
-                            ],
-                            dtype=np.float32,
-                        )
-                        labels = np.array([1, 0, 0, 0, 0], dtype=np.int32)
+                        coords_list = [
+                            [float(cx), float(cy)],
+                            [0.0, 0.0],
+                            [float(w - 1), 0.0],
+                            [0.0, float(h - 1)],
+                            [float(w - 1), float(h - 1)],
+                        ]
+                        labels_list = [1, 0, 0, 0, 0]
+                        n_edge = max(0, min(24, int(args.table_edge_points)))
+                        if n_edge > 0:
+                            margin = float(max(2.0, min(w, h) * 0.035))
+                            margin = min(margin, max(1.0, (w - 2) / 2.01))
+                            inset_y = max(1, min(h // 60, 12))
+                            yb = float(h - 1 - inset_y)
+                            xs = np.linspace(margin, float(w - 1) - margin, num=n_edge, dtype=np.float64)
+                            for xv in xs:
+                                coords_list.append([float(xv), yb])
+                                labels_list.append(0)
+                    coords = np.array(coords_list, dtype=np.float32)
+                    labels = np.array(labels_list, dtype=np.int32)
                     masks, scores, _ = predictor.predict(
                         point_coords=coords,
                         point_labels=labels,

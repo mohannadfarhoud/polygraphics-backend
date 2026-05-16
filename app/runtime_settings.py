@@ -44,11 +44,14 @@ class RuntimeSettings(BaseModel):
     sam_model_type: Literal["vit_h", "vit_l", "vit_b"] = "vit_b"
     sam_segmentation_mode: Literal[
         "center_subject",
+        "center_subject_table",
         "center_point",
         "auto_masks_center_bias",
         "auto_masks_largest_area",
-    ] = "center_subject"
+    ] = "center_subject_table"
     sam_use_fp16: bool = True
+    # For ``center_subject_table``: number of extra background clicks along the bottom edge (table plane). 0 = corners only.
+    sam_table_edge_negative_points: int = Field(default=11, ge=0, le=24)
 
     # When True: copy SAM/precut isolated views (``masked_*``) under ``uploads/{job_id}/masked_views/`` for HTTP GET.
     # Remote GPU workers POST the same files to the API after a successful run.

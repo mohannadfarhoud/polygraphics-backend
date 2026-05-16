@@ -10,7 +10,7 @@
       "NeRF or 3DGS optimisation against high-bit-depth colour targets, often with full-resolution supervision and proprietary colour pipelines."
     ],
     "this_backend_default": [
-      "Full-camera uploads (SAM path): resize cap → Segment Anything ``sam_segmentation_mode=center_subject`` prompts the centre as foreground and corners as background so the rigid object in the middle is isolated per frame → masked RGB stack → MapAnything multi-view alignment on that stack → mesh (.glb) or Gaussian splatting (.ply). Set ``expose_masked_views`` true to mirror ``masked_*`` under ``GET uploads/{job_id}/masked_views/``.",
+      "Full-camera uploads (SAM path): resize cap → Segment Anything ``sam_segmentation_mode=center_subject_table`` (default) prompts centre foreground, corners background, plus bottom-edge negatives to suppress the tabletop under the subject → masked RGB stack → MapAnything multi-view alignment on that stack → mesh (.glb) or Gaussian splatting (.ply). Set ``expose_masked_views`` true to mirror ``masked_*`` under ``GET uploads/{job_id}/masked_views/``.",
       "Gaussian Splatting: MapAnything feeds a COLMAP-compatible text sparse seed; official graphdeco train.py refines splats.",
       "When gs_train_with_original_images is true (default), scene images used for the GS photometric loss are overwritten with the matching originals before train.py—geometry still uses masked-friendly views, colour supervision matches commercial-style full photos.",
       "Mesh (.glb) path: Poisson + vertex colour transfer + optional photo_vertex_bake from originals."
@@ -36,7 +36,7 @@
     {
       "id": "center_subject",
       "severity": "warning",
-      "rule": "SAM default is center_subject — show “keep object centered in frame” during capture/onboarding."
+      "rule": "SAM default is center_subject_table — show “keep object centered in frame” during capture/onboarding."
     },
     {
       "id": "steady",
@@ -103,7 +103,7 @@
       { "key": "reconstruction_backend", "value": "gaussian_splatting", "rationale": "Match PolyCam-class splat export." },
       { "key": "mapanything_minibatch_size", "value": 1, "rationale": "Lower VRAM during MapAnything scene seed on 8 GB." },
       { "key": "gs_train_with_original_images", "value": true, "rationale": "Supervise GS with real colours—not SAM black padding." },
-      { "key": "sam_segmentation_mode", "value": "center_subject", "rationale": "Centre foreground + corner background cues in SAM; single blob around centre removes stray FG islands." },
+      { "key": "sam_segmentation_mode", "value": "center_subject_table", "rationale": "Centre FG + corners BG + bottom-edge negatives so the tabletop plane is excluded more often than corners-only center_subject." },
       { "key": "max_input_image_side", "value": 1600, "rationale": "Balance detail vs SAM/MapAnything/GS VRAM on 8 GB." },
       { "key": "gs_sh_degree", "value": 2, "rationale": "Softer than 3 for VRAM; raise to 3 for final renders if stable." },
       { "key": "gs_iterations", "value": 12000, "rationale": "Better colour/geometry than 7k; increase to 20000–30000 for finals if heat/VRAM allow." },
@@ -113,7 +113,7 @@
     "mesh_glb_friendly": [
       { "key": "reconstruction_backend", "value": "mapanything", "rationale": "Feed-forward metric mesh from masked views (Meta MapAnything)." },
       { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "Bake vertex RGB from originals when cameras succeed." },
-      { "key": "sam_segmentation_mode", "value": "center_subject", "rationale": "Stronger masked subject on black background when the object is centred in frame." },
+      { "key": "sam_segmentation_mode", "value": "center_subject_table", "rationale": "Table-aware SAM masking when the object is centred on a tabletop." },
       { "key": "max_input_image_side", "value": 1600, "rationale": "Matches default server cap; raise to 1920 for sharper bake if VRAM allows." }
     ]
   }

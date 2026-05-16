@@ -41,10 +41,10 @@ def refine_binary_mask_to_center_subject(mask_u8: np.ndarray) -> np.ndarray:
 
 
 class SamSegmenter:
-    """SAM-backed masking for **isolating a centred foreground object** from the scene (table/backdrop).
+    """SAM-backed masking for **isolating a centred foreground object** from scene + tabletop.
 
-    Use ``sam_segmentation_mode=center_subject`` (default via settings) so prompts favour the rigid object
-    in the middle of each photo before MapAnything aligns those masked views.
+    Default ``sam_segmentation_mode=center_subject_table`` adds bottom-edge background prompts so the flat
+    surface under the subject is excluded more often than with corners-only ``center_subject``.
     Ellipse fallback only when ``allow_placeholder_pipeline`` is True.
     """
 
@@ -81,7 +81,7 @@ class SamSegmenter:
         else:
             device = torch.device(device_str)
 
-        mode = self.settings.sam_segmentation_mode if self.settings else "center_subject"
+        mode = self.settings.sam_segmentation_mode if self.settings else "center_subject_table"
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         sam = self._ensure_sam(model_type, ckpt, device)
 
@@ -96,7 +96,9 @@ class SamSegmenter:
             amp_ctx = contextlib.nullcontext()
 
         with amp_ctx:
-            if mode == "center_subject":
+            if mode == "center_subject_table":
+                mask = self._predict_center_subject_table(sam, image_rgb)
+            elif mode == "center_subject":
                 mask = self._predict_center_subject(sam, image_rgb)
             elif mode == "center_point":
                 mask = self._predict_center_point(sam, image_rgb)
@@ -179,6 +181,55 @@ class SamSegmenter:
             dtype=np.float32,
         )
         point_labels = np.array([1, 0, 0, 0, 0], dtype=np.int32)
+        masks, scores, _logits = self._predictor.predict(
+            point_coords=point_coords,
+            point_labels=point_labels,
+            multimask_output=True,
+        )
+        if masks is None or len(masks) == 0:
+            return None
+        best_idx = int(np.argmax(scores))
+        raw = masks[best_idx].astype(np.uint8) * 255
+        return refine_binary_mask_to_center_subject(raw)
+
+    def _predict_center_subject_table(self, sam, image_rgb: np.ndarray) -> np.ndarray:
+        """Centre foreground + corner background + negatives along bottom edge (table plane).
+
+        SAM often merges tabletop with the object when only corners are marked background; discouraging
+        the bottom strip biases the mask toward the lifted/rigid subject above the surface.
+        """
+        from segment_anything import SamPredictor
+
+        if self._predictor is None:
+            self._predictor = SamPredictor(sam)
+
+        self._predictor.set_image(image_rgb)
+        h, w = image_rgb.shape[:2]
+        cx, cy = w // 2, h // 2
+        coords = [
+            [float(cx), float(cy)],
+            [0.0, 0.0],
+            [float(w - 1), 0.0],
+            [0.0, float(h - 1)],
+            [float(w - 1), float(h - 1)],
+        ]
+        labels = [1, 0, 0, 0, 0]
+
+        n_edge = int(getattr(self.settings, "sam_table_edge_negative_points", 11)) if self.settings else 11
+        n_edge = max(0, min(24, n_edge))
+
+        if n_edge > 0:
+            margin = float(max(2.0, min(w, h) * 0.035))
+            margin = min(margin, max(1.0, (w - 2) / 2.01))
+            inset_y = max(1, min(h // 60, 12))
+            yb = float(h - 1 - inset_y)
+            xs = np.linspace(margin, float(w - 1) - margin, num=n_edge, dtype=np.float64)
+            for xv in xs:
+                coords.append([float(xv), yb])
+                labels.append(0)
+
+        point_coords = np.array(coords, dtype=np.float32)
+        point_labels = np.array(labels, dtype=np.int32)
         masks, scores, _logits = self._predictor.predict(
             point_coords=point_coords,
             point_labels=point_labels,

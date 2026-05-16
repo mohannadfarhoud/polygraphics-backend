@@ -126,7 +126,18 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "sam_segmentation_mode",
             "scope": "both",
             "worker_env": None,
-            "notes": "For a **toy centred in frame on a table**: use skip_sam_segmentation=false with center_subject — centre = foreground prompt, corners = background prompts. center_point only centre tap (weaker separation from tabletop). Place the car near the optical centre so the centroid matches the SAM prompt.",
+            "notes": (
+                "Default **center_subject_table**: same as center_subject (centre FG, corners BG) plus extra "
+                "**background** prompts along the **bottom edge** (table plane) so SAM drops the tabletop under "
+                "the object more often. Use **center_subject** if that strip wrongly eats thin bases/feet; "
+                "**center_point** is centre-only (weakest BG/table separation). Place the subject near the optical centre."
+            ),
+        },
+        {
+            "key": "sam_table_edge_negative_points",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Only for center_subject_table: how many SAM negative clicks span the bottom inset strip (0–24). Higher = stronger table suppression; 0 matches corner-only layout.",
         },
         {
             "key": "max_input_image_side",
