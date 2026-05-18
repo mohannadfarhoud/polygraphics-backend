@@ -13,6 +13,8 @@ Environment (see ``.env.worker.example``):
 * ``POLYGRAPH_POLL_WHILE_WEBSOCKET`` — when ``1``/``true``, keep that interval even if WebSocket is on; default is **off** so REST polling is slowed (min ~180s) while WS carries ``job_assigned`` — fewer duplicate wakes / log spam
 * ``POLYGRAPH_PROGRESS_INTERVAL_SECONDS`` — min seconds between ``POST .../progress`` calls (default ``5``)
 * ``POLYGRAPH_REQUIRE_CUDA`` — ``1``/``true`` to exit immediately if ``torch.cuda.is_available()`` is false
+* ``POLYGRAPH_WORKER_PRESERVE_WORKDIR`` — ``1``/``true`` keeps per-job temp folders on the worker for inspection
+* ``POLYGRAPH_WORKER_WORKDIR_ROOT`` — optional parent dir for those per-job folders (default OS temp dir)
 * ``expose_masked_views`` (API ``PUT /settings``): when true, worker uploads SAM/precut ``masked_*`` images to ``POST /internal/worker/jobs/{id}/masked-views`` — browse via GET ``uploads/{job_id}/masked_views/``.
 """
 
@@ -30,6 +32,21 @@ from typing import Any
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import httpx
+
+
+def _env_truthy(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes")
+
+
+def _make_worker_job_dir(job_id: str) -> Path:
+    """Create a per-job workspace under OS temp or ``POLYGRAPH_WORKER_WORKDIR_ROOT``."""
+    root_raw = os.getenv("POLYGRAPH_WORKER_WORKDIR_ROOT", "").strip()
+    kwargs: dict[str, str] = {"prefix": f"polyjob-{job_id}-"}
+    if root_raw:
+        root = Path(root_raw).expanduser()
+        root.mkdir(parents=True, exist_ok=True)
+        kwargs["dir"] = str(root)
+    return Path(tempfile.mkdtemp(**kwargs))
 
 
 def _apply_local_overrides(settings_dict: dict) -> dict:
@@ -186,7 +203,8 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
     if own_client:
         client = httpx.Client(timeout=600.0)
 
-    work = Path(tempfile.mkdtemp(prefix=f"polyjob-{job_id}-"))
+    work = _make_worker_job_dir(job_id)
+    settings = None
     try:
         from app.config import PipelineConfig
         from app.interfaces import NoopWebSocketNotifier
@@ -311,7 +329,15 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
             purge_torch_cuda()
         except Exception:
             pass
-        shutil.rmtree(work, ignore_errors=True)
+        if _env_truthy("POLYGRAPH_WORKER_PRESERVE_WORKDIR"):
+            msg = f"[polygraph-worker] keeping work dir for inspection: {work}"
+            if settings is not None:
+                masked_dir = work / settings.masked_dir_name / job_id
+                masks_dir = work / settings.masks_dir_name / job_id
+                msg += f" | masked={masked_dir} | masks={masks_dir}"
+            print(msg, flush=True)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
         if own_client and client is not None:
             client.close()
 
