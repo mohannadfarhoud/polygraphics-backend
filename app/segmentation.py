@@ -429,8 +429,11 @@ class SamSegmenter:
     def _recenter_masked_subject(
         masked_bgr: np.ndarray,
         mask_u8: np.ndarray,
+        *,
+        target_fill: float = 0.62,
+        max_scale: float = 1.85,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Translate isolated foreground so its centroid is at the frame center."""
+        """Translate + enlarge isolated foreground so it is centered and more prominent."""
         if mask_u8.ndim != 2:
             return masked_bgr, mask_u8
         m = (mask_u8 > 0).astype(np.uint8)
@@ -442,13 +445,22 @@ class SamSegmenter:
         h, w = m.shape[:2]
         obj_cx = float(xs.mean())
         obj_cy = float(ys.mean())
+        x0, x1 = int(xs.min()), int(xs.max())
+        y0, y1 = int(ys.min()), int(ys.max())
+        bw = max(1, x1 - x0 + 1)
+        bh = max(1, y1 - y0 + 1)
+        obj_extent = float(max(bw, bh))
+        img_extent = float(max(1, min(w, h)))
+        desired_extent = float(max(1.0, target_fill * img_extent))
+        scale = desired_extent / obj_extent
+        scale = float(max(1.0, min(max_scale, scale)))
         tgt_cx = (w - 1) / 2.0
         tgt_cy = (h - 1) / 2.0
-        dx = int(round(tgt_cx - obj_cx))
-        dy = int(round(tgt_cy - obj_cy))
-        if dx == 0 and dy == 0:
+        tx = float(tgt_cx - scale * obj_cx)
+        ty = float(tgt_cy - scale * obj_cy)
+        if abs(scale - 1.0) < 1e-6 and abs(tx) < 0.5 and abs(ty) < 0.5:
             return masked_bgr, mask_u8
-        M = np.float32([[1.0, 0.0, float(dx)], [0.0, 1.0, float(dy)]])
+        M = np.float32([[scale, 0.0, tx], [0.0, scale, ty]])
         recentered_masked = cv2.warpAffine(
             masked_bgr,
             M,
@@ -480,7 +492,16 @@ class SamSegmenter:
         mask = self.predict_mask(image)
         masked = self.apply_black_background(image, mask)
         if bool(getattr(self.settings, "recenter_isolated_subject", True)):
-            masked, mask = self._recenter_masked_subject(masked, mask)
+            target_fill = float(getattr(self.settings, "recenter_target_subject_fill", 0.62)) if self.settings else 0.62
+            max_scale = float(getattr(self.settings, "recenter_max_scale", 1.85)) if self.settings else 1.85
+            target_fill = max(0.05, min(0.98, target_fill))
+            max_scale = max(1.0, min(4.0, max_scale))
+            masked, mask = self._recenter_masked_subject(
+                masked,
+                mask,
+                target_fill=target_fill,
+                max_scale=max_scale,
+            )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(output_path), masked)
         if mask_output_path is not None:

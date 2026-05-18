@@ -99,6 +99,18 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "After phase-1 isolation, translate each masked view so the foreground centroid is in the image center before alignment/reconstruction.",
         },
         {
+            "key": "recenter_target_subject_fill",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Target object size before saving masked images (max foreground bbox side / image min side). Higher makes the isolated object larger in-frame.",
+        },
+        {
+            "key": "recenter_max_scale",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Maximum zoom applied during recentering; prevents extreme enlargement/cropping on tiny masks.",
+        },
+        {
             "key": "rembg_model_name",
             "scope": "both",
             "worker_env": None,

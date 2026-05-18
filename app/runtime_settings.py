@@ -58,6 +58,10 @@ class RuntimeSettings(BaseModel):
     rembg_alpha_threshold: int = Field(default=16, ge=0, le=255)
     # After phase-1 isolation, translate the masked subject so its foreground centroid sits at image center.
     recenter_isolated_subject: bool = True
+    # Target relative size for isolated subject before saving masked images (based on max bbox side / image min side).
+    recenter_target_subject_fill: float = Field(default=0.62, gt=0.05, le=0.98)
+    # Limit enlargement factor during recentering (1.0 = no scaling, >1 enlarges object in frame).
+    recenter_max_scale: float = Field(default=1.85, ge=1.0, le=4.0)
 
     sam_checkpoint_path: str | None = None
     # Must match the .pth file: ``sam_vit_b_*.pth`` → vit_b; ``sam_vit_h_*.pth`` → vit_h; ``sam_vit_l_*.pth`` → vit_l.
