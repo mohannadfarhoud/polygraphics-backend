@@ -1,0 +1,2 @@
+# Optional: remove.bg API A/B test utility (scripts/removebg_batch.py)
+removebg
