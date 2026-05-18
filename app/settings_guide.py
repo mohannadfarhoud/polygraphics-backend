@@ -60,7 +60,25 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "skip_sam_segmentation",
             "scope": "both",
             "worker_env": None,
-            "notes": "When false (**default**): Segment Anything is the **first** step — full-frame photos get smart centre/table-aware masking, then MapAnything only sees black-backed views. Requires sam_checkpoint_path on the worker unless allow_placeholder_pipeline. When true: no SAM — every upload must be **RGBA with real transparency** (cutout matte); plain RGB/JPEG or fully opaque alpha is **rejected** so background never enters the pipeline silently.",
+            "notes": "When false (**default**): phase-1 isolation runs first (`isolation_backend`: sam/rembg), then MapAnything only sees black-backed masked views. When true: no automatic isolation — every upload must be **RGBA with real transparency** (cutout matte); plain RGB/JPEG or fully opaque alpha is **rejected** so background never enters silently.",
+        },
+        {
+            "key": "isolation_backend",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Phase-1 foreground isolator when skip_sam_segmentation=false. `sam` = promptable Segment Anything; `rembg` = local alpha-matte model (often better on cluttered textiles).",
+        },
+        {
+            "key": "rembg_model_name",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Only when isolation_backend=rembg. Recommended starting point: `isnet-general-use`; alternatives include `u2net` / `u2netp` / `birefnet-general`.",
+        },
+        {
+            "key": "rembg_alpha_threshold",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Only when isolation_backend=rembg. Alpha cutoff (0–255) when converting matte to binary mask before centre-subject refinement. Raise to suppress halos.",
         },
         {
             "key": "expose_masked_views",

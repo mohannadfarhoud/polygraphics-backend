@@ -53,10 +53,19 @@ class SamSegmenter:
         self._sam_model = None
         self._mask_generator = None
         self._predictor = None
+        self._rembg_session = None
+        self._rembg_model_name = None
 
     def predict_mask(self, image_bgr: np.ndarray) -> np.ndarray:
         if self.settings is not None and self.settings.allow_placeholder_pipeline:
             return self._fallback_center_mask(image_bgr)
+
+        backend = (getattr(self.settings, "isolation_backend", "sam") if self.settings else "sam").strip().lower()
+        if backend == "rembg":
+            mask = self._predict_rembg_mask(image_bgr)
+            if mask is None or mask.size == 0:
+                return self._fallback_center_mask(image_bgr)
+            return mask
 
         ckpt = self.settings.sam_checkpoint_path if self.settings else None
         if not ckpt or not Path(ckpt).is_file():
@@ -110,6 +119,39 @@ class SamSegmenter:
         if mask is None or mask.size == 0:
             return self._fallback_center_mask(image_bgr)
         return mask
+
+    def _predict_rembg_mask(self, image_bgr: np.ndarray) -> np.ndarray | None:
+        """Isolate foreground via rembg alpha matte, then keep the centre subject component."""
+        try:
+            from rembg import new_session, remove
+        except ImportError as exc:
+            raise RuntimeError(
+                "rembg is not installed. Install with: pip install rembg onnxruntime pillow"
+            ) from exc
+
+        model_name = (
+            str(getattr(self.settings, "rembg_model_name", "isnet-general-use")).strip()
+            if self.settings
+            else "isnet-general-use"
+        )
+        if not model_name:
+            model_name = "isnet-general-use"
+        if self._rembg_session is None or self._rembg_model_name != model_name:
+            self._rembg_session = new_session(model_name)
+            self._rembg_model_name = model_name
+
+        ok, enc = cv2.imencode(".png", image_bgr)
+        if not ok:
+            return None
+        out_bytes = remove(enc.tobytes(), session=self._rembg_session)
+        rgba = cv2.imdecode(np.frombuffer(out_bytes, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if rgba is None or rgba.ndim != 3 or rgba.shape[2] < 4:
+            return None
+        alpha = rgba[:, :, 3]
+        thr = int(getattr(self.settings, "rembg_alpha_threshold", 16)) if self.settings else 16
+        thr = max(0, min(255, thr))
+        raw = ((alpha >= thr).astype(np.uint8) * 255).astype(np.uint8)
+        return refine_binary_mask_to_center_subject(raw)
 
     def release_gpu_memory(self) -> None:
         """Drop Segment Anything tensors so MapAnything / GS fit on ~8 GB GPUs (worker single-process)."""

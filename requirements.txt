@@ -12,3 +12,6 @@ psutil
 python-dotenv
 httpx
 websockets
+rembg
+onnxruntime
+Pillow

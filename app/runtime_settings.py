@@ -40,6 +40,12 @@ class RuntimeSettings(BaseModel):
     # skip_sam_segmentation=false so SAM removes the background first on full-frame photos.
     # RGBA alpha is flattened onto ``mapanything_alpha_flatten_gray`` grey before MapAnything reads views.
     skip_sam_segmentation: bool = False
+    # Phase-1 foreground isolation backend when skip_sam_segmentation=false.
+    isolation_backend: Literal["sam", "rembg"] = "sam"
+    # rembg model choice (e.g. "isnet-general-use", "u2net", "u2netp", "birefnet-general").
+    rembg_model_name: str = "isnet-general-use"
+    # rembg output alpha threshold (0-255) to convert matte into binary mask.
+    rembg_alpha_threshold: int = Field(default=16, ge=0, le=255)
 
     sam_checkpoint_path: str | None = None
     # Must match the .pth file: ``sam_vit_b_*.pth`` → vit_b; ``sam_vit_h_*.pth`` → vit_h; ``sam_vit_l_*.pth`` → vit_l.

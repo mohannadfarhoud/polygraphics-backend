@@ -14,14 +14,26 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
         return
 
     if not settings.skip_sam_segmentation:
-        if not settings.sam_checkpoint_path or not Path(settings.sam_checkpoint_path).is_file():
-            raise RuntimeError(
-                "Real SAM is required: sam_checkpoint_path must point to an existing .pth on the machine "
-                "that runs the pipeline (see README). On a remote GPU worker use POLYGRAPH_OVERRIDE_SAM_CHECKPOINT "
-                "in .env.worker — PUT /settings paths refer to the API host, not the worker disk. "
-                "Or set allow_placeholder_pipeline=true only for local demos. "
-                "With skip_sam_segmentation=true SAM is not loaded — uploads must be RGBA cutouts with transparency."
-            )
+        backend = str(getattr(settings, "isolation_backend", "sam")).strip().lower()
+        if backend == "sam":
+            if not settings.sam_checkpoint_path or not Path(settings.sam_checkpoint_path).is_file():
+                raise RuntimeError(
+                    "SAM isolation requires sam_checkpoint_path to an existing .pth on the machine "
+                    "that runs the pipeline (see README). On a remote GPU worker use POLYGRAPH_OVERRIDE_SAM_CHECKPOINT "
+                    "in .env.worker — PUT /settings paths refer to the API host, not the worker disk. "
+                    "Or switch isolation_backend to rembg. "
+                    "With skip_sam_segmentation=true SAM/rembg is bypassed (upload RGBA cutouts)."
+                )
+        elif backend == "rembg":
+            try:
+                import rembg  # noqa: F401
+            except ImportError as exc:
+                raise RuntimeError(
+                    "rembg isolation backend is selected but rembg is not installed. "
+                    "Install with: pip install rembg onnxruntime pillow"
+                ) from exc
+        else:
+            raise RuntimeError(f"Unknown isolation_backend={backend!r}; expected 'sam' or 'rembg'.")
 
     def _need_mapanything() -> None:
         try:
