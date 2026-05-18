@@ -53,6 +53,7 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
     mapping = (
         ("sam_checkpoint_path", "POLYGRAPH_OVERRIDE_SAM_CHECKPOINT"),
         ("mapanything_pretrained_id", "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL"),
+        ("dust3r_checkpoint_path", "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT"),
         ("gs_repo_path", "POLYGRAPH_OVERRIDE_GS_REPO"),
     )
     out = dict(settings_dict)

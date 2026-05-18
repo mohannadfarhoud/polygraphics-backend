@@ -51,10 +51,33 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 "(see README). Original error: " + str(exc)
             ) from exc
 
+    def _need_dust3r() -> None:
+        try:
+            import torch  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "DUSt3R reconstruction needs PyTorch installed on the worker. "
+                "Install torch + CUDA for GPU jobs. Original error: " + str(exc)
+            ) from exc
+        try:
+            import dust3r  # noqa: F401
+        except ImportError as exc:
+            raise RuntimeError(
+                "DUSt3R Python package missing. Install naver/dust3r in this environment. "
+                "Original error: " + str(exc)
+            ) from exc
+        if not settings.dust3r_checkpoint_path or not Path(settings.dust3r_checkpoint_path).exists():
+            raise RuntimeError(
+                "dust3r_checkpoint_path must point to an existing local DUSt3R checkpoint (.pth) "
+                "on the machine that runs reconstruction (worker path in split deploy)."
+            )
+
     backend = effective_reconstruction_backend(settings)
 
     if backend == "mapanything":
         _need_mapanything()
+    elif backend == "dust3r":
+        _need_dust3r()
     elif backend == "gaussian_splatting":
         _need_mapanything()
         repo = Path(settings.gs_repo_path or "")

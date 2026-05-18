@@ -12,7 +12,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "reconstruction_backend",
             "scope": "both",
             "worker_env": None,
-            "notes": "Mesh: mapanything (.glb); gaussian_splatting (.ply) — usually closer to photos for glossy objects when trained on GPU.",
+            "notes": "Mesh: mapanything (.glb) or dust3r (.glb); gaussian_splatting (.ply) for splats.",
         },
         {
             "key": "mapanything_pretrained_id",
@@ -37,6 +37,30 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": "Uniformly subsample masked views before MapAnything when the job has more photos.",
+        },
+        {
+            "key": "dust3r_checkpoint_path",
+            "scope": "stored_on_api",
+            "worker_env": "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT",
+            "notes": "Required when reconstruction_backend=dust3r: local .pth checkpoint path on the machine running reconstruction.",
+        },
+        {
+            "key": "dust3r_max_input_views",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Maximum views fed to DUSt3R (uniform subsample). Lower this on 8 GB GPUs to reduce VRAM pressure.",
+        },
+        {
+            "key": "dust3r_scene_graph",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "DUSt3R pair graph; keep `auto` to use complete graph for small sets and sliding window for large sets.",
+        },
+        {
+            "key": "dust3r_confidence_threshold",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Per-point confidence filter after DUSt3R alignment (0–1). Set 0 to keep all points when sparse outputs occur.",
         },
         {
             "key": "compare_mesh_preview_with_gs",
@@ -230,6 +254,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             {"name": "POLYGRAPH_WORKER_TOKEN", "purpose": "Must match APP_WORKER_TOKEN on the API."},
             {"name": "POLYGRAPH_REQUIRE_CUDA", "purpose": "If 1, worker exits when torch.cuda.is_available() is false."},
             {"name": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL", "purpose": "Optional override for mapanything_pretrained_id (HF id)."},
+            {"name": "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT", "purpose": "Optional worker-local override for dust3r_checkpoint_path."},
         ],
         "fields": fields,
         "limitations": (

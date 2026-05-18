@@ -1,0 +1,2 @@
+# Optional DUSt3R backend dependencies (requires torch preinstalled).
+git+https://github.com/naver/dust3r.git

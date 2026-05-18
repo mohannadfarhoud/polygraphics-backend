@@ -33,9 +33,9 @@ class Dust3RReconstructor:
         masked_images: list[Path],
         *,
         job_id: str | None = None,
-        mesh_backend: Literal["mapanything"] | None = None,
+        mesh_backend: Literal["mapanything", "dust3r"] | None = None,
     ) -> ReconstructionResult:
-        del job_id  # MapAnything workspaces are ephemeral; GS uses its own scene dir.
+        del job_id  # Workspaces are ephemeral; GS path uses its own scene dir.
         if len(masked_images) < 2:
             raise ValueError("Need at least 2 masked images")
 
@@ -62,6 +62,8 @@ class Dust3RReconstructor:
 
         if backend == "mapanything":
             return self._mapanything_reconstruct(masked_images, self.settings)
+        if backend == "dust3r":
+            return self._dust3r_reconstruct(masked_images, self.settings)
 
         raise RuntimeError(f"Unsupported mesh backend {backend!r}.")
 
@@ -71,12 +73,34 @@ class Dust3RReconstructor:
             return "mapanything"
         if effective_reconstruction_backend(self.settings) == "gaussian_splatting":
             return "gaussian_splatting"
-        return "mapanything"
+        return str(effective_reconstruction_backend(self.settings))
 
     def _mapanything_reconstruct(self, masked_images: list[Path], settings: RuntimeSettings) -> ReconstructionResult:
         from .mapanything_runner import run_mapanything_scene
 
         scene = run_mapanything_scene(masked_images, settings)
+        cameras: list[CameraView] = []
+        for i, masked_path in enumerate(scene.image_paths):
+            if i >= len(scene.image_sizes) or i >= len(scene.intrinsics) or i >= len(scene.poses_w2c):
+                break
+            cameras.append(
+                CameraView(
+                    image_path=masked_path,
+                    image_size=scene.image_sizes[i],
+                    K=np.asarray(scene.intrinsics[i], dtype=np.float64),
+                    w2c=np.asarray(scene.poses_w2c[i], dtype=np.float64),
+                )
+            )
+        return ReconstructionResult(
+            aligned_points_xyz=scene.points,
+            aligned_colors_rgb=scene.colors,
+            cameras=cameras,
+        )
+
+    def _dust3r_reconstruct(self, masked_images: list[Path], settings: RuntimeSettings) -> ReconstructionResult:
+        from .dust3r_runner import run_dust3r_scene
+
+        scene = run_dust3r_scene(masked_images, settings)
         cameras: list[CameraView] = []
         for i, masked_path in enumerate(scene.image_paths):
             if i >= len(scene.image_sizes) or i >= len(scene.intrinsics) or i >= len(scene.poses_w2c):

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class RuntimeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     # `mapanything` meshes a `.glb`; `gaussian_splatting` yields a `.ply` (3DGS, seeded from MapAnything → COLMAP-text).
-    reconstruction_backend: Literal["mapanything", "gaussian_splatting"] = "mapanything"
+    reconstruction_backend: Literal["mapanything", "dust3r", "gaussian_splatting"] = "mapanything"
 
     # Hugging Face model id (or local snapshot path) for Meta MapAnything.
     mapanything_pretrained_id: str = "facebook/map-anything-apache"
@@ -29,6 +29,16 @@ class RuntimeSettings(BaseModel):
     # When ``skip_sam_segmentation``: subject is already cut out; MapAnything's internal inference
     # mask often erodes specular / toy paint — keep false unless foreground is fused with noisy BG.
     mapanything_apply_internal_mask_on_precut: bool = False
+    dust3r_checkpoint_path: str | None = None
+    dust3r_aligner_iters: int = Field(default=300, ge=10, le=4000)
+    dust3r_aligner_lr: float = Field(default=0.01, gt=0.0, le=1.0)
+    dust3r_confidence_threshold: float = Field(default=0.1, ge=0.0, le=1.0)
+    dust3r_use_fp16: bool = True
+    dust3r_inference_batch_size: int = Field(default=1, ge=1, le=16)
+    dust3r_max_inference_side: int = Field(default=768, ge=224, le=2048)
+    dust3r_max_input_views: int = Field(default=36, ge=2, le=256)
+    dust3r_scene_graph: str = "auto"
+    dust3r_complete_graph_max_views: int = Field(default=24, ge=2, le=256)
 
     device: Literal["auto", "cpu", "cuda"] = "auto"
     # When True (default): phase 1 (SAM) and GS MapAnything scene prep run in subprocesses on CUDA so
@@ -115,7 +125,7 @@ class RuntimeSettings(BaseModel):
             return data
         d = dict(data)
         rb = d.get("reconstruction_backend")
-        if rb in ("auto", "dust3r", "colmap"):
+        if rb in ("auto", "colmap"):
             d["reconstruction_backend"] = "mapanything"
 
         preview = bool(d.get("compare_mesh_preview_with_gs", False)) or bool(
@@ -127,17 +137,6 @@ class RuntimeSettings(BaseModel):
         for dead in (
             "mesh_colmap_failure_fallback_dust3r",
             "auto_dust3r_max_images",
-            "dust3r_repo_path",
-            "dust3r_checkpoint_path",
-            "dust3r_aligner_iters",
-            "dust3r_aligner_lr",
-            "dust3r_confidence_threshold",
-            "dust3r_use_fp16",
-            "dust3r_inference_batch_size",
-            "dust3r_max_inference_side",
-            "dust3r_max_input_views",
-            "dust3r_scene_graph",
-            "dust3r_complete_graph_max_views",
             "colmap_binary_path",
             "colmap_sift_gpu",
             "gs_init_source",
@@ -152,7 +151,7 @@ def gaussian_splatting_skipped_via_env() -> bool:
 
 def effective_reconstruction_backend(
     settings: RuntimeSettings,
-) -> Literal["mapanything", "gaussian_splatting"]:
+) -> Literal["mapanything", "dust3r", "gaussian_splatting"]:
     """What the pipeline actually runs (`POLYGRAPH_SKIP_GAUSSIAN_SPLATTING` forces mesh path)."""
     if gaussian_splatting_skipped_via_env():
         return "mapanything"
