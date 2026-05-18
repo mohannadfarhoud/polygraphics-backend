@@ -20,7 +20,7 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 "that runs the pipeline (see README). On a remote GPU worker use POLYGRAPH_OVERRIDE_SAM_CHECKPOINT "
                 "in .env.worker — PUT /settings paths refer to the API host, not the worker disk. "
                 "Or set allow_placeholder_pipeline=true only for local demos. "
-                "With skip_sam_segmentation=true SAM is not loaded (use pre-cut RGBA / RGB uploads)."
+                "With skip_sam_segmentation=true SAM is not loaded — uploads must be RGBA cutouts with transparency."
             )
 
     def _need_mapanything() -> None:

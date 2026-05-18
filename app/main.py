@@ -57,7 +57,11 @@ _root_path = _root_path.rstrip("/")
 
 app = FastAPI(
     title="polyGraphics 3D Backend",
-    description="API for 2D-to-3D reconstruction pipeline (SAM + MapAnything + Open3D)",
+    description=(
+        "API for 2D-to-3D reconstruction. Default path: **Segment Anything first** (smart background removal), "
+        "then MapAnything / mesh or Gaussian splatting — reconstructions consume **masked** views only. "
+        "`skip_sam_segmentation` is only for pre-cut **RGBA** assets with real transparency."
+    ),
     version="1.0.0",
     # Custom /swagger + /redoc below: FastAPI defaults use scope root_path only; we do not set
     # FastAPI(root_path=…) because it breaks bare /output and /uploads behind strip-prefix proxies.

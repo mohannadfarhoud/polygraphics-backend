@@ -35,7 +35,9 @@ class RuntimeSettings(BaseModel):
     # each PyTorch workload exits before the next — recommended on single 8 GB GPUs.
     gpu_isolate_phases: bool = True
 
-    # When True: skip Segment Anything; uploads must be **already cut out** (PNG RGBA or opaque RGB).
+    # When True: skip Segment Anything; uploads must be **RGBA cutouts** with a real alpha matte
+    # (transparent / feathered background). Plain RGB or fully opaque images are rejected — use
+    # skip_sam_segmentation=false so SAM removes the background first on full-frame photos.
     # RGBA alpha is flattened onto ``mapanything_alpha_flatten_gray`` grey before MapAnything reads views.
     skip_sam_segmentation: bool = False
 

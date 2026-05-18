@@ -85,6 +85,7 @@ class ReconstructionPipeline:
                 int(self.runtime_settings.max_input_image_side),
             )
             if self.runtime_settings.skip_sam_segmentation:
+                # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(
                     job_id,
                     JobStatus.PROCESSING,
@@ -99,6 +100,7 @@ class ReconstructionPipeline:
                 )
                 originals_for_mesh = list(masked_paths)
             else:
+                # Standard path: SAM masks full-frame photos before any MapAnything / mesh work.
                 masked_paths = self._run_segmentation(job_id, image_paths, cancel_event=cancel_event)
                 originals_for_mesh = image_paths
             try:

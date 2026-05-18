@@ -60,7 +60,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "skip_sam_segmentation",
             "scope": "both",
             "worker_env": None,
-            "notes": "When false (default for full-camera photos): SAM segments the centred subject so the tabletop/room can stay black-backed. Requires sam_checkpoint_path on the worker unless allow_placeholder_pipeline. When true: you must upload pre-cut PNGs whose **opaque pixels are only the object** — the table cannot be painted out later.",
+            "notes": "When false (**default**): Segment Anything is the **first** step — full-frame photos get smart centre/table-aware masking, then MapAnything only sees black-backed views. Requires sam_checkpoint_path on the worker unless allow_placeholder_pipeline. When true: no SAM — every upload must be **RGBA with real transparency** (cutout matte); plain RGB/JPEG or fully opaque alpha is **rejected** so background never enters the pipeline silently.",
         },
         {
             "key": "expose_masked_views",
