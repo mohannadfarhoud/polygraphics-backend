@@ -152,6 +152,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Prompt-SAM sanity upper bound for foreground area ratio. Lower this for tiny centred toys on busy fabrics when SAM keeps background instead of the object.",
         },
         {
+            "key": "sam_prompt_require_center_hit",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true (default): prompt-mode mask selection only accepts candidates containing the image centre; otherwise it falls back to auto center-bias recovery.",
+        },
+        {
             "key": "sam_recover_with_auto_if_prompt_bad",
             "scope": "both",
             "worker_env": None,

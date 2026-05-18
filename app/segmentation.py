@@ -160,8 +160,9 @@ class SamSegmenter:
             return None
         cx, cy = w // 2, h // 2
         min_ratio, max_ratio = self._prompt_area_bounds()
-        best_mask = None
-        best_score = float("-inf")
+        require_center = bool(getattr(self.settings, "sam_prompt_require_center_hit", True)) if self.settings else True
+        center_candidates: list[tuple[np.ndarray, float, float, int]] = []
+        all_candidates: list[tuple[np.ndarray, float, float, int]] = []
         for i, seg in enumerate(masks):
             raw = seg.astype(np.uint8) * 255
             refined = refine_binary_mask_to_center_subject(raw)
@@ -169,11 +170,21 @@ class SamSegmenter:
             if area <= 0.0:
                 continue
             sam_score = float(scores[i]) if scores is not None and i < len(scores) else 0.0
-            center_hit = 1.0 if refined[cy, cx] > 0 else 0.0
+            center_hit = int(refined[cy, cx] > 0)
+            all_candidates.append((refined, area, sam_score, center_hit))
+            if center_hit:
+                center_candidates.append((refined, area, sam_score, center_hit))
+
+        candidates = center_candidates if center_candidates else all_candidates
+        if require_center and not center_candidates:
+            return None
+        best_mask = None
+        best_score = float("-inf")
+        for refined, area, sam_score, center_hit in candidates:
             over = max(0.0, area - max_ratio)
             under = max(0.0, min_ratio - area)
-            # Favor center-hit, discourage massive-background or tiny speck masks.
-            objective = sam_score + (2.0 * center_hit) - (6.0 * over) - (2.0 * under)
+            # Favor center-hit strongly, discourage massive-background or tiny speck masks.
+            objective = sam_score + (2.5 * float(center_hit)) - (8.0 * over) - (3.0 * under)
             if objective > best_score:
                 best_score = objective
                 best_mask = refined
@@ -181,9 +192,12 @@ class SamSegmenter:
 
     def _recover_bad_prompt_mask(self, sam, image_rgb: np.ndarray, prompt_mask: np.ndarray) -> np.ndarray:
         """If prompt mask looks implausible, recover with auto center-biased SAM."""
+        recover = bool(getattr(self.settings, "sam_recover_with_auto_if_prompt_bad", True)) if self.settings else True
         if prompt_mask is None:
-            return None
-        if self.settings is not None and not bool(getattr(self.settings, "sam_recover_with_auto_if_prompt_bad", True)):
+            if not recover:
+                return None
+            return self._predict_auto_center_bias(sam, image_rgb)
+        if not recover:
             return prompt_mask
         area = self._mask_area_ratio(prompt_mask)
         min_ratio, max_ratio = self._prompt_area_bounds()
