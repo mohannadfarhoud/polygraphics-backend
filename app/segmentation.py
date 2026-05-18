@@ -425,6 +425,48 @@ class SamSegmenter:
         binary_mask = (mask > 0).astype(np.uint8)
         return image_bgr * binary_mask[:, :, None]
 
+    @staticmethod
+    def _recenter_masked_subject(
+        masked_bgr: np.ndarray,
+        mask_u8: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Translate isolated foreground so its centroid is at the frame center."""
+        if mask_u8.ndim != 2:
+            return masked_bgr, mask_u8
+        m = (mask_u8 > 0).astype(np.uint8)
+        if int(m.sum()) == 0:
+            return masked_bgr, mask_u8
+        ys, xs = np.where(m > 0)
+        if len(xs) == 0:
+            return masked_bgr, mask_u8
+        h, w = m.shape[:2]
+        obj_cx = float(xs.mean())
+        obj_cy = float(ys.mean())
+        tgt_cx = (w - 1) / 2.0
+        tgt_cy = (h - 1) / 2.0
+        dx = int(round(tgt_cx - obj_cx))
+        dy = int(round(tgt_cy - obj_cy))
+        if dx == 0 and dy == 0:
+            return masked_bgr, mask_u8
+        M = np.float32([[1.0, 0.0, float(dx)], [0.0, 1.0, float(dy)]])
+        recentered_masked = cv2.warpAffine(
+            masked_bgr,
+            M,
+            (w, h),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0, 0, 0),
+        )
+        recentered_mask = cv2.warpAffine(
+            ((mask_u8 > 0).astype(np.uint8) * 255),
+            M,
+            (w, h),
+            flags=cv2.INTER_NEAREST,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        return recentered_masked, recentered_mask
+
     def segment_file(
         self,
         image_path: Path,
@@ -437,6 +479,8 @@ class SamSegmenter:
             raise ValueError(f"Unable to read image: {image_path}")
         mask = self.predict_mask(image)
         masked = self.apply_black_background(image, mask)
+        if bool(getattr(self.settings, "recenter_isolated_subject", True)):
+            masked, mask = self._recenter_masked_subject(masked, mask)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(output_path), masked)
         if mask_output_path is not None:

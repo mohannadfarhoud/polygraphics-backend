@@ -93,6 +93,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Phase-1 foreground isolator when skip_sam_segmentation=false. `sam` = promptable Segment Anything; `rembg` = local alpha-matte model (often better on cluttered textiles).",
         },
         {
+            "key": "recenter_isolated_subject",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "After phase-1 isolation, translate each masked view so the foreground centroid is in the image center before alignment/reconstruction.",
+        },
+        {
             "key": "rembg_model_name",
             "scope": "both",
             "worker_env": None,
