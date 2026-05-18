@@ -1,0 +1,4 @@
+# Optional local background-removal test (no API key).
+rembg
+onnxruntime
+Pillow
