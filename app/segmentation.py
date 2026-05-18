@@ -133,6 +133,73 @@ class SamSegmenter:
             self._sam_model = sam
         return self._sam_model
 
+    @staticmethod
+    def _mask_area_ratio(mask: np.ndarray) -> float:
+        if mask is None or mask.size == 0:
+            return 0.0
+        return float(np.mean(mask > 0))
+
+    def _prompt_area_bounds(self) -> tuple[float, float]:
+        if self.settings is None:
+            return 0.0005, 0.45
+        mn = float(getattr(self.settings, "sam_prompt_min_mask_area_ratio", 0.0005))
+        mx = float(getattr(self.settings, "sam_prompt_max_mask_area_ratio", 0.45))
+        mn = max(0.0, min(0.2, mn))
+        mx = max(0.05, min(0.98, mx))
+        if mn >= mx:
+            mn = max(0.0, mx * 0.1)
+        return mn, mx
+
+    def _choose_prompt_mask(self, masks: np.ndarray, scores: np.ndarray | None, h: int, w: int) -> np.ndarray | None:
+        """Select the best candidate mask from prompt-based SAM outputs.
+
+        SAM can return a high-confidence but background-heavy region on textured scenes.
+        We score candidates with center preference + area sanity (small centered subject).
+        """
+        if masks is None or len(masks) == 0:
+            return None
+        cx, cy = w // 2, h // 2
+        min_ratio, max_ratio = self._prompt_area_bounds()
+        best_mask = None
+        best_score = float("-inf")
+        for i, seg in enumerate(masks):
+            raw = seg.astype(np.uint8) * 255
+            refined = refine_binary_mask_to_center_subject(raw)
+            area = self._mask_area_ratio(refined)
+            if area <= 0.0:
+                continue
+            sam_score = float(scores[i]) if scores is not None and i < len(scores) else 0.0
+            center_hit = 1.0 if refined[cy, cx] > 0 else 0.0
+            over = max(0.0, area - max_ratio)
+            under = max(0.0, min_ratio - area)
+            # Favor center-hit, discourage massive-background or tiny speck masks.
+            objective = sam_score + (2.0 * center_hit) - (6.0 * over) - (2.0 * under)
+            if objective > best_score:
+                best_score = objective
+                best_mask = refined
+        return best_mask
+
+    def _recover_bad_prompt_mask(self, sam, image_rgb: np.ndarray, prompt_mask: np.ndarray) -> np.ndarray:
+        """If prompt mask looks implausible, recover with auto center-biased SAM."""
+        if prompt_mask is None:
+            return None
+        if self.settings is not None and not bool(getattr(self.settings, "sam_recover_with_auto_if_prompt_bad", True)):
+            return prompt_mask
+        area = self._mask_area_ratio(prompt_mask)
+        min_ratio, max_ratio = self._prompt_area_bounds()
+        if min_ratio <= area <= max_ratio:
+            return prompt_mask
+        alt = self._predict_auto_center_bias(sam, image_rgb)
+        if alt is None or alt.size == 0:
+            return prompt_mask
+        alt_area = self._mask_area_ratio(alt)
+        if alt_area <= 0.0:
+            return prompt_mask
+        # Prefer recovered mask when it is in-bounds, or clearly tighter than the prompt result.
+        if (min_ratio <= alt_area <= max_ratio) or (alt_area < area * 0.7):
+            return alt
+        return prompt_mask
+
     def _predict_center_point(self, sam, image_rgb: np.ndarray) -> np.ndarray:
         """Prompt SAM with a positive point at the image center — best for a subject in the middle."""
         from segment_anything import SamPredictor
@@ -152,10 +219,9 @@ class SamSegmenter:
         )
         if masks is None or len(masks) == 0:
             return None
-        best_idx = int(np.argmax(scores))
-        seg = masks[best_idx]
-        raw = (seg.astype(np.uint8) * 255)
-        return refine_binary_mask_to_center_subject(raw)
+        h, w = image_rgb.shape[:2]
+        chosen = self._choose_prompt_mask(masks, scores, h, w)
+        return self._recover_bad_prompt_mask(sam, image_rgb, chosen)
 
     def _predict_center_subject(self, sam, image_rgb: np.ndarray) -> np.ndarray:
         """Centre foreground prompt + corner background prompts, then keep the FG component touching the centre.
@@ -188,9 +254,9 @@ class SamSegmenter:
         )
         if masks is None or len(masks) == 0:
             return None
-        best_idx = int(np.argmax(scores))
-        raw = masks[best_idx].astype(np.uint8) * 255
-        return refine_binary_mask_to_center_subject(raw)
+        h, w = image_rgb.shape[:2]
+        chosen = self._choose_prompt_mask(masks, scores, h, w)
+        return self._recover_bad_prompt_mask(sam, image_rgb, chosen)
 
     def _predict_center_subject_table(self, sam, image_rgb: np.ndarray) -> np.ndarray:
         """Centre foreground + corner background + negatives along bottom edge (table plane).
@@ -237,9 +303,8 @@ class SamSegmenter:
         )
         if masks is None or len(masks) == 0:
             return None
-        best_idx = int(np.argmax(scores))
-        raw = masks[best_idx].astype(np.uint8) * 255
-        return refine_binary_mask_to_center_subject(raw)
+        chosen = self._choose_prompt_mask(masks, scores, h, w)
+        return self._recover_bad_prompt_mask(sam, image_rgb, chosen)
 
     def _predict_auto_largest(self, sam, image_rgb: np.ndarray) -> np.ndarray:
         """Original behavior: largest automatic mask by pixel area."""

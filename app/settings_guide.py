@@ -140,6 +140,24 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Only for center_subject_table: how many SAM negative clicks span the bottom inset strip (0–24). Higher = stronger table suppression; 0 matches corner-only layout.",
         },
         {
+            "key": "sam_prompt_min_mask_area_ratio",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Prompt-SAM sanity lower bound for foreground area ratio. If selected mask is smaller, it is treated as likely noise and can trigger auto recovery.",
+        },
+        {
+            "key": "sam_prompt_max_mask_area_ratio",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Prompt-SAM sanity upper bound for foreground area ratio. Lower this for tiny centred toys on busy fabrics when SAM keeps background instead of the object.",
+        },
+        {
+            "key": "sam_recover_with_auto_if_prompt_bad",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true (default): if prompt-SAM mask is outside min/max area bounds, rerun center-biased auto-mask selection and prefer tighter subject masks.",
+        },
+        {
             "key": "max_input_image_side",
             "scope": "both",
             "worker_env": None,

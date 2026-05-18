@@ -54,6 +54,11 @@ class RuntimeSettings(BaseModel):
     sam_use_fp16: bool = True
     # For ``center_subject_table``: number of extra background clicks along the bottom edge (table plane). 0 = corners only.
     sam_table_edge_negative_points: int = Field(default=11, ge=0, le=24)
+    # Prompt-based SAM sanity bounds; helps avoid selecting a "whole background" mask when the centred subject is tiny.
+    sam_prompt_min_mask_area_ratio: float = Field(default=0.0005, ge=0.0, le=0.2)
+    sam_prompt_max_mask_area_ratio: float = Field(default=0.45, ge=0.05, le=0.98)
+    # If a prompt-based mask falls outside area bounds, retry with auto center-biased selection and prefer it when tighter.
+    sam_recover_with_auto_if_prompt_bad: bool = True
 
     # When True: copy SAM/precut isolated views (``masked_*``) under ``uploads/{job_id}/masked_views/`` for HTTP GET.
     # Remote GPU workers POST the same files to the API after a successful run.
