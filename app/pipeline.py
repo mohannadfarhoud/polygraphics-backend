@@ -198,11 +198,42 @@ class ReconstructionPipeline:
         mesh = keep_largest_mesh_component(mesh)
         self._raise_if_cancelled(cancel_event)
 
+        # Optional semantic shape correction (classify object, align class template, blend correction).
+        try:
+            from .shape_prior import apply_shape_prior_correction
+
+            self._publish(job_id, JobStatus.PROCESSING, stage="shape_classification", progress=81)
+            mesh, prior_report = apply_shape_prior_correction(mesh, list(original_paths), self.runtime_settings)
+            if prior_report.applied:
+                self._publish(job_id, JobStatus.PROCESSING, stage="shape_template_correction", progress=84)
+                _log.info(
+                    "Shape prior applied job=%s label=%s conf=%.3f rmse=%s template=%s",
+                    job_id,
+                    prior_report.label,
+                    prior_report.confidence,
+                    (
+                        f"{prior_report.alignment_rmse:.4f}"
+                        if prior_report.alignment_rmse is not None
+                        else "n/a"
+                    ),
+                    prior_report.template_path,
+                )
+            else:
+                _log.info(
+                    "Shape prior skipped job=%s reason=%s label=%s conf=%.3f",
+                    job_id,
+                    prior_report.reason,
+                    prior_report.label,
+                    prior_report.confidence,
+                )
+        except Exception as exc:
+            _log.warning("shape prior correction failed job=%s: %s", job_id, exc)
+
         # Make sure point-cloud colours actually end up on the GLB. Open3D's Poisson +
         # decimation don't reliably propagate vertex colors across versions, so
         # we always transfer them from the cleaned colored cloud at the end.
         if clean_pcd.has_colors():
-            self._publish(job_id, JobStatus.PROCESSING, stage="vertex_color_transfer", progress=77)
+            self._publish(job_id, JobStatus.PROCESSING, stage="vertex_color_transfer", progress=85)
             mesh = transfer_vertex_colors_from_point_cloud(mesh, clean_pcd)
 
         if self.runtime_settings.mesh_photo_vertex_bake:

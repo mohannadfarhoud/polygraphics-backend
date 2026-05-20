@@ -21,6 +21,48 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "`original` (recommended): use full photos for feature matching/geometry, while masks are still used for isolation + cleanup. `masked`: use black-background isolated views directly for reconstruction.",
         },
         {
+            "key": "shape_prior_enabled",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: run semantic shape-prior refinement after meshing (classify object from views, align class template, apply gentle geometric correction).",
+        },
+        {
+            "key": "shape_prior_template_root",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Directory containing template meshes named by class label (for example car.glb, truck.obj). Used only when shape_prior_enabled=true.",
+        },
+        {
+            "key": "shape_prior_min_confidence",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Minimum class confidence needed before applying template correction. Lower values apply correction more often but increase wrong-class risk.",
+        },
+        {
+            "key": "shape_prior_force_label",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Optional fixed class label override (e.g. `car`) when classifier is unavailable or unstable.",
+        },
+        {
+            "key": "shape_prior_deform_strength",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "How strongly mesh vertices move toward the aligned class template (0=no change, 1=strong correction).",
+        },
+        {
+            "key": "shape_prior_preserve_detail",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Bias toward preserving original mesh details while applying template correction. Higher values preserve more source geometry.",
+        },
+        {
+            "key": "shape_prior_max_alignment_rmse",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Safety gate: if template-to-mesh ICP alignment error exceeds this value, correction is skipped.",
+        },
+        {
             "key": "mapanything_pretrained_id",
             "scope": "both",
             "worker_env": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL (optional Hugging Face id or path)",

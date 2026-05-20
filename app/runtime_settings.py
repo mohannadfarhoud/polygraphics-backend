@@ -15,6 +15,20 @@ class RuntimeSettings(BaseModel):
     # Which images feed geometry matching/reconstruction. `original` is more robust for sparse matching;
     # `masked` keeps strict object-only context but can reduce feature richness on low-texture objects.
     reconstruction_image_source: Literal["original", "masked"] = "original"
+    # Optional semantic shape prior stage (classify + template-based correction).
+    shape_prior_enabled: bool = False
+    # Template directory containing class meshes (example: templates/car.glb, templates/truck.obj).
+    shape_prior_template_root: str | None = None
+    # Minimum classification confidence to apply template correction.
+    shape_prior_min_confidence: float = Field(default=0.34, ge=0.0, le=1.0)
+    # Fallback class label when classifier is unavailable/uncertain and only one class is desired.
+    shape_prior_force_label: str | None = None
+    # Amount of deformation toward template surface (0 keeps original mesh, 1 snaps to template).
+    shape_prior_deform_strength: float = Field(default=0.22, ge=0.0, le=1.0)
+    # Keep this fraction of original geometry detail (higher preserves more of the original mesh).
+    shape_prior_preserve_detail: float = Field(default=0.78, ge=0.0, le=1.0)
+    # Disable template correction when alignment RMSE exceeds this threshold (normalized units).
+    shape_prior_max_alignment_rmse: float = Field(default=0.12, ge=0.001, le=1.0)
 
     # Hugging Face model id (or local snapshot path) for Meta MapAnything.
     mapanything_pretrained_id: str = "facebook/map-anything-apache"

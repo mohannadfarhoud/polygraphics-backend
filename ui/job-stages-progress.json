@@ -54,8 +54,18 @@
       "label": "Mesh cleanup"
     },
     {
+      "id": "shape_classification",
+      "progress": { "min": 81, "max": 81, "typical": 81 },
+      "label": "Object class identification"
+    },
+    {
+      "id": "shape_template_correction",
+      "progress": { "min": 84, "max": 84, "typical": 84 },
+      "label": "Template-based shape correction"
+    },
+    {
       "id": "vertex_color_transfer",
-      "progress": { "min": 77, "max": 77, "typical": 77 },
+      "progress": { "min": 85, "max": 85, "typical": 85 },
       "label": "Vertex colours from point cloud"
     },
     {
@@ -94,8 +104,10 @@
         { "id": "phase_2_alignment", "progress": 45 },
         { "id": "phase_3_sanitization", "progress": 65 },
         { "id": "meshing", "progress": 75 },
-        { "id": "vertex_color_transfer", "progress": 77 },
         { "id": "mesh_cleanup", "progress": 79 },
+        { "id": "shape_classification", "progress": 81 },
+        { "id": "shape_template_correction", "progress": 84 },
+        { "id": "vertex_color_transfer", "progress": 85 },
         { "id": "photo_vertex_bake", "progress": 86 },
         { "id": "color_autobalance", "progress": 90 },
         { "id": "exporting", "progress": 94 },
