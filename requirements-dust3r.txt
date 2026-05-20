@@ -1,2 +1,4 @@
 # Optional DUSt3R backend dependencies (requires torch preinstalled).
-git+https://github.com/naver/dust3r.git
+# NOTE: naver/dust3r is not pip-packaged, so install its dependency list here,
+# then clone the repo separately and add it to PYTHONPATH.
+-r https://raw.githubusercontent.com/naver/dust3r/main/requirements.txt
