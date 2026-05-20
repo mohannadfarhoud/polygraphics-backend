@@ -204,7 +204,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "mesh_photo_vertex_bake_sample_source",
             "scope": "both",
             "worker_env": None,
-            "notes": "`masked`: sample SAM black-background crops (recommended — avoids backdrop colours on vertices). `original`: sample full uploads (legacy; can smear clutter onto the mesh).",
+            "notes": "`original` (default): sample full uploads for richer photo realism on the object surface. Use `masked` when you see backdrop color bleed onto vertices.",
         },
         {
             "key": "sam_model_type",
