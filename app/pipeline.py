@@ -9,6 +9,9 @@ import threading
 from pathlib import Path
 from typing import Literal
 
+import cv2
+import numpy as np
+
 from .color_baking import CameraView
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopJobRepository, NoopWebSocketNotifier, WebSocketNotifier
@@ -386,6 +389,7 @@ class ReconstructionPipeline:
 
         if isolate:
             masked_paths = self._run_segmentation_isolated_subprocess(job_id, image_paths)
+            masked_paths = self._filter_segmentation_outliers(job_id, masked_paths)
             total_n = max(1, len(masked_paths))
             self._publish(
                 job_id,
@@ -418,7 +422,63 @@ class ReconstructionPipeline:
                 stage=f"phase_1_segmentation ({idx + 1}/{total})",
                 progress=pct,
             )
-        return masked_paths
+        return self._filter_segmentation_outliers(job_id, masked_paths)
+
+    def _filter_segmentation_outliers(self, job_id: str, masked_paths: list[Path]) -> list[Path]:
+        if not bool(getattr(self.runtime_settings, "isolation_filter_outlier_views", True)):
+            return masked_paths
+        if len(masked_paths) < 4:
+            return masked_paths
+
+        metrics: list[tuple[Path, float, float]] = []
+        for path in masked_paths:
+            m = self._masked_view_metrics(path)
+            if m is not None:
+                metrics.append((path, m[0], m[1]))
+        if len(metrics) < 4:
+            return masked_paths
+
+        areas = np.asarray([m[1] for m in metrics], dtype=np.float64)
+        area_med = float(np.median(areas))
+        mad = float(np.median(np.abs(areas - area_med)))
+        area_scale = max(1e-6, 1.4826 * mad)
+        mad_mult = float(getattr(self.runtime_settings, "isolation_outlier_area_mad_scale", 3.2))
+        max_center_dist = float(getattr(self.runtime_settings, "isolation_outlier_center_distance", 0.22))
+
+        kept: list[Path] = []
+        dropped = 0
+        for p, area_ratio, cdist in metrics:
+            z = abs(area_ratio - area_med) / area_scale
+            center_ok = cdist <= max_center_dist
+            area_ok = z <= mad_mult
+            if area_ok and center_ok:
+                kept.append(p)
+            else:
+                dropped += 1
+
+        # Safety: never collapse to too few views.
+        min_keep = 3 if len(masked_paths) < 8 else 4
+        if len(kept) < min_keep:
+            return masked_paths
+        if dropped > 0:
+            _log.info("Segmentation outlier filter dropped %s/%s views for job=%s", dropped, len(masked_paths), job_id)
+        return kept
+
+    @staticmethod
+    def _masked_view_metrics(path: Path) -> tuple[float, float] | None:
+        img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        fg = np.any(img > 8, axis=2)
+        if not np.any(fg):
+            return None
+        h, w = fg.shape[:2]
+        ys, xs = np.where(fg)
+        area_ratio = float(fg.mean())
+        cx = float(xs.mean()) / max(1.0, float(w - 1))
+        cy = float(ys.mean()) / max(1.0, float(h - 1))
+        center_dist = float(np.hypot(cx - 0.5, cy - 0.5))
+        return area_ratio, center_dist
 
     def _publish(
         self,

@@ -52,6 +52,13 @@ class RuntimeSettings(BaseModel):
     skip_sam_segmentation: bool = False
     # Phase-1 foreground isolation backend when skip_sam_segmentation=false.
     isolation_backend: Literal["sam", "rembg"] = "sam"
+    # When true: evaluate multiple isolation candidates (configured backend + optional fallback backend)
+    # and keep the most plausible centered object mask.
+    isolation_smart_select: bool = True
+    # When true: also try the non-selected backend as a fallback candidate (SAM <-> rembg).
+    isolation_try_alternate_backend: bool = True
+    # Minimum mask quality score accepted by smart selector; lower values are treated as unsafe/noisy masks.
+    isolation_min_score: float = Field(default=1.1, ge=-10.0, le=10.0)
     # rembg model choice (e.g. "isnet-general-use", "u2net", "u2netp", "birefnet-general").
     rembg_model_name: str = "isnet-general-use"
     # rembg output alpha threshold (0-255) to convert matte into binary mask.
@@ -62,6 +69,12 @@ class RuntimeSettings(BaseModel):
     recenter_target_subject_fill: float = Field(default=0.62, gt=0.05, le=0.98)
     # Limit enlargement factor during recentering (1.0 = no scaling, >1 enlarges object in frame).
     recenter_max_scale: float = Field(default=1.85, ge=1.0, le=4.0)
+    # Reject clearly inconsistent segmented views before reconstruction (keeps most coherent masked set).
+    isolation_filter_outlier_views: bool = True
+    # How strict cross-view mask-area filtering is (higher keeps more views).
+    isolation_outlier_area_mad_scale: float = Field(default=3.2, ge=1.0, le=8.0)
+    # Max normalized centroid drift from median foreground center before dropping a view.
+    isolation_outlier_center_distance: float = Field(default=0.22, ge=0.05, le=0.7)
 
     sam_checkpoint_path: str | None = None
     # Must match the .pth file: ``sam_vit_b_*.pth`` → vit_b; ``sam_vit_h_*.pth`` → vit_h; ``sam_vit_l_*.pth`` → vit_l.

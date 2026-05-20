@@ -40,6 +40,22 @@ def refine_binary_mask_to_center_subject(mask_u8: np.ndarray) -> np.ndarray:
     return ((labels == best_li).astype(np.uint8) * 255)
 
 
+def _cleanup_subject_mask(mask_u8: np.ndarray) -> np.ndarray:
+    """Denoise mask, keep one coherent foreground component, and fill pinholes."""
+    if mask_u8 is None or mask_u8.size == 0:
+        return np.zeros((0, 0), dtype=np.uint8)
+    binary = ((mask_u8 > 0).astype(np.uint8) * 255).astype(np.uint8)
+    h, w = binary.shape[:2]
+    k = int(max(3, min(11, round(min(h, w) * 0.01))))
+    if k % 2 == 0:
+        k += 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel)
+    cleaned = refine_binary_mask_to_center_subject(cleaned)
+    return ((cleaned > 0).astype(np.uint8) * 255).astype(np.uint8)
+
+
 class SamSegmenter:
     """SAM-backed masking for **isolating a centred foreground object** from scene + tabletop.
 
@@ -61,28 +77,71 @@ class SamSegmenter:
             return self._fallback_center_mask(image_bgr)
 
         backend = (getattr(self.settings, "isolation_backend", "sam") if self.settings else "sam").strip().lower()
-        if backend == "rembg":
-            mask = self._predict_rembg_mask(image_bgr)
-            if mask is None or mask.size == 0:
-                return self._fallback_center_mask(image_bgr)
-            return mask
+        smart_select = bool(getattr(self.settings, "isolation_smart_select", True)) if self.settings else True
+        try_alt_backend = bool(getattr(self.settings, "isolation_try_alternate_backend", True)) if self.settings else True
+        candidates: list[tuple[str, np.ndarray]] = []
 
+        if backend == "rembg":
+            rembg_mask = self._predict_rembg_mask(image_bgr)
+            if rembg_mask is not None and rembg_mask.size > 0:
+                candidates.append(("rembg", rembg_mask))
+            if try_alt_backend:
+                sam_mask = self._predict_sam_mask(image_bgr, strict=False)
+                if sam_mask is not None and sam_mask.size > 0:
+                    candidates.append(("sam", sam_mask))
+        else:
+            sam_mask = self._predict_sam_mask(image_bgr, strict=True)
+            if sam_mask is not None and sam_mask.size > 0:
+                candidates.append(("sam", sam_mask))
+            if try_alt_backend:
+                rembg_mask = self._predict_rembg_mask(image_bgr)
+                if rembg_mask is not None and rembg_mask.size > 0:
+                    candidates.append(("rembg", rembg_mask))
+
+        if not candidates:
+            return self._fallback_center_mask(image_bgr)
+        if not smart_select:
+            return _cleanup_subject_mask(candidates[0][1])
+
+        best_mask = None
+        best_score = float("-inf")
+        for source, cand in candidates:
+            cleaned = _cleanup_subject_mask(cand)
+            score = self._score_mask_candidate(cleaned)
+            if source == backend:
+                score += 0.15  # keep configured backend sticky unless clearly worse
+            if score > best_score:
+                best_score = score
+                best_mask = cleaned
+
+        min_score = float(getattr(self.settings, "isolation_min_score", 1.1)) if self.settings else 1.1
+        if best_mask is None or best_score < min_score:
+            return self._fallback_center_mask(image_bgr)
+        return best_mask
+
+    def _predict_sam_mask(self, image_bgr: np.ndarray, *, strict: bool) -> np.ndarray | None:
         ckpt = self.settings.sam_checkpoint_path if self.settings else None
         if not ckpt or not Path(ckpt).is_file():
-            raise RuntimeError("SAM checkpoint missing or invalid (sam_checkpoint_path).")
+            if strict:
+                raise RuntimeError("SAM checkpoint missing or invalid (sam_checkpoint_path).")
+            return None
 
         try:
             import torch
             from segment_anything import SamAutomaticMaskGenerator, SamPredictor, sam_model_registry
         except ImportError as exc:
-            raise RuntimeError(
-                "segment_anything is not installed. Install with: pip install segment-anything torch torchvision. "
-                f"Original: {exc}"
-            ) from exc
+            if strict:
+                raise RuntimeError(
+                    "segment_anything is not installed. Install with: pip install segment-anything torch torchvision. "
+                    f"Original: {exc}"
+                ) from exc
+            return None
 
         model_type = self.settings.sam_model_type if self.settings else "vit_b"
         if model_type not in sam_model_registry:
-            raise RuntimeError(f"Unknown sam_model_type {model_type!r}; use vit_h, vit_l, or vit_b.")
+            if strict:
+                raise RuntimeError(f"Unknown sam_model_type {model_type!r}; use vit_h, vit_l, or vit_b.")
+            return None
 
         device_str = self.settings.device if self.settings else "auto"
         if device_str == "auto":
@@ -99,11 +158,7 @@ class SamSegmenter:
             and self.settings is not None
             and bool(getattr(self.settings, "sam_use_fp16", True))
         )
-        if use_amp:
-            amp_ctx = torch.cuda.amp.autocast(dtype=torch.float16)
-        else:
-            amp_ctx = contextlib.nullcontext()
-
+        amp_ctx = torch.cuda.amp.autocast(dtype=torch.float16) if use_amp else contextlib.nullcontext()
         with amp_ctx:
             if mode == "center_subject_table":
                 mask = self._predict_center_subject_table(sam, image_rgb)
@@ -115,9 +170,8 @@ class SamSegmenter:
                 mask = self._predict_auto_largest(sam, image_rgb)
             else:
                 mask = self._predict_auto_center_bias(sam, image_rgb)
-
         if mask is None or mask.size == 0:
-            return self._fallback_center_mask(image_bgr)
+            return None
         return mask
 
     def _predict_rembg_mask(self, image_bgr: np.ndarray) -> np.ndarray | None:
@@ -180,6 +234,42 @@ class SamSegmenter:
         if mask is None or mask.size == 0:
             return 0.0
         return float(np.mean(mask > 0))
+
+    @staticmethod
+    def _edge_contact_ratio(mask: np.ndarray) -> float:
+        if mask is None or mask.size == 0:
+            return 1.0
+        m = (mask > 0).astype(np.uint8)
+        h, w = m.shape[:2]
+        if h <= 1 or w <= 1:
+            return 1.0
+        border = np.concatenate((m[0, :], m[h - 1, :], m[:, 0], m[:, w - 1]))
+        return float(border.mean())
+
+    @staticmethod
+    def _bottom_edge_ratio(mask: np.ndarray) -> float:
+        if mask is None or mask.size == 0:
+            return 1.0
+        m = (mask > 0).astype(np.uint8)
+        h, _w = m.shape[:2]
+        strip = m[max(0, h - max(2, h // 20)) :, :]
+        return float(strip.mean()) if strip.size else 1.0
+
+    def _score_mask_candidate(self, mask: np.ndarray) -> float:
+        """Higher is better: centered, plausible area, low edge leakage."""
+        if mask is None or mask.size == 0:
+            return float("-inf")
+        h, w = mask.shape[:2]
+        cx, cy = w // 2, h // 2
+        area = self._mask_area_ratio(mask)
+        center_hit = 1.0 if mask[cy, cx] > 0 else 0.0
+        min_ratio, max_ratio = self._prompt_area_bounds()
+        under = max(0.0, min_ratio - area)
+        over = max(0.0, area - max_ratio)
+        edge_ratio = self._edge_contact_ratio(mask)
+        bottom_ratio = self._bottom_edge_ratio(mask)
+        score = (2.2 * center_hit) + (1.0 - 5.5 * under - 6.5 * over) - (2.2 * edge_ratio) - (2.8 * bottom_ratio)
+        return float(score)
 
     def _prompt_area_bounds(self) -> tuple[float, float]:
         if self.settings is None:

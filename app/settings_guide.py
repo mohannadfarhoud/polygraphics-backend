@@ -93,6 +93,24 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Phase-1 foreground isolator when skip_sam_segmentation=false. `sam` = promptable Segment Anything; `rembg` = local alpha-matte model (often better on cluttered textiles).",
         },
         {
+            "key": "isolation_smart_select",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: score multiple isolation candidates and keep the most plausible centered object mask (helps reject unrelated background/table fragments).",
+        },
+        {
+            "key": "isolation_try_alternate_backend",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: also evaluates the other backend as fallback candidate (`sam` <-> `rembg`) before accepting phase-1 mask.",
+        },
+        {
+            "key": "isolation_min_score",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Minimum smart-selection quality score accepted for a mask; lower values trigger stricter fallback behaviour.",
+        },
+        {
             "key": "recenter_isolated_subject",
             "scope": "both",
             "worker_env": None,
@@ -109,6 +127,24 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": "Maximum zoom applied during recentering; prevents extreme enlargement/cropping on tiny masks.",
+        },
+        {
+            "key": "isolation_filter_outlier_views",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: drop clearly inconsistent masked views (abnormal object area/center drift) before reconstruction so one bad isolation does not poison the full job.",
+        },
+        {
+            "key": "isolation_outlier_area_mad_scale",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Robust strictness for segmentation outlier filtering by object area (median-absolute-deviation scale). Higher values keep more views.",
+        },
+        {
+            "key": "isolation_outlier_center_distance",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Maximum normalized distance of isolated object center from image center before view is treated as outlier.",
         },
         {
             "key": "rembg_model_name",
