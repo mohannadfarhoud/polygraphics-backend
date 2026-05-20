@@ -12,6 +12,9 @@ class RuntimeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     # `mapanything`/`dust3r`/`colmap` mesh to `.glb`; `gaussian_splatting` yields `.ply` splats.
     reconstruction_backend: Literal["mapanything", "dust3r", "colmap", "gaussian_splatting"] = "mapanything"
+    # Which images feed geometry matching/reconstruction. `original` is more robust for sparse matching;
+    # `masked` keeps strict object-only context but can reduce feature richness on low-texture objects.
+    reconstruction_image_source: Literal["original", "masked"] = "original"
 
     # Hugging Face model id (or local snapshot path) for Meta MapAnything.
     mapanything_pretrained_id: str = "facebook/map-anything-apache"
@@ -72,12 +75,16 @@ class RuntimeSettings(BaseModel):
     recenter_target_subject_fill: float = Field(default=0.62, gt=0.05, le=0.98)
     # Limit enlargement factor during recentering (1.0 = no scaling, >1 enlarges object in frame).
     recenter_max_scale: float = Field(default=1.85, ge=1.0, le=4.0)
+    # If false (recommended): recenter performs translation only and keeps per-view scale unchanged.
+    recenter_allow_per_image_scaling: bool = False
     # Reject clearly inconsistent segmented views before reconstruction (keeps most coherent masked set).
     isolation_filter_outlier_views: bool = True
     # How strict cross-view mask-area filtering is (higher keeps more views).
     isolation_outlier_area_mad_scale: float = Field(default=3.2, ge=1.0, le=8.0)
     # Max normalized centroid drift from median foreground center before dropping a view.
     isolation_outlier_center_distance: float = Field(default=0.22, ge=0.05, le=0.7)
+    # If true: fail the job when no plausible mask is found instead of silently using ellipse fallback.
+    segmentation_fail_fast: bool = True
 
     sam_checkpoint_path: str | None = None
     # Must match the .pth file: ``sam_vit_b_*.pth`` → vit_b; ``sam_vit_h_*.pth`` → vit_h; ``sam_vit_l_*.pth`` → vit_l.

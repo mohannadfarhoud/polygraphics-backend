@@ -158,10 +158,16 @@ class ReconstructionPipeline:
         publish_completed: bool = True,
     ) -> str:
         stem = output_basename or job_id
+        geometry_source = str(getattr(self.runtime_settings, "reconstruction_image_source", "original")).strip().lower()
+        reconstruction_inputs = original_paths if geometry_source == "original" else masked_paths
+        if len(reconstruction_inputs) < 2:
+            raise RuntimeError(
+                f"Not enough reconstruction inputs ({len(reconstruction_inputs)}) for source={geometry_source!r}"
+            )
         # Phase 2 of the protocol: MapAnything metric reconstruction (+ optional confidence masking there).
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)
         reconstruction = self.reconstructor.reconstruct(
-            masked_paths, job_id=job_id, mesh_backend=mesh_backend
+            reconstruction_inputs, job_id=job_id, mesh_backend=mesh_backend
         )
         self._raise_if_cancelled(cancel_event)
 
@@ -205,9 +211,12 @@ class ReconstructionPipeline:
                 cams = list(getattr(reconstruction, "cameras", []) or [])
                 if cams:
                     masked_to_original: dict[str, Path] = {}
+                    original_to_masked: dict[str, Path] = {}
                     for masked, original in zip(masked_paths, original_paths):
                         masked_to_original[str(masked)] = original
                         masked_to_original[masked.name] = original
+                        original_to_masked[str(original)] = masked
+                        original_to_masked[original.name] = masked
 
                     for cam in cams:
                         if self.runtime_settings.mesh_photo_vertex_bake_sample_source == "original":
@@ -217,7 +226,11 @@ class ReconstructionPipeline:
                                 or cam.image_path
                             )
                         else:
-                            sample_path = Path(cam.image_path)
+                            sample_path = (
+                                original_to_masked.get(str(cam.image_path))
+                                or original_to_masked.get(Path(cam.image_path).name)
+                                or Path(cam.image_path)
+                            )
                         photo_views.append(
                             CameraView(
                                 image_path=sample_path,

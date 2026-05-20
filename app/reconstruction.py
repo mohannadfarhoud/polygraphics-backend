@@ -30,20 +30,20 @@ class Dust3RReconstructor:
 
     def reconstruct(
         self,
-        masked_images: list[Path],
+        reconstruction_images: list[Path],
         *,
         job_id: str | None = None,
         mesh_backend: Literal["mapanything", "dust3r", "colmap"] | None = None,
     ) -> ReconstructionResult:
-        if len(masked_images) < 2:
-            raise ValueError("Need at least 2 masked images")
+        if len(reconstruction_images) < 2:
+            raise ValueError("Need at least 2 reconstruction images")
 
         if self.settings is None:
             raise RuntimeError("Pipeline misconfigured: runtime settings missing.")
 
         if self.settings.allow_placeholder_pipeline:
             return ReconstructionResult(
-                aligned_points_xyz=self._placeholder_cloud(masked_images),
+                aligned_points_xyz=self._placeholder_cloud(reconstruction_images),
                 aligned_colors_rgb=None,
             )
 
@@ -60,11 +60,11 @@ class Dust3RReconstructor:
             )
 
         if backend == "mapanything":
-            return self._mapanything_reconstruct(masked_images, self.settings)
+            return self._mapanything_reconstruct(reconstruction_images, self.settings)
         if backend == "dust3r":
-            return self._dust3r_reconstruct(masked_images, self.settings)
+            return self._dust3r_reconstruct(reconstruction_images, self.settings)
         if backend == "colmap":
-            return self._colmap_reconstruct(masked_images, self.settings, job_id=job_id)
+            return self._colmap_reconstruct(reconstruction_images, self.settings, job_id=job_id)
 
         raise RuntimeError(f"Unsupported mesh backend {backend!r}.")
 
@@ -76,10 +76,10 @@ class Dust3RReconstructor:
             return "gaussian_splatting"
         return str(effective_reconstruction_backend(self.settings))
 
-    def _mapanything_reconstruct(self, masked_images: list[Path], settings: RuntimeSettings) -> ReconstructionResult:
+    def _mapanything_reconstruct(self, reconstruction_images: list[Path], settings: RuntimeSettings) -> ReconstructionResult:
         from .mapanything_runner import run_mapanything_scene
 
-        scene = run_mapanything_scene(masked_images, settings)
+        scene = run_mapanything_scene(reconstruction_images, settings)
         cameras: list[CameraView] = []
         for i, masked_path in enumerate(scene.image_paths):
             if i >= len(scene.image_sizes) or i >= len(scene.intrinsics) or i >= len(scene.poses_w2c):
@@ -98,10 +98,10 @@ class Dust3RReconstructor:
             cameras=cameras,
         )
 
-    def _dust3r_reconstruct(self, masked_images: list[Path], settings: RuntimeSettings) -> ReconstructionResult:
+    def _dust3r_reconstruct(self, reconstruction_images: list[Path], settings: RuntimeSettings) -> ReconstructionResult:
         from .dust3r_runner import run_dust3r_scene
 
-        scene = run_dust3r_scene(masked_images, settings)
+        scene = run_dust3r_scene(reconstruction_images, settings)
         cameras: list[CameraView] = []
         for i, masked_path in enumerate(scene.image_paths):
             if i >= len(scene.image_sizes) or i >= len(scene.intrinsics) or i >= len(scene.poses_w2c):
@@ -122,7 +122,7 @@ class Dust3RReconstructor:
 
     def _colmap_reconstruct(
         self,
-        masked_images: list[Path],
+        reconstruction_images: list[Path],
         settings: RuntimeSettings,
         *,
         job_id: str | None = None,
@@ -130,7 +130,7 @@ class Dust3RReconstructor:
         from .colmap_runner import run_colmap_sparse_with_cameras
 
         workspace = Path("data") / "colmap_workspace" / (job_id or "manual")
-        result = run_colmap_sparse_with_cameras(masked_images, settings, workspace=workspace)
+        result = run_colmap_sparse_with_cameras(reconstruction_images, settings, workspace=workspace)
         return ReconstructionResult(
             aligned_points_xyz=result.points_xyz,
             aligned_colors_rgb=result.colors_rgb,

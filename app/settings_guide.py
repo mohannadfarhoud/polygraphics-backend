@@ -15,6 +15,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Mesh: mapanything (.glb), dust3r (.glb), or colmap (.glb); gaussian_splatting (.ply) for splats.",
         },
         {
+            "key": "reconstruction_image_source",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "`original` (recommended): use full photos for feature matching/geometry, while masks are still used for isolation + cleanup. `masked`: use black-background isolated views directly for reconstruction.",
+        },
+        {
             "key": "mapanything_pretrained_id",
             "scope": "both",
             "worker_env": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL (optional Hugging Face id or path)",
@@ -141,6 +147,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Maximum zoom applied during recentering; prevents extreme enlargement/cropping on tiny masks.",
         },
         {
+            "key": "recenter_allow_per_image_scaling",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When false (recommended): recenter only translates and preserves native object scale across views. Set true to also scale each image independently toward target fill.",
+        },
+        {
             "key": "isolation_filter_outlier_views",
             "scope": "both",
             "worker_env": None,
@@ -157,6 +169,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": "Maximum normalized distance of isolated object center from image center before view is treated as outlier.",
+        },
+        {
+            "key": "segmentation_fail_fast",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: fail the job if phase-1 cannot produce a plausible object mask, instead of silently using placeholder ellipse fallback.",
         },
         {
             "key": "rembg_model_name",

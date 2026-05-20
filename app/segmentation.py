@@ -99,7 +99,7 @@ class SamSegmenter:
                     candidates.append(("rembg", rembg_mask))
 
         if not candidates:
-            return self._fallback_center_mask(image_bgr)
+            return self._fallback_or_raise(image_bgr, reason="No valid isolation candidates produced by backend(s).")
         if not smart_select:
             return _cleanup_subject_mask(candidates[0][1])
 
@@ -116,8 +116,20 @@ class SamSegmenter:
 
         min_score = float(getattr(self.settings, "isolation_min_score", 1.1)) if self.settings else 1.1
         if best_mask is None or best_score < min_score:
-            return self._fallback_center_mask(image_bgr)
+            return self._fallback_or_raise(
+                image_bgr,
+                reason=(
+                    f"Isolation quality too low (score={best_score:.3f}, threshold={min_score:.3f}). "
+                    "Try lower isolation_min_score or improve capture/mask prompts."
+                ),
+            )
         return best_mask
+
+    def _fallback_or_raise(self, image_bgr: np.ndarray, *, reason: str) -> np.ndarray:
+        fail_fast = bool(getattr(self.settings, "segmentation_fail_fast", True)) if self.settings else True
+        if fail_fast:
+            raise RuntimeError(f"Segmentation failed: {reason}")
+        return self._fallback_center_mask(image_bgr)
 
     def _predict_sam_mask(self, image_bgr: np.ndarray, *, strict: bool) -> np.ndarray | None:
         ckpt = self.settings.sam_checkpoint_path if self.settings else None
@@ -522,6 +534,7 @@ class SamSegmenter:
         *,
         target_fill: float = 0.62,
         max_scale: float = 1.85,
+        allow_scaling: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
         """Translate + enlarge isolated foreground so it is centered and more prominent."""
         if mask_u8.ndim != 2:
@@ -542,8 +555,11 @@ class SamSegmenter:
         obj_extent = float(max(bw, bh))
         img_extent = float(max(1, min(w, h)))
         desired_extent = float(max(1.0, target_fill * img_extent))
-        scale = desired_extent / obj_extent
-        scale = float(max(1.0, min(max_scale, scale)))
+        if allow_scaling:
+            scale = desired_extent / obj_extent
+            scale = float(max(1.0, min(max_scale, scale)))
+        else:
+            scale = 1.0
         tgt_cx = (w - 1) / 2.0
         tgt_cy = (h - 1) / 2.0
         tx = float(tgt_cx - scale * obj_cx)
@@ -584,6 +600,9 @@ class SamSegmenter:
         if bool(getattr(self.settings, "recenter_isolated_subject", True)):
             target_fill = float(getattr(self.settings, "recenter_target_subject_fill", 0.62)) if self.settings else 0.62
             max_scale = float(getattr(self.settings, "recenter_max_scale", 1.85)) if self.settings else 1.85
+            allow_scaling = (
+                bool(getattr(self.settings, "recenter_allow_per_image_scaling", False)) if self.settings else False
+            )
             target_fill = max(0.05, min(0.98, target_fill))
             max_scale = max(1.0, min(4.0, max_scale))
             masked, mask = self._recenter_masked_subject(
@@ -591,6 +610,7 @@ class SamSegmenter:
                 mask,
                 target_fill=target_fill,
                 max_scale=max_scale,
+                allow_scaling=allow_scaling,
             )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(output_path), masked)
