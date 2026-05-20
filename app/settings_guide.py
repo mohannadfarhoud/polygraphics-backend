@@ -12,7 +12,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "reconstruction_backend",
             "scope": "both",
             "worker_env": None,
-            "notes": "Mesh: mapanything (.glb) or dust3r (.glb); gaussian_splatting (.ply) for splats.",
+            "notes": "Mesh: mapanything (.glb), dust3r (.glb), or colmap (.glb); gaussian_splatting (.ply) for splats.",
         },
         {
             "key": "mapanything_pretrained_id",
@@ -61,6 +61,18 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": "Per-point confidence filter after DUSt3R alignment (0–1). Set 0 to keep all points when sparse outputs occur.",
+        },
+        {
+            "key": "colmap_binary_path",
+            "scope": "stored_on_api",
+            "worker_env": None,
+            "notes": "Required when reconstruction_backend=colmap: path to COLMAP executable/batch on the machine running reconstruction (for example C:\\COLMAP\\COLMAP.bat on Windows worker).",
+        },
+        {
+            "key": "colmap_sift_gpu",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: ask COLMAP to use GPU SIFT extraction when supported by your COLMAP build.",
         },
         {
             "key": "compare_mesh_preview_with_gs",

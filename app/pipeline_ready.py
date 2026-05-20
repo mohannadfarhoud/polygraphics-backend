@@ -72,12 +72,23 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 "on the machine that runs reconstruction (worker path in split deploy)."
             )
 
+    def _need_colmap() -> None:
+        colmap_bin = (getattr(settings, "colmap_binary_path", None) or "").strip()
+        if not colmap_bin or not Path(colmap_bin).is_file():
+            raise RuntimeError(
+                "COLMAP backend selected but colmap_binary_path is missing or invalid. "
+                "Set it to a valid executable/batch on the machine running reconstruction "
+                '(example: "C:\\COLMAP\\COLMAP.bat").'
+            )
+
     backend = effective_reconstruction_backend(settings)
 
     if backend == "mapanything":
         _need_mapanything()
     elif backend == "dust3r":
         _need_dust3r()
+    elif backend == "colmap":
+        _need_colmap()
     elif backend == "gaussian_splatting":
         _need_mapanything()
         repo = Path(settings.gs_repo_path or "")

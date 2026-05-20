@@ -10,8 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class RuntimeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    # `mapanything` meshes a `.glb`; `gaussian_splatting` yields a `.ply` (3DGS, seeded from MapAnything → COLMAP-text).
-    reconstruction_backend: Literal["mapanything", "dust3r", "gaussian_splatting"] = "mapanything"
+    # `mapanything`/`dust3r`/`colmap` mesh to `.glb`; `gaussian_splatting` yields `.ply` splats.
+    reconstruction_backend: Literal["mapanything", "dust3r", "colmap", "gaussian_splatting"] = "mapanything"
 
     # Hugging Face model id (or local snapshot path) for Meta MapAnything.
     mapanything_pretrained_id: str = "facebook/map-anything-apache"
@@ -39,6 +39,9 @@ class RuntimeSettings(BaseModel):
     dust3r_max_input_views: int = Field(default=36, ge=2, le=256)
     dust3r_scene_graph: str = "auto"
     dust3r_complete_graph_max_views: int = Field(default=24, ge=2, le=256)
+    # Legacy COLMAP SfM backend (optional). Set this on the machine running reconstruction.
+    colmap_binary_path: str | None = None
+    colmap_sift_gpu: bool = True
 
     device: Literal["auto", "cpu", "cuda"] = "auto"
     # When True (default): phase 1 (SAM) and GS MapAnything scene prep run in subprocesses on CUDA so
@@ -145,7 +148,7 @@ class RuntimeSettings(BaseModel):
             return data
         d = dict(data)
         rb = d.get("reconstruction_backend")
-        if rb in ("auto", "colmap"):
+        if rb == "auto":
             d["reconstruction_backend"] = "mapanything"
 
         preview = bool(d.get("compare_mesh_preview_with_gs", False)) or bool(
@@ -157,8 +160,6 @@ class RuntimeSettings(BaseModel):
         for dead in (
             "mesh_colmap_failure_fallback_dust3r",
             "auto_dust3r_max_images",
-            "colmap_binary_path",
-            "colmap_sift_gpu",
             "gs_init_source",
         ):
             d.pop(dead, None)
@@ -171,7 +172,7 @@ def gaussian_splatting_skipped_via_env() -> bool:
 
 def effective_reconstruction_backend(
     settings: RuntimeSettings,
-) -> Literal["mapanything", "dust3r", "gaussian_splatting"]:
+) -> Literal["mapanything", "dust3r", "colmap", "gaussian_splatting"]:
     """What the pipeline actually runs (`POLYGRAPH_SKIP_GAUSSIAN_SPLATTING` forces mesh path)."""
     if gaussian_splatting_skipped_via_env():
         return "mapanything"

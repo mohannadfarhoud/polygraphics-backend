@@ -33,9 +33,8 @@ class Dust3RReconstructor:
         masked_images: list[Path],
         *,
         job_id: str | None = None,
-        mesh_backend: Literal["mapanything", "dust3r"] | None = None,
+        mesh_backend: Literal["mapanything", "dust3r", "colmap"] | None = None,
     ) -> ReconstructionResult:
-        del job_id  # Workspaces are ephemeral; GS path uses its own scene dir.
         if len(masked_images) < 2:
             raise ValueError("Need at least 2 masked images")
 
@@ -64,6 +63,8 @@ class Dust3RReconstructor:
             return self._mapanything_reconstruct(masked_images, self.settings)
         if backend == "dust3r":
             return self._dust3r_reconstruct(masked_images, self.settings)
+        if backend == "colmap":
+            return self._colmap_reconstruct(masked_images, self.settings, job_id=job_id)
 
         raise RuntimeError(f"Unsupported mesh backend {backend!r}.")
 
@@ -117,6 +118,23 @@ class Dust3RReconstructor:
             aligned_points_xyz=scene.points,
             aligned_colors_rgb=scene.colors,
             cameras=cameras,
+        )
+
+    def _colmap_reconstruct(
+        self,
+        masked_images: list[Path],
+        settings: RuntimeSettings,
+        *,
+        job_id: str | None = None,
+    ) -> ReconstructionResult:
+        from .colmap_runner import run_colmap_sparse_with_cameras
+
+        workspace = Path("data") / "colmap_workspace" / (job_id or "manual")
+        result = run_colmap_sparse_with_cameras(masked_images, settings, workspace=workspace)
+        return ReconstructionResult(
+            aligned_points_xyz=result.points_xyz,
+            aligned_colors_rgb=result.colors_rgb,
+            cameras=list(result.cameras or []),
         )
 
     def _placeholder_cloud(self, masked_images: list[Path]) -> np.ndarray:
