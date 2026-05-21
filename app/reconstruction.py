@@ -66,6 +66,10 @@ class Dust3RReconstructor:
         if backend == "colmap":
             return self._colmap_reconstruct(reconstruction_images, self.settings, job_id=job_id)
 
+        if backend in ("ai_prior", "hybrid_prior_refine"):
+            raise RuntimeError(
+                f"Backend {backend!r} must run through ReconstructionPipeline prior-routing path."
+            )
         raise RuntimeError(f"Unsupported mesh backend {backend!r}.")
 
     def resolve_backend(self, n_images: int) -> str:

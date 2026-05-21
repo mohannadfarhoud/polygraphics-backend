@@ -16,8 +16,9 @@ class JobRecord(BaseModel):
         description=(
             "Current pipeline stage. UI should switch on the base value (before any space). "
             "Lifecycle: starting | exporting | completed. "
-            "Pipeline protocol: phase_0_quality_filter | phase_1_segmentation | phase_2_alignment | phase_3_sanitization "
-            "| phase_4_colmap_bridge | phase_4_colmap_scene | phase_5_gaussian_splatting. "
+            "Pipeline protocol: phase_0_input_curation | phase_1_segmentation | phase_2_alignment | phase_3_sanitization "
+            "| phase_4_colmap_bridge | phase_4_colmap_scene | phase_5_gaussian_splatting "
+            "| phase_confidence_routing | phase_prior_generation | phase_prior_refinement. "
             "Mesh-only: meshing | mesh_cleanup | vertex_color_transfer | photo_vertex_bake "
             "| color_autobalance | exporting. "
             "Optional GS comparison meshes: compare_mesh_preview. "
@@ -66,6 +67,26 @@ class JobRecord(BaseModel):
     capture_quality_report_url: str | None = Field(
         default=None,
         description="Relative URL to uploads/{job_id}/capture_quality_report.json when available.",
+    )
+    capture_kept_images: list[str] = Field(
+        default_factory=list,
+        description="Image basenames kept after capture curation stage; derived per response.",
+    )
+    reconstruction_confidence: float | None = Field(
+        default=None,
+        description="Confidence score used by backend routing (0..1). Derived per response.",
+    )
+    route_taken: str | None = Field(
+        default=None,
+        description="Effective reconstruction route (hybrid_refine/prior_only/coarse_prior/fail guidance).",
+    )
+    quality_reason: str | None = Field(
+        default=None,
+        description="Human-readable short reason attached to route selection.",
+    )
+    reconstruction_report_url: str | None = Field(
+        default=None,
+        description="Relative URL to uploads/{job_id}/reconstruction_report.json when available.",
     )
 
     @computed_field  # type: ignore[misc]

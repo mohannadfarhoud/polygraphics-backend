@@ -11,6 +11,7 @@ from typing import Literal
 
 import cv2
 import numpy as np
+import open3d as o3d
 
 from .color_baking import CameraView
 from .config import PipelineConfig
@@ -87,7 +88,8 @@ class ReconstructionPipeline:
                 self.config.root_dir / "data" / "job_inputs",
                 int(self.runtime_settings.max_input_image_side),
             )
-            self._publish(job_id, JobStatus.PROCESSING, stage="phase_0_quality_filter", progress=8)
+            self._publish(job_id, JobStatus.PROCESSING, stage="phase_0_input_curation", progress=8)
+            quality_score = 1.0
             try:
                 from .capture_quality import run_capture_quality_gate
 
@@ -98,6 +100,7 @@ class ReconstructionPipeline:
                     upload_dir=self.config.root_dir / "uploads",
                 )
                 image_paths = quality.kept_paths
+                quality_score = float(quality.score)
             except Exception:
                 # Let hard policy errors propagate; only ignore unexpected telemetry failures.
                 if str(self.runtime_settings.capture_reject_policy).strip().lower() == "hard":
@@ -130,7 +133,8 @@ class ReconstructionPipeline:
             purge_torch_cuda()
             self._raise_if_cancelled(cancel_event)
 
-            if effective_reconstruction_backend(self.runtime_settings) == "gaussian_splatting":
+            backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
+            if backend == "gaussian_splatting":
                 if self.runtime_settings.compare_mesh_preview_with_gs:
                     self._publish(
                         job_id,
@@ -153,6 +157,23 @@ class ReconstructionPipeline:
                 )
                 return model_url
 
+            if backend == "ai_prior":
+                return self._run_ai_prior_pipeline(
+                    job_id=job_id,
+                    masked_paths=masked_paths,
+                    original_paths=originals_for_mesh,
+                    quality_score=quality_score,
+                    cancel_event=cancel_event,
+                )
+            if backend == "hybrid_prior_refine":
+                return self._run_hybrid_prior_pipeline(
+                    job_id=job_id,
+                    masked_paths=masked_paths,
+                    original_paths=originals_for_mesh,
+                    quality_score=quality_score,
+                    cancel_event=cancel_event,
+                )
+
             model_url = self._run_mesh_pipeline(
                 job_id, masked_paths, originals_for_mesh, cancel_event=cancel_event
             )
@@ -162,6 +183,268 @@ class ReconstructionPipeline:
         except Exception as exc:
             self._publish(job_id, JobStatus.FAILED, error=str(exc))
             raise
+
+    def _write_reconstruction_report(self, job_id: str, payload: dict) -> None:
+        out = self.config.root_dir / "uploads" / job_id / "reconstruction_report.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _route_from_confidence(self, confidence: float) -> tuple[str, str]:
+        high = float(getattr(self.runtime_settings, "reconstruction_confidence_high_threshold", 0.72))
+        low = float(getattr(self.runtime_settings, "reconstruction_confidence_min_threshold", 0.45))
+        if confidence >= high:
+            return "high", "hybrid_refine"
+        if confidence >= low:
+            return "medium", "prior_only"
+        policy = str(getattr(self.runtime_settings, "reconstruction_low_confidence_policy", "prior_only"))
+        policy = policy.strip().lower()
+        if policy == "fail":
+            return "low", "fail"
+        if policy == "coarse_prior":
+            return "low", "coarse_prior"
+        return "low", "prior_only"
+
+    @staticmethod
+    def _refine_prior_mesh_with_points(
+        mesh: o3d.geometry.TriangleMesh,
+        points_xyz: np.ndarray,
+        *,
+        strength: float,
+    ) -> o3d.geometry.TriangleMesh:
+        if points_xyz is None or len(points_xyz) < 100:
+            return mesh
+        verts = np.asarray(mesh.vertices, dtype=np.float64)
+        if verts.size == 0:
+            return mesh
+        pts = np.asarray(points_xyz, dtype=np.float64)
+        try:
+            from scipy.spatial import cKDTree
+
+            tree = cKDTree(pts)
+            try:
+                _, idx = tree.query(verts, k=1, workers=-1)
+            except TypeError:
+                _, idx = tree.query(verts, k=1)
+            idx = np.asarray(idx, dtype=np.intp).reshape(-1)
+            nearest = pts[idx]
+        except Exception:
+            return mesh
+        alpha = float(max(0.0, min(1.0, strength)))
+        blended = ((1.0 - alpha) * verts) + (alpha * nearest)
+        out = o3d.geometry.TriangleMesh(mesh)
+        out.vertices = o3d.utility.Vector3dVector(blended)
+        out.compute_vertex_normals()
+        return out
+
+    def _build_photo_views(
+        self,
+        reconstruction: object,
+        *,
+        original_paths: list[Path],
+        masked_paths: list[Path],
+    ) -> list[CameraView]:
+        cams = list(getattr(reconstruction, "cameras", []) or [])
+        if not cams:
+            return []
+        masked_to_original: dict[str, Path] = {}
+        original_to_masked: dict[str, Path] = {}
+        for masked, original in zip(masked_paths, original_paths):
+            masked_to_original[str(masked)] = original
+            masked_to_original[masked.name] = original
+            original_to_masked[str(original)] = masked
+            original_to_masked[original.name] = masked
+        photo_views: list[CameraView] = []
+        for cam in cams:
+            if self.runtime_settings.mesh_photo_vertex_bake_sample_source == "original":
+                sample_path = (
+                    masked_to_original.get(str(cam.image_path))
+                    or masked_to_original.get(Path(cam.image_path).name)
+                    or cam.image_path
+                )
+            else:
+                sample_path = (
+                    original_to_masked.get(str(cam.image_path))
+                    or original_to_masked.get(Path(cam.image_path).name)
+                    or Path(cam.image_path)
+                )
+            photo_views.append(
+                CameraView(
+                    image_path=sample_path,
+                    image_size=cam.image_size,
+                    K=cam.K,
+                    w2c=cam.w2c,
+                )
+            )
+        return photo_views
+
+    def _run_ai_prior_pipeline(
+        self,
+        *,
+        job_id: str,
+        masked_paths: list[Path],
+        original_paths: list[Path],
+        quality_score: float,
+        cancel_event: threading.Event | None = None,
+    ) -> str:
+        from .ai_prior_runner import run_ai_prior_mesh
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="phase_confidence_routing", progress=41)
+        band, route = self._route_from_confidence(float(quality_score))
+        if route == "fail":
+            raise RuntimeError(
+                f"Low reconstruction confidence ({quality_score:.3f}); "
+                "capture set is too weak for reliable mesh generation."
+            )
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="phase_prior_generation", progress=52)
+        prior = run_ai_prior_mesh(
+            job_id=job_id,
+            masked_images=masked_paths,
+            settings=self.runtime_settings,
+            work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
+        )
+        mesh = keep_largest_mesh_component(prior.mesh)
+        if route == "coarse_prior":
+            mesh = decimate(mesh, max(10_000, int(self.config.decimation_target_triangles * 0.25)))
+        mesh = center_and_scale_mesh(mesh)
+        mesh = autobalance_vertex_colors(mesh)
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
+        glb_path = self.config.output_dir / f"{job_id}.glb"
+        export_glb(
+            mesh,
+            glb_path,
+            compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
+        )
+        model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
+        self._write_reconstruction_report(
+            job_id,
+            {
+                "job_id": job_id,
+                "reconstruction_confidence": round(float(quality_score), 4),
+                "route_taken": "prior_only" if route != "coarse_prior" else "coarse_prior",
+                "quality_reason": f"{band}_confidence_input",
+                "ai_prior_provider": prior.provider,
+                "ai_prior_confidence": round(float(prior.confidence), 4),
+                "details": prior.details,
+            },
+        )
+        self._publish(
+            job_id,
+            JobStatus.COMPLETED,
+            stage="completed",
+            progress=100,
+            model_url=model_url,
+            model_format="glb",
+        )
+        return model_url
+
+    def _run_hybrid_prior_pipeline(
+        self,
+        *,
+        job_id: str,
+        masked_paths: list[Path],
+        original_paths: list[Path],
+        quality_score: float,
+        cancel_event: threading.Event | None = None,
+    ) -> str:
+        from .ai_prior_runner import run_ai_prior_mesh
+        from .color_baking import bake_vertex_colors_from_views
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="phase_confidence_routing", progress=41)
+        band, route = self._route_from_confidence(float(quality_score))
+        if route == "fail":
+            raise RuntimeError(
+                f"Low reconstruction confidence ({quality_score:.3f}); "
+                "capture set is too weak for hybrid reconstruction."
+            )
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="phase_prior_generation", progress=52)
+        prior = run_ai_prior_mesh(
+            job_id=job_id,
+            masked_images=masked_paths,
+            settings=self.runtime_settings,
+            work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
+        )
+        mesh = keep_largest_mesh_component(prior.mesh)
+        route_taken = "prior_only"
+        quality_reason = f"{band}_confidence_input"
+
+        if route == "hybrid_refine":
+            refine_backend = str(getattr(self.runtime_settings, "hybrid_refine_backend", "mapanything")).strip().lower()
+            if refine_backend != "none":
+                geometry_source = str(getattr(self.runtime_settings, "reconstruction_image_source", "original")).strip().lower()
+                reconstruction_inputs = original_paths if geometry_source == "original" else masked_paths
+                self._publish(job_id, JobStatus.PROCESSING, stage="phase_prior_refinement", progress=66)
+                recon = self.reconstructor.reconstruct(
+                    reconstruction_inputs,
+                    job_id=job_id,
+                    mesh_backend=refine_backend,  # type: ignore[arg-type]
+                )
+                if len(recon.aligned_points_xyz) >= int(getattr(self.runtime_settings, "hybrid_min_refine_points", 5000)):
+                    mesh = self._refine_prior_mesh_with_points(
+                        mesh,
+                        recon.aligned_points_xyz,
+                        strength=float(getattr(self.runtime_settings, "hybrid_refine_strength", 0.2)),
+                    )
+                    pcd = build_point_cloud(
+                        recon.aligned_points_xyz,
+                        colors_rgb=recon.aligned_colors_rgb,
+                    )
+                    if pcd.has_colors():
+                        mesh = transfer_vertex_colors_from_point_cloud(mesh, pcd)
+                    if bool(getattr(self.runtime_settings, "hybrid_enable_photo_bake", True)):
+                        views = self._build_photo_views(
+                            recon,
+                            original_paths=original_paths,
+                            masked_paths=masked_paths,
+                        )
+                        if views:
+                            self._publish(job_id, JobStatus.PROCESSING, stage="photo_vertex_bake", progress=86)
+                            bake_vertex_colors_from_views(mesh, views)
+                    route_taken = "hybrid_refine"
+                    quality_reason = "high_confidence_hybrid_refine"
+                else:
+                    quality_reason = "insufficient_refine_points_prior_kept"
+
+        if route == "coarse_prior":
+            mesh = decimate(mesh, max(10_000, int(self.config.decimation_target_triangles * 0.25)))
+            route_taken = "coarse_prior"
+            quality_reason = "low_confidence_coarse_prior"
+
+        mesh = keep_largest_mesh_component(mesh)
+        mesh = center_and_scale_mesh(mesh)
+        mesh = autobalance_vertex_colors(mesh)
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
+        glb_path = self.config.output_dir / f"{job_id}.glb"
+        export_glb(
+            mesh,
+            glb_path,
+            compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
+        )
+        model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
+        self._write_reconstruction_report(
+            job_id,
+            {
+                "job_id": job_id,
+                "reconstruction_confidence": round(float(quality_score), 4),
+                "route_taken": route_taken,
+                "quality_reason": quality_reason,
+                "ai_prior_provider": prior.provider,
+                "ai_prior_confidence": round(float(prior.confidence), 4),
+                "details": prior.details,
+            },
+        )
+        self._publish(
+            job_id,
+            JobStatus.COMPLETED,
+            stage="completed",
+            progress=100,
+            model_url=model_url,
+            model_format="glb",
+        )
+        return model_url
 
     def _run_mesh_pipeline(
         self,

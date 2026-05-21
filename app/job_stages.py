@@ -15,6 +15,8 @@ STAGE_EXPORTING: Final = "exporting"
 STAGE_COMPLETED: Final = "completed"
 
 # Pipeline protocol — phases 0..5.
+STAGE_PHASE_0_INPUT_CURATION: Final = "phase_0_input_curation"
+# Backward-compat alias for older clients.
 STAGE_PHASE_0_QUALITY_FILTER: Final = "phase_0_quality_filter"
 STAGE_PHASE_1_SEGMENTATION: Final = "phase_1_segmentation"
 STAGE_PHASE_2_ALIGNMENT: Final = "phase_2_alignment"
@@ -22,6 +24,9 @@ STAGE_PHASE_3_SANITIZATION: Final = "phase_3_sanitization"
 STAGE_PHASE_4_COLMAP_BRIDGE: Final = "phase_4_colmap_bridge"   # neural seed → COLMAP text for GS/train.py reader
 STAGE_PHASE_4_COLMAP_SCENE: Final = "phase_4_colmap_scene"     # deprecated — kept for progress JSON compat
 STAGE_PHASE_5_GAUSSIAN_SPLATTING: Final = "phase_5_gaussian_splatting"
+STAGE_PHASE_CONFIDENCE_ROUTING: Final = "phase_confidence_routing"
+STAGE_PHASE_PRIOR_GENERATION: Final = "phase_prior_generation"
+STAGE_PHASE_PRIOR_REFINEMENT: Final = "phase_prior_refinement"
 
 # Mesh-only finishing step (only emitted on the .glb backend).
 STAGE_MESHING: Final = "meshing"
@@ -35,6 +40,7 @@ STAGE_COMPARE_MESH_PREVIEW: Final = "compare_mesh_preview"
 
 ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_STARTING,
+    STAGE_PHASE_0_INPUT_CURATION,
     STAGE_PHASE_0_QUALITY_FILTER,
     STAGE_PHASE_1_SEGMENTATION,
     STAGE_PHASE_2_ALIGNMENT,
@@ -42,6 +48,9 @@ ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_PHASE_4_COLMAP_BRIDGE,
     STAGE_PHASE_4_COLMAP_SCENE,
     STAGE_PHASE_5_GAUSSIAN_SPLATTING,
+    STAGE_PHASE_CONFIDENCE_ROUTING,
+    STAGE_PHASE_PRIOR_GENERATION,
+    STAGE_PHASE_PRIOR_REFINEMENT,
     STAGE_MESHING,
     STAGE_SHAPE_CLASSIFICATION,
     STAGE_SHAPE_TEMPLATE_CORRECTION,

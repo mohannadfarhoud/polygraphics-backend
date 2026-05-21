@@ -11,7 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class RuntimeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
     # `mapanything`/`dust3r`/`colmap` mesh to `.glb`; `gaussian_splatting` yields `.ply` splats.
-    reconstruction_backend: Literal["mapanything", "dust3r", "colmap", "gaussian_splatting"] = "mapanything"
+    reconstruction_backend: Literal[
+        "mapanything", "dust3r", "colmap", "gaussian_splatting", "ai_prior", "hybrid_prior_refine"
+    ] = "mapanything"
     # Which images feed geometry matching/reconstruction. `original` is more robust for sparse matching;
     # `masked` keeps strict object-only context but can reduce feature richness on low-texture objects.
     reconstruction_image_source: Literal["original", "masked"] = "original"
@@ -23,6 +25,26 @@ class RuntimeSettings(BaseModel):
     capture_brightness_min: float = Field(default=20.0, ge=0.0, le=255.0)
     capture_brightness_max: float = Field(default=235.0, ge=0.0, le=255.0)
     capture_min_frame_delta: float = Field(default=0.010, ge=0.0, le=1.0)
+    capture_max_selected_images: int = Field(default=20, ge=2, le=256)
+    capture_duplicate_similarity: float = Field(default=0.995, ge=0.8, le=1.0)
+    capture_diversity_min_distance: float = Field(default=0.045, ge=0.0, le=1.0)
+    # Confidence routing across AI-prior and hybrid pipelines.
+    reconstruction_confidence_high_threshold: float = Field(default=0.72, ge=0.0, le=1.0)
+    reconstruction_confidence_min_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
+    reconstruction_low_confidence_policy: Literal["fail", "prior_only", "coarse_prior"] = "prior_only"
+    # AI-prior backend options (pluggable provider adapter).
+    ai_prior_provider: Literal["command", "mock"] = "command"
+    ai_prior_command: str | None = None
+    ai_prior_command_args_template: str = "--input-manifest {input_manifest} --output {output_mesh}"
+    ai_prior_output_mesh_path: str | None = None
+    ai_prior_timeout_seconds: int = Field(default=600, ge=30, le=7200)
+    ai_prior_api_key_env: str = "AI_PRIOR_API_KEY"
+    ai_prior_default_confidence: float = Field(default=0.62, ge=0.0, le=1.0)
+    # Hybrid prior-refinement route settings.
+    hybrid_refine_backend: Literal["mapanything", "dust3r", "colmap", "none"] = "mapanything"
+    hybrid_refine_strength: float = Field(default=0.20, ge=0.0, le=1.0)
+    hybrid_min_refine_points: int = Field(default=5000, ge=100, le=5_000_000)
+    hybrid_enable_photo_bake: bool = True
     # Optional semantic shape prior stage (classify + template-based correction).
     shape_prior_enabled: bool = False
     # Template directory containing class meshes (example: templates/car.glb, templates/truck.obj).
@@ -184,6 +206,13 @@ class RuntimeSettings(BaseModel):
             d.pop("compare_mesh_dust3r_colmap_with_gs", False)
         )
         d["compare_mesh_preview_with_gs"] = preview
+        high = d.get("reconstruction_confidence_high_threshold")
+        low = d.get("reconstruction_confidence_min_threshold")
+        try:
+            if high is not None and low is not None and float(high) < float(low):
+                d["reconstruction_confidence_high_threshold"] = float(low)
+        except Exception:
+            pass
 
         # Drop obsolete keys silently (were ignored via extra="ignore" but tidy common ones).
         for dead in (
@@ -201,7 +230,7 @@ def gaussian_splatting_skipped_via_env() -> bool:
 
 def effective_reconstruction_backend(
     settings: RuntimeSettings,
-) -> Literal["mapanything", "dust3r", "colmap", "gaussian_splatting"]:
+) -> Literal["mapanything", "dust3r", "colmap", "gaussian_splatting", "ai_prior", "hybrid_prior_refine"]:
     """What the pipeline actually runs (`POLYGRAPH_SKIP_GAUSSIAN_SPLATTING` forces mesh path)."""
     if gaussian_splatting_skipped_via_env():
         return "mapanything"

@@ -81,6 +81,28 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 '(example: "C:\\COLMAP\\COLMAP.bat").'
             )
 
+    def _need_ai_prior() -> None:
+        provider = str(getattr(settings, "ai_prior_provider", "command")).strip().lower()
+        if provider == "command":
+            raw = (getattr(settings, "ai_prior_command", None) or "").strip()
+            if not raw:
+                raise RuntimeError(
+                    "AI prior backend selected but ai_prior_command is empty. "
+                    "Set ai_prior_command to an executable/script that outputs a mesh."
+                )
+            p = Path(raw)
+            if not p.is_file():
+                import shutil
+
+                if shutil.which(raw) is None:
+                    raise RuntimeError(f"ai_prior_command not found: {raw}")
+        elif provider == "mock":
+            pass
+        else:
+            raise RuntimeError(
+                f"Unsupported ai_prior_provider={provider!r}; expected 'command' or 'mock'."
+            )
+
     backend = effective_reconstruction_backend(settings)
 
     if backend == "mapanything":
@@ -107,3 +129,20 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                     "https://github.com/graphdeco-inria/gaussian-splatting (with train.py). "
                     "CPU-only: set gs_allow_cpu_fallback=true to skip the trainer and export a colored .ply."
                 )
+    elif backend == "ai_prior":
+        _need_ai_prior()
+    elif backend == "hybrid_prior_refine":
+        _need_ai_prior()
+        refine_backend = str(getattr(settings, "hybrid_refine_backend", "mapanything")).strip().lower()
+        if refine_backend == "mapanything":
+            _need_mapanything()
+        elif refine_backend == "dust3r":
+            _need_dust3r()
+        elif refine_backend == "colmap":
+            _need_colmap()
+        elif refine_backend == "none":
+            pass
+        else:
+            raise RuntimeError(
+                f"Unsupported hybrid_refine_backend={refine_backend!r}; expected mapanything/dust3r/colmap/none."
+            )

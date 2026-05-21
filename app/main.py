@@ -245,20 +245,21 @@ def _masked_view_urls(job_id: str) -> list[str]:
     return out
 
 
-def _capture_quality_report(job_id: str) -> tuple[float | None, list[str], str | None]:
+def _capture_quality_report(job_id: str) -> tuple[float | None, list[str], list[str], str | None]:
     p = UPLOAD_DIR / job_id / "capture_quality_report.json"
     if not p.is_file():
-        return None, [], None
+        return None, [], [], None
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
-        return None, [], None
+        return None, [], [], None
     score = data.get("score")
     try:
         score_f = float(score) if score is not None else None
     except Exception:
         score_f = None
     rejected_raw = data.get("rejected") or []
+    kept_raw = data.get("kept_files") or []
     rejected: list[str] = []
     if isinstance(rejected_raw, list):
         for item in rejected_raw:
@@ -266,8 +267,36 @@ def _capture_quality_report(job_id: str) -> tuple[float | None, list[str], str |
                 f = item.get("file")
                 if isinstance(f, str) and f:
                     rejected.append(f)
+    kept: list[str] = []
+    if isinstance(kept_raw, list):
+        for item in kept_raw:
+            if isinstance(item, str) and item:
+                kept.append(item)
     report_url = _relative_base(f"uploads/{job_id}/capture_quality_report.json")
-    return score_f, rejected, report_url
+    return score_f, rejected, kept, report_url
+
+
+def _reconstruction_report(job_id: str) -> tuple[float | None, str | None, str | None, str | None]:
+    p = UPLOAD_DIR / job_id / "reconstruction_report.json"
+    if not p.is_file():
+        return None, None, None, None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None, None, None, None
+    conf = data.get("reconstruction_confidence")
+    try:
+        conf_f = float(conf) if conf is not None else None
+    except Exception:
+        conf_f = None
+    route_taken = data.get("route_taken")
+    if not isinstance(route_taken, str):
+        route_taken = None
+    quality_reason = data.get("quality_reason")
+    if not isinstance(quality_reason, str):
+        quality_reason = None
+    report_url = _relative_base(f"uploads/{job_id}/reconstruction_report.json")
+    return conf_f, route_taken, quality_reason, report_url
 
 
 def _should_rewrite_model_url(url: str | None) -> bool:
@@ -288,10 +317,16 @@ def _decorate_job_response(job: JobRecord) -> JobRecord:
     job.image_sample_url = _image_sample_url(job.job_id)
     job.masked_view_urls = _masked_view_urls(job.job_id)
     job.masked_preview_page_url = _relative_api_path(f"jobs/{job.job_id}/masked-preview")
-    cscore, crejected, creport = _capture_quality_report(job.job_id)
+    cscore, crejected, ckept, creport = _capture_quality_report(job.job_id)
     job.capture_quality_score = cscore
     job.capture_rejected_images = crejected
+    job.capture_kept_images = ckept
     job.capture_quality_report_url = creport
+    recon_conf, route_taken, quality_reason, recon_report = _reconstruction_report(job.job_id)
+    job.reconstruction_confidence = recon_conf
+    job.route_taken = route_taken
+    job.quality_reason = quality_reason
+    job.reconstruction_report_url = recon_report
 
     if (
         job.model_format

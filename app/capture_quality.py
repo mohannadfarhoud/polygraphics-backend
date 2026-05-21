@@ -29,6 +29,15 @@ def _frame_metrics(path: Path) -> tuple[float, float, np.ndarray] | None:
     return blur, bright, tiny
 
 
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    af = a.reshape(-1).astype(np.float32)
+    bf = b.reshape(-1).astype(np.float32)
+    den = float(np.linalg.norm(af) * np.linalg.norm(bf))
+    if den <= 1e-9:
+        return 0.0
+    return float(np.dot(af, bf) / den)
+
+
 def run_capture_quality_gate(
     *,
     job_id: str,
@@ -43,6 +52,9 @@ def run_capture_quality_gate(
     motion_min = float(getattr(settings, "capture_min_frame_delta", 0.010))
     policy = str(getattr(settings, "capture_reject_policy", "soft")).strip().lower()
     min_kept = int(getattr(settings, "capture_min_kept_images", 8))
+    max_selected = int(getattr(settings, "capture_max_selected_images", 20))
+    duplicate_similarity = float(getattr(settings, "capture_duplicate_similarity", 0.995))
+    diversity_min = float(getattr(settings, "capture_diversity_min_distance", 0.045))
 
     if not enabled or len(image_paths) < 3:
         report = {
@@ -58,7 +70,7 @@ def run_capture_quality_gate(
         return CaptureQualityResult(list(image_paths), [], 1.0, report)
 
     rejected: list[dict] = []
-    kept: list[Path] = []
+    candidates: list[dict] = []
     prev_tiny: np.ndarray | None = None
     valid_metrics = 0
     sum_score = 0.0
@@ -100,10 +112,76 @@ def run_capture_quality_gate(
                 }
             )
         else:
-            kept.append(p)
+            candidates.append(
+                {
+                    "path": p,
+                    "tiny": tiny,
+                    "score": frame_score,
+                    "blur": blur,
+                    "brightness": bright,
+                }
+            )
+
+    # De-duplicate very similar frames using tiny-image cosine similarity.
+    deduped: list[dict] = []
+    for item in sorted(candidates, key=lambda x: float(x["score"]), reverse=True):
+        is_dup = False
+        for keep in deduped:
+            sim = _cosine_similarity(item["tiny"], keep["tiny"])
+            if sim >= duplicate_similarity:
+                rejected.append(
+                    {
+                        "file": item["path"].name,
+                        "reason": "duplicate",
+                        "score": round(float(item["score"]), 4),
+                        "similarity": round(sim, 6),
+                    }
+                )
+                is_dup = True
+                break
+        if not is_dup:
+            deduped.append(item)
+
+    # Diversity selection (greedy farthest-first with quality sorting).
+    selected: list[dict] = []
+    pool = sorted(deduped, key=lambda x: float(x["score"]), reverse=True)
+    target_n = max(2, min(max_selected, len(pool)))
+    while pool and len(selected) < target_n:
+        if not selected:
+            selected.append(pool.pop(0))
+            continue
+        best_idx = -1
+        best_value = -1.0
+        for i, cand in enumerate(pool):
+            dmin = min(
+                float(np.mean(np.abs(cand["tiny"] - s["tiny"])))
+                for s in selected
+            )
+            value = (0.7 * float(cand["score"])) + (0.3 * dmin)
+            if value > best_value:
+                best_value = value
+                best_idx = i
+        if best_idx < 0:
+            break
+        choice = pool.pop(best_idx)
+        min_dist = min(float(np.mean(np.abs(choice["tiny"] - s["tiny"]))) for s in selected)
+        if min_dist < diversity_min:
+            rejected.append(
+                {
+                    "file": choice["path"].name,
+                    "reason": "low_diversity",
+                    "score": round(float(choice["score"]), 4),
+                    "distance": round(min_dist, 6),
+                }
+            )
+            continue
+        selected.append(choice)
+
+    kept = [x["path"] for x in selected]
 
     score = float(sum_score / max(1, valid_metrics))
     min_kept = max(2, min_kept)
+    max_selected = max(2, max_selected)
 
     applied = True
     if policy not in ("soft", "hard"):
@@ -131,10 +209,14 @@ def run_capture_quality_gate(
             "brightness_max": bmax,
             "min_frame_delta": motion_min,
             "min_kept_images": min_kept,
+            "max_selected_images": max_selected,
+            "duplicate_similarity": duplicate_similarity,
+            "diversity_min_distance": diversity_min,
         },
         "total_count": len(image_paths),
         "kept_count": len(kept),
         "rejected_count": len(rejected) if applied else 0,
+        "kept_files": [p.name for p in kept],
         "rejected": rejected if applied else [],
     }
 

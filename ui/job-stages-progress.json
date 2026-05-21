@@ -9,9 +9,29 @@
       "label": "Preparing job"
     },
     {
+      "id": "phase_0_input_curation",
+      "progress": { "min": 8, "max": 8, "typical": 8 },
+      "label": "Input curation (quality + diversity)"
+    },
+    {
       "id": "phase_0_quality_filter",
       "progress": { "min": 8, "max": 8, "typical": 8 },
-      "label": "Capture quality filtering"
+      "label": "Capture quality filtering (legacy id)"
+    },
+    {
+      "id": "phase_confidence_routing",
+      "progress": { "min": 41, "max": 41, "typical": 41 },
+      "label": "Confidence routing"
+    },
+    {
+      "id": "phase_prior_generation",
+      "progress": { "min": 52, "max": 52, "typical": 52 },
+      "label": "AI prior generation"
+    },
+    {
+      "id": "phase_prior_refinement",
+      "progress": { "min": 66, "max": 66, "typical": 66 },
+      "label": "Hybrid prior refinement"
     },
     {
       "id": "phase_1_segmentation",
@@ -105,7 +125,7 @@
       "reconstruction_backend": "mapanything",
       "order": [
         { "id": "starting", "progress": 5 },
-        { "id": "phase_0_quality_filter", "progress": 8 },
+        { "id": "phase_0_input_curation", "progress": 8 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
         { "id": "phase_2_alignment", "progress": 45 },
         { "id": "phase_3_sanitization", "progress": 65 },
@@ -124,7 +144,7 @@
       "reconstruction_backend": "gaussian_splatting",
       "order": [
         { "id": "starting", "progress": 5 },
-        { "id": "phase_0_quality_filter", "progress": 8 },
+        { "id": "phase_0_input_curation", "progress": 8 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
         { "id": "compare_mesh_preview", "progress": 42 },
         { "id": "phase_2_alignment", "progress": 45 },
@@ -135,6 +155,32 @@
         { "id": "completed", "progress": 100 }
       ],
       "note": "compare_mesh_preview step emitted only when compare_mesh_preview_with_gs is true."
+    },
+    "ai_prior_glb": {
+      "reconstruction_backend": "ai_prior",
+      "order": [
+        { "id": "starting", "progress": 5 },
+        { "id": "phase_0_input_curation", "progress": 8 },
+        { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_confidence_routing", "progress": 41 },
+        { "id": "phase_prior_generation", "progress": 52 },
+        { "id": "exporting", "progress": 94 },
+        { "id": "completed", "progress": 100 }
+      ]
+    },
+    "hybrid_prior_refine_glb": {
+      "reconstruction_backend": "hybrid_prior_refine",
+      "order": [
+        { "id": "starting", "progress": 5 },
+        { "id": "phase_0_input_curation", "progress": 8 },
+        { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_confidence_routing", "progress": 41 },
+        { "id": "phase_prior_generation", "progress": 52 },
+        { "id": "phase_prior_refinement", "progress": 66 },
+        { "id": "photo_vertex_bake", "progress": 86 },
+        { "id": "exporting", "progress": 94 },
+        { "id": "completed", "progress": 100 }
+      ]
     }
   }
 }
