@@ -16,7 +16,7 @@ class JobRecord(BaseModel):
         description=(
             "Current pipeline stage. UI should switch on the base value (before any space). "
             "Lifecycle: starting | exporting | completed. "
-            "Pipeline protocol: phase_1_segmentation | phase_2_alignment | phase_3_sanitization "
+            "Pipeline protocol: phase_0_quality_filter | phase_1_segmentation | phase_2_alignment | phase_3_sanitization "
             "| phase_4_colmap_bridge | phase_4_colmap_scene | phase_5_gaussian_splatting. "
             "Mesh-only: meshing | mesh_cleanup | vertex_color_transfer | photo_vertex_bake "
             "| color_autobalance | exporting. "
@@ -54,6 +54,18 @@ class JobRecord(BaseModel):
             "Relative URL of an HTML page that lists masked_view_urls as thumbnails — open in a browser "
             "(same origin as this API). Derived per response; not persisted."
         ),
+    )
+    capture_quality_score: float | None = Field(
+        default=None,
+        description="Capture quality score (0..1) produced by backend pre-filtering; derived per response.",
+    )
+    capture_rejected_images: list[str] = Field(
+        default_factory=list,
+        description="Image basenames rejected by capture quality filtering; derived per response.",
+    )
+    capture_quality_report_url: str | None = Field(
+        default=None,
+        description="Relative URL to uploads/{job_id}/capture_quality_report.json when available.",
     )
 
     @computed_field  # type: ignore[misc]

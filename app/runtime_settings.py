@@ -15,6 +15,14 @@ class RuntimeSettings(BaseModel):
     # Which images feed geometry matching/reconstruction. `original` is more robust for sparse matching;
     # `masked` keeps strict object-only context but can reduce feature richness on low-texture objects.
     reconstruction_image_source: Literal["original", "masked"] = "original"
+    # Capture quality gate before segmentation/reconstruction.
+    capture_quality_gate_enabled: bool = True
+    capture_reject_policy: Literal["soft", "hard"] = "soft"
+    capture_min_kept_images: int = Field(default=8, ge=2, le=200)
+    capture_blur_min: float = Field(default=35.0, ge=0.0, le=10000.0)
+    capture_brightness_min: float = Field(default=20.0, ge=0.0, le=255.0)
+    capture_brightness_max: float = Field(default=235.0, ge=0.0, le=255.0)
+    capture_min_frame_delta: float = Field(default=0.010, ge=0.0, le=1.0)
     # Optional semantic shape prior stage (classify + template-based correction).
     shape_prior_enabled: bool = False
     # Template directory containing class meshes (example: templates/car.glb, templates/truck.obj).

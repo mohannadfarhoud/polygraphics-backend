@@ -245,6 +245,31 @@ def _masked_view_urls(job_id: str) -> list[str]:
     return out
 
 
+def _capture_quality_report(job_id: str) -> tuple[float | None, list[str], str | None]:
+    p = UPLOAD_DIR / job_id / "capture_quality_report.json"
+    if not p.is_file():
+        return None, [], None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None, [], None
+    score = data.get("score")
+    try:
+        score_f = float(score) if score is not None else None
+    except Exception:
+        score_f = None
+    rejected_raw = data.get("rejected") or []
+    rejected: list[str] = []
+    if isinstance(rejected_raw, list):
+        for item in rejected_raw:
+            if isinstance(item, dict):
+                f = item.get("file")
+                if isinstance(f, str) and f:
+                    rejected.append(f)
+    report_url = _relative_base(f"uploads/{job_id}/capture_quality_report.json")
+    return score_f, rejected, report_url
+
+
 def _should_rewrite_model_url(url: str | None) -> bool:
     if not url:
         return True
@@ -263,6 +288,10 @@ def _decorate_job_response(job: JobRecord) -> JobRecord:
     job.image_sample_url = _image_sample_url(job.job_id)
     job.masked_view_urls = _masked_view_urls(job.job_id)
     job.masked_preview_page_url = _relative_api_path(f"jobs/{job.job_id}/masked-preview")
+    cscore, crejected, creport = _capture_quality_report(job.job_id)
+    job.capture_quality_score = cscore
+    job.capture_rejected_images = crejected
+    job.capture_quality_report_url = creport
 
     if (
         job.model_format

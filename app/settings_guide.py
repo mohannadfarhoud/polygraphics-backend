@@ -21,6 +21,48 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "`original` (recommended): use full photos for feature matching/geometry, while masks are still used for isolation + cleanup. `masked`: use black-background isolated views directly for reconstruction.",
         },
         {
+            "key": "capture_quality_gate_enabled",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Enable pre-segmentation capture quality filtering (blur/exposure/camera-motion consistency) and write uploads/{job_id}/capture_quality_report.json.",
+        },
+        {
+            "key": "capture_reject_policy",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "`soft`: keep all images if too many would be dropped. `hard`: fail the job when kept images are below capture_min_kept_images.",
+        },
+        {
+            "key": "capture_min_kept_images",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Minimum images required after capture quality filtering.",
+        },
+        {
+            "key": "capture_blur_min",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Minimum Laplacian variance blur score for a frame to be considered sharp enough.",
+        },
+        {
+            "key": "capture_brightness_min",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Minimum mean grayscale brightness allowed by the capture quality gate.",
+        },
+        {
+            "key": "capture_brightness_max",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Maximum mean grayscale brightness allowed by the capture quality gate.",
+        },
+        {
+            "key": "capture_min_frame_delta",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Minimum inter-frame pixel delta; very low values are treated as duplicate/low-motion captures.",
+        },
+        {
             "key": "shape_prior_enabled",
             "scope": "both",
             "worker_env": None,

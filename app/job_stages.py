@@ -14,7 +14,8 @@ STAGE_STARTING: Final = "starting"
 STAGE_EXPORTING: Final = "exporting"
 STAGE_COMPLETED: Final = "completed"
 
-# Pipeline protocol — phases 1..5.
+# Pipeline protocol — phases 0..5.
+STAGE_PHASE_0_QUALITY_FILTER: Final = "phase_0_quality_filter"
 STAGE_PHASE_1_SEGMENTATION: Final = "phase_1_segmentation"
 STAGE_PHASE_2_ALIGNMENT: Final = "phase_2_alignment"
 STAGE_PHASE_3_SANITIZATION: Final = "phase_3_sanitization"
@@ -34,6 +35,7 @@ STAGE_COMPARE_MESH_PREVIEW: Final = "compare_mesh_preview"
 
 ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_STARTING,
+    STAGE_PHASE_0_QUALITY_FILTER,
     STAGE_PHASE_1_SEGMENTATION,
     STAGE_PHASE_2_ALIGNMENT,
     STAGE_PHASE_3_SANITIZATION,

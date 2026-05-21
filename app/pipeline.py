@@ -87,6 +87,23 @@ class ReconstructionPipeline:
                 self.config.root_dir / "data" / "job_inputs",
                 int(self.runtime_settings.max_input_image_side),
             )
+            self._publish(job_id, JobStatus.PROCESSING, stage="phase_0_quality_filter", progress=8)
+            try:
+                from .capture_quality import run_capture_quality_gate
+
+                quality = run_capture_quality_gate(
+                    job_id=job_id,
+                    image_paths=image_paths,
+                    settings=self.runtime_settings,
+                    upload_dir=self.config.root_dir / "uploads",
+                )
+                image_paths = quality.kept_paths
+            except Exception:
+                # Let hard policy errors propagate; only ignore unexpected telemetry failures.
+                if str(self.runtime_settings.capture_reject_policy).strip().lower() == "hard":
+                    raise
+            if len(image_paths) < 2:
+                raise RuntimeError("Capture quality filter left fewer than 2 usable images; please retake.")
             if self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(
