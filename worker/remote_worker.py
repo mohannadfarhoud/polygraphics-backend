@@ -80,6 +80,35 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
     return out
 
 
+def _fetch_latest_settings(client: httpx.Client, base: str, token: str) -> dict | None:
+    """Fetch latest runtime settings from API right before running a job.
+
+    Falls back to assignment payload settings when API read fails.
+    """
+    try:
+        r = client.get(
+            f"{base.rstrip('/')}/settings",
+            headers=_headers(token),
+            timeout=60.0,
+        )
+        if r.status_code != 200:
+            body = (r.text or "")[:240]
+            print(
+                f"[polygraph-worker] warning: GET /settings -> {r.status_code}; "
+                f"using assignment settings ({body})",
+                flush=True,
+            )
+            return None
+        data = r.json()
+        if isinstance(data, dict):
+            return data
+        print("[polygraph-worker] warning: GET /settings returned non-object; using assignment settings", flush=True)
+        return None
+    except Exception as exc:
+        print(f"[polygraph-worker] warning: GET /settings failed; using assignment settings ({exc})", flush=True)
+        return None
+
+
 def iter_worker_websocket_uris(http_base: str, token: str) -> list[str]:
     """Candidate ``wss://`` URLs to try when connecting (proxy path / nginx quirks)."""
     seen: set[str] = set()
@@ -194,7 +223,7 @@ class ApiReportingJobRepository:
 
 def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | None = None) -> None:
     job_id = payload["job_id"]
-    settings_dict = _apply_local_overrides(payload["settings"])
+    payload_settings = dict(payload.get("settings") or {})
     image_urls: list[str] = list(payload.get("image_urls") or [])
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -220,7 +249,21 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
 
         bootstrap_worker_cuda()
 
+        refresh_settings = os.getenv("POLYGRAPH_WORKER_REFRESH_SETTINGS_BEFORE_JOB", "1").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        settings_source = "assignment"
+        settings_dict = payload_settings
+        if refresh_settings:
+            latest = _fetch_latest_settings(client, base, token)
+            if latest:
+                settings_dict = latest
+                settings_source = "api"
+        settings_dict = _apply_local_overrides(settings_dict)
         settings = RuntimeSettings.model_validate(settings_dict)
+        print(f"[polygraph-worker] job {job_id}: settings source={settings_source} (local overrides applied)", flush=True)
         _require_cuda_if_configured()
         print(f"[polygraph-worker] job {job_id}: validating checkpoints and backends...", flush=True)
         assert_pipeline_ready(settings)
