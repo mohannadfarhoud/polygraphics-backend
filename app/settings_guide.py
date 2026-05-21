@@ -135,6 +135,12 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Environment variable name that stores provider API key (passed through to command provider).",
         },
         {
+            "key": "ai_prior_require_api_key",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true, fail fast unless env var named by ai_prior_api_key_env is set on the machine running the job.",
+        },
+        {
             "key": "ai_prior_default_confidence",
             "scope": "both",
             "worker_env": None,
@@ -525,6 +531,9 @@ def settings_deployment_guide() -> dict[str, Any]:
             {"name": "POLYGRAPH_REQUIRE_CUDA", "purpose": "If 1, worker exits when torch.cuda.is_available() is false."},
             {"name": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL", "purpose": "Optional override for mapanything_pretrained_id (HF id)."},
             {"name": "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT", "purpose": "Optional worker-local override for dust3r_checkpoint_path."},
+            {"name": "POLYGRAPH_OVERRIDE_AI_PRIOR_COMMAND", "purpose": "Optional worker-local override for ai_prior_command."},
+            {"name": "POLYGRAPH_AI_PRIOR_UPSTREAM_CMD", "purpose": "Real provider command used by scripts/ai_prior_command_adapter.py."},
+            {"name": "POLYGRAPH_AI_PRIOR_UPSTREAM_ARGS_TEMPLATE", "purpose": "Optional args template for upstream provider command."},
         ],
         "fields": fields,
         "limitations": (

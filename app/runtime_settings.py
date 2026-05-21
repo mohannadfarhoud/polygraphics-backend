@@ -39,6 +39,7 @@ class RuntimeSettings(BaseModel):
     ai_prior_output_mesh_path: str | None = None
     ai_prior_timeout_seconds: int = Field(default=600, ge=30, le=7200)
     ai_prior_api_key_env: str = "AI_PRIOR_API_KEY"
+    ai_prior_require_api_key: bool = False
     ai_prior_default_confidence: float = Field(default=0.62, ge=0.0, le=1.0)
     # Hybrid prior-refinement route settings.
     hybrid_refine_backend: Literal["mapanything", "dust3r", "colmap", "none"] = "mapanything"
@@ -108,7 +109,7 @@ class RuntimeSettings(BaseModel):
     # When true: also try the non-selected backend as a fallback candidate (SAM <-> rembg).
     isolation_try_alternate_backend: bool = True
     # Minimum mask quality score accepted by smart selector; lower values are treated as unsafe/noisy masks.
-    isolation_min_score: float = Field(default=1.1, ge=-10.0, le=10.0)
+    isolation_min_score: float = Field(default=0.95, ge=-10.0, le=10.0)
     # rembg model choice (e.g. "isnet-general-use", "u2net", "u2netp", "birefnet-general").
     rembg_model_name: str = "isnet-general-use"
     # rembg output alpha threshold (0-255) to convert matte into binary mask.

@@ -265,6 +265,53 @@ The script installs PyTorch (**CPU baseline** from the PyTorch CPU index), **`se
 Restart-Service polygraphics   # or your service wrapper
 ```
 
+## AI-prior command backend (worker runbook)
+
+`ai_prior` and `hybrid_prior_refine` can call an external image-to-3D model through a command adapter.
+
+### 1) Configure worker environment
+
+In `.env.worker`:
+
+```env
+POLYGRAPH_OVERRIDE_AI_PRIOR_COMMAND=C:\Users\mohannad\polygraph_worker\scripts\ai_prior_command_adapter_windows.bat
+POLYGRAPH_AI_PRIOR_UPSTREAM_CMD=C:\path\to\real_ai_prior_runner.bat
+# optional:
+# POLYGRAPH_AI_PRIOR_UPSTREAM_ARGS_TEMPLATE=--input-manifest {input_manifest} --output {output_mesh}
+# AI_PRIOR_API_KEY=...
+```
+
+### 2) Configure runtime settings
+
+Use `PUT /settings`:
+
+```json
+{
+  "reconstruction_backend": "hybrid_prior_refine",
+  "ai_prior_provider": "command",
+  "ai_prior_command": "C:\\Users\\mohannad\\polygraph_worker\\scripts\\ai_prior_command_adapter_windows.bat",
+  "ai_prior_command_args_template": "--input-manifest {input_manifest} --output {output_mesh}",
+  "ai_prior_api_key_env": "AI_PRIOR_API_KEY",
+  "ai_prior_require_api_key": false
+}
+```
+
+### 3) Contract required by provider command
+
+- Input manifest path from `--input-manifest`:
+  - JSON shape: `{ "masked_images": ["abs_path1", "abs_path2", ...] }`
+- Output path from `--output`:
+  - should write `.glb` (adapter also accepts `.obj`/`.ply` and converts to `.glb`)
+
+### 4) Run one test job
+
+1. Upload and start a job (or `POST /jobs/reconstruct`).
+2. Check `GET /jobs/{id}` fields:
+   - `reconstruction_confidence`, `route_taken`, `quality_reason`
+3. Inspect reports:
+   - `uploads/{job_id}/capture_quality_report.json`
+   - `uploads/{job_id}/reconstruction_report.json`
+
 ## Run
 
 ```bash

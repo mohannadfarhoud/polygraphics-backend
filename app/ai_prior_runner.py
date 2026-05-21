@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import open3d as o3d
 
+from .meshing import export_glb
 from .runtime_settings import RuntimeSettings
 
 
@@ -28,6 +29,12 @@ def _load_mesh(path: Path) -> o3d.geometry.TriangleMesh:
         raise RuntimeError(f"AI prior provider returned an empty mesh: {path}")
     mesh.compute_vertex_normals()
     return mesh
+
+
+def _convert_mesh_to_glb(src: Path, dst: Path) -> Path:
+    mesh = _load_mesh(src)
+    export_glb(mesh, dst, compressed=False)
+    return dst
 
 
 def _ensure_command_provider(settings: RuntimeSettings) -> Path:
@@ -49,6 +56,50 @@ def _ensure_command_provider(settings: RuntimeSettings) -> Path:
 def _write_manifest(masked_images: list[Path], manifest_path: Path) -> None:
     payload = {"masked_images": [str(p.resolve()) for p in masked_images]}
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _resolve_output_mesh(
+    *,
+    configured_output: Path,
+    settings: RuntimeSettings,
+    work_dir: Path,
+) -> Path:
+    # 1) Explicit output from args template.
+    candidates: list[Path] = [configured_output]
+    # 2) Optional explicit fallback path from settings.
+    alt = str(getattr(settings, "ai_prior_output_mesh_path", "")).strip()
+    if alt:
+        candidates.append(Path(alt))
+    # 3) Common provider output names under work_dir.
+    for name in (
+        "ai_prior_mesh.glb",
+        "ai_prior_mesh.obj",
+        "ai_prior_mesh.ply",
+        "mesh.glb",
+        "mesh.obj",
+        "mesh.ply",
+        "output.glb",
+        "output.obj",
+        "output.ply",
+    ):
+        candidates.append(work_dir / name)
+
+    for p in candidates:
+        if p.is_file():
+            suf = p.suffix.lower()
+            if suf == ".glb":
+                return p
+            if suf in (".obj", ".ply"):
+                out = work_dir / "ai_prior_mesh.glb"
+                return _convert_mesh_to_glb(p, out)
+            raise RuntimeError(
+                f"AI prior output has unsupported extension: {p}. "
+                "Expected .glb or convertible .obj/.ply."
+            )
+    raise RuntimeError(
+        "AI prior command succeeded but no mesh output was found. "
+        "Expected --output path or ai_prior_output_mesh_path to point to .glb/.obj/.ply."
+    )
 
 
 def run_ai_prior_mesh(
@@ -78,20 +129,31 @@ def run_ai_prior_mesh(
             output_mesh=str(out_mesh),
             output_dir=str(work_dir),
         )
-        cmd = [str(cmd_path)] + [x for x in args.split(" ") if x]
+        cmd = [str(cmd_path)] + shlex.split(args, posix=False)
         env = os.environ.copy()
         key_env_name = str(getattr(settings, "ai_prior_api_key_env", "AI_PRIOR_API_KEY")).strip()
+        key_required = bool(getattr(settings, "ai_prior_require_api_key", False))
         key_value = env.get(key_env_name, "").strip()
+        if key_required and not key_value:
+            raise RuntimeError(
+                f"AI prior command requires API key but env var {key_env_name!r} is missing or empty."
+            )
         if key_value:
             env["AI_PRIOR_API_KEY"] = key_value
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=max(30, timeout_s),
-            check=False,
-            env=env,
-        )
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=max(30, timeout_s),
+                check=False,
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"AI prior command timed out after {max(30, timeout_s)}s. "
+                f"Command: {' '.join(cmd)}"
+            ) from exc
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-30:]
             raise RuntimeError(
@@ -99,21 +161,24 @@ def run_ai_prior_mesh(
                 f"Command: {' '.join(cmd)}\n"
                 + "\n".join(tail)
             )
-        if not out_mesh.is_file():
-            alt = str(getattr(settings, "ai_prior_output_mesh_path", "")).strip()
-            if alt:
-                out_mesh = Path(alt)
-        if not out_mesh.is_file():
-            raise RuntimeError(
-                "AI prior command succeeded but no output mesh found. "
-                "Provide ai_prior_output_mesh_path or ensure command writes --output file."
-            )
+        out_mesh = _resolve_output_mesh(
+            configured_output=out_mesh,
+            settings=settings,
+            work_dir=work_dir,
+        )
         mesh = _load_mesh(out_mesh)
         return AiPriorResult(
             mesh=mesh,
             confidence=confidence,
             provider=provider,
-            details={"output_mesh": str(out_mesh), "command": str(cmd_path)},
+            details={
+                "output_mesh": str(out_mesh),
+                "command": str(cmd_path),
+                "command_args": args,
+                "timeout_seconds": max(30, timeout_s),
+                "api_key_env": key_env_name,
+                "api_key_present": bool(key_value),
+            },
         )
 
     if provider == "mock":

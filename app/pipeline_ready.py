@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .runtime_settings import RuntimeSettings, effective_reconstruction_backend
@@ -96,6 +97,12 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
                 if shutil.which(raw) is None:
                     raise RuntimeError(f"ai_prior_command not found: {raw}")
+            key_env = str(getattr(settings, "ai_prior_api_key_env", "AI_PRIOR_API_KEY")).strip()
+            key_required = bool(getattr(settings, "ai_prior_require_api_key", False))
+            if key_required and not os.getenv(key_env, "").strip():
+                raise RuntimeError(
+                    f"AI prior provider requires API key env {key_env!r}, but it is not set on this machine."
+                )
         elif provider == "mock":
             pass
         else:
