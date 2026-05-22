@@ -191,6 +191,11 @@ class RuntimeSettings(BaseModel):
     texture_surface_abstraction_strength: float = Field(default=0.42, ge=0.0, le=1.0)
     texture_surface_detail_preserve: float = Field(default=0.70, ge=0.0, le=1.0)
     texture_surface_illumination_blur: int = Field(default=41, ge=9, le=301)
+    # Optional dominant-surface extraction per texture source image before projection.
+    surface_region_texture_enabled: bool = False
+    surface_region_smooth_percentile: float = Field(default=55.0, ge=1.0, le=99.0)
+    surface_region_min_area_ratio: float = Field(default=0.18, ge=0.01, le=1.0)
+    surface_region_expand_px: int = Field(default=3, ge=0, le=64)
     mesh_glb_draco_compression: bool = True
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)

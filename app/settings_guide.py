@@ -453,6 +453,30 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "Gaussian blur kernel used to estimate illumination field before abstraction (odd integer; larger = smoother lighting removal).",
         },
         {
+            "key": "surface_region_texture_enabled",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: extract dominant smooth surface region from each texture source image (for example one side panel) before photo projection.",
+        },
+        {
+            "key": "surface_region_smooth_percentile",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Percentile threshold of gradient magnitude used to pick smooth candidate pixels for dominant surface extraction.",
+        },
+        {
+            "key": "surface_region_min_area_ratio",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Minimum area ratio required for extracted dominant surface region; below this, full foreground is used as fallback.",
+        },
+        {
+            "key": "surface_region_expand_px",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Dilation pixels applied to dominant surface region to include nearby edges/details before projection.",
+        },
+        {
             "key": "sam_model_type",
             "scope": "both",
             "worker_env": None,

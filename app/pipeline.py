@@ -296,26 +296,59 @@ class ReconstructionPipeline:
         original_paths: list[Path],
         masked_paths: list[Path],
     ) -> dict[str, Path]:
-        if not bool(getattr(self.runtime_settings, "texture_surface_abstraction_enabled", False)):
-            return {}
-        try:
-            from .texture_abstraction import build_abstracted_texture_images
+        sample_source = str(
+            getattr(self.runtime_settings, "mesh_photo_vertex_bake_sample_source", "original")
+        ).strip().lower()
+        base_paths = list(original_paths if sample_source == "original" else masked_paths)
+        remap: dict[str, Path] = {}
 
-            sample_source = str(
-                getattr(self.runtime_settings, "mesh_photo_vertex_bake_sample_source", "original")
-            ).strip().lower()
-            candidate_paths = original_paths if sample_source == "original" else masked_paths
-            return build_abstracted_texture_images(
-                job_id=job_id,
-                image_paths=list(candidate_paths),
-                cache_root=self.config.root_dir / "data" / "texture_abstraction",
-                strength=float(getattr(self.runtime_settings, "texture_surface_abstraction_strength", 0.42)),
-                detail_preserve=float(getattr(self.runtime_settings, "texture_surface_detail_preserve", 0.70)),
-                illumination_blur=int(getattr(self.runtime_settings, "texture_surface_illumination_blur", 41)),
-            )
-        except Exception as exc:
-            _log.warning("texture surface abstraction failed job=%s: %s", job_id, exc)
-            return {}
+        # Stage 1: illumination / albedo abstraction.
+        if bool(getattr(self.runtime_settings, "texture_surface_abstraction_enabled", False)):
+            try:
+                from .texture_abstraction import build_abstracted_texture_images
+
+                remap = build_abstracted_texture_images(
+                    job_id=job_id,
+                    image_paths=base_paths,
+                    cache_root=self.config.root_dir / "data" / "texture_abstraction",
+                    strength=float(getattr(self.runtime_settings, "texture_surface_abstraction_strength", 0.42)),
+                    detail_preserve=float(getattr(self.runtime_settings, "texture_surface_detail_preserve", 0.70)),
+                    illumination_blur=int(getattr(self.runtime_settings, "texture_surface_illumination_blur", 41)),
+                )
+            except Exception as exc:
+                _log.warning("texture surface abstraction failed job=%s: %s", job_id, exc)
+                remap = {}
+
+        # Stage 2: dominant surface extraction per view (e.g. car right side panel).
+        if bool(getattr(self.runtime_settings, "surface_region_texture_enabled", False)):
+            try:
+                from .surface_region_texture import build_dominant_surface_texture_images
+
+                src_paths: list[Path] = []
+                for p in base_paths:
+                    key = str(p.resolve())
+                    src_paths.append(remap.get(key) or remap.get(str(p)) or remap.get(p.name) or p)
+                region_map = build_dominant_surface_texture_images(
+                    job_id=job_id,
+                    image_paths=src_paths,
+                    cache_root=self.config.root_dir / "data" / "surface_region_texture",
+                    smooth_percentile=float(getattr(self.runtime_settings, "surface_region_smooth_percentile", 55.0)),
+                    min_area_ratio=float(getattr(self.runtime_settings, "surface_region_min_area_ratio", 0.18)),
+                    expand_px=int(getattr(self.runtime_settings, "surface_region_expand_px", 3)),
+                )
+                if remap:
+                    # Chain maps: original -> abstracted -> dominant-region.
+                    chained: dict[str, Path] = {}
+                    for k, v in remap.items():
+                        key = str(v.resolve())
+                        chained[k] = region_map.get(key) or region_map.get(str(v)) or region_map.get(v.name) or v
+                    remap = chained
+                else:
+                    remap = region_map
+            except Exception as exc:
+                _log.warning("surface region texture extraction failed job=%s: %s", job_id, exc)
+
+        return remap
 
     def _run_ai_prior_pipeline(
         self,
