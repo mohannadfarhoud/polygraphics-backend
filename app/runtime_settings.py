@@ -186,6 +186,11 @@ class RuntimeSettings(BaseModel):
     # When baking: sample ``masked`` (black outside SAM FG) vs full ``original`` photos.
     # Default to ``original`` for stronger texture realism on the object surface.
     mesh_photo_vertex_bake_sample_source: Literal["masked", "original"] = "original"
+    # Optional surface abstraction before photo vertex bake (flattens harsh lighting/shadows).
+    texture_surface_abstraction_enabled: bool = False
+    texture_surface_abstraction_strength: float = Field(default=0.42, ge=0.0, le=1.0)
+    texture_surface_detail_preserve: float = Field(default=0.70, ge=0.0, le=1.0)
+    texture_surface_illumination_blur: int = Field(default=41, ge=9, le=301)
     mesh_glb_draco_compression: bool = True
     cdn_base_url: str = "http://127.0.0.1:8000/output"
     max_images: int = Field(default=100, ge=2, le=1000)

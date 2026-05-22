@@ -242,6 +242,7 @@ class ReconstructionPipeline:
         *,
         original_paths: list[Path],
         masked_paths: list[Path],
+        source_remap: dict[str, Path] | None = None,
     ) -> list[CameraView]:
         cams = list(getattr(reconstruction, "cameras", []) or [])
         if not cams:
@@ -267,6 +268,17 @@ class ReconstructionPipeline:
                     or original_to_masked.get(Path(cam.image_path).name)
                     or Path(cam.image_path)
                 )
+            remap = source_remap or {}
+            try:
+                sample_key_abs = str(Path(sample_path).resolve())
+            except Exception:
+                sample_key_abs = str(sample_path)
+            sample_path = (
+                remap.get(sample_key_abs)
+                or remap.get(str(sample_path))
+                or remap.get(Path(sample_path).name)
+                or sample_path
+            )
             photo_views.append(
                 CameraView(
                     image_path=sample_path,
@@ -276,6 +288,34 @@ class ReconstructionPipeline:
                 )
             )
         return photo_views
+
+    def _prepare_texture_source_remap(
+        self,
+        *,
+        job_id: str,
+        original_paths: list[Path],
+        masked_paths: list[Path],
+    ) -> dict[str, Path]:
+        if not bool(getattr(self.runtime_settings, "texture_surface_abstraction_enabled", False)):
+            return {}
+        try:
+            from .texture_abstraction import build_abstracted_texture_images
+
+            sample_source = str(
+                getattr(self.runtime_settings, "mesh_photo_vertex_bake_sample_source", "original")
+            ).strip().lower()
+            candidate_paths = original_paths if sample_source == "original" else masked_paths
+            return build_abstracted_texture_images(
+                job_id=job_id,
+                image_paths=list(candidate_paths),
+                cache_root=self.config.root_dir / "data" / "texture_abstraction",
+                strength=float(getattr(self.runtime_settings, "texture_surface_abstraction_strength", 0.42)),
+                detail_preserve=float(getattr(self.runtime_settings, "texture_surface_detail_preserve", 0.70)),
+                illumination_blur=int(getattr(self.runtime_settings, "texture_surface_illumination_blur", 41)),
+            )
+        except Exception as exc:
+            _log.warning("texture surface abstraction failed job=%s: %s", job_id, exc)
+            return {}
 
     def _run_ai_prior_pipeline(
         self,
@@ -394,10 +434,16 @@ class ReconstructionPipeline:
                     if pcd.has_colors():
                         mesh = transfer_vertex_colors_from_point_cloud(mesh, pcd)
                     if bool(getattr(self.runtime_settings, "hybrid_enable_photo_bake", True)):
+                        source_remap = self._prepare_texture_source_remap(
+                            job_id=job_id,
+                            original_paths=original_paths,
+                            masked_paths=masked_paths,
+                        )
                         views = self._build_photo_views(
                             recon,
                             original_paths=original_paths,
                             masked_paths=masked_paths,
+                            source_remap=source_remap,
                         )
                         if views:
                             self._publish(job_id, JobStatus.PROCESSING, stage="photo_vertex_bake", progress=86)
@@ -539,37 +585,17 @@ class ReconstructionPipeline:
         if self.runtime_settings.mesh_photo_vertex_bake:
             photo_views: list[CameraView] = []
             try:
-                cams = list(getattr(reconstruction, "cameras", []) or [])
-                if cams:
-                    masked_to_original: dict[str, Path] = {}
-                    original_to_masked: dict[str, Path] = {}
-                    for masked, original in zip(masked_paths, original_paths):
-                        masked_to_original[str(masked)] = original
-                        masked_to_original[masked.name] = original
-                        original_to_masked[str(original)] = masked
-                        original_to_masked[original.name] = masked
-
-                    for cam in cams:
-                        if self.runtime_settings.mesh_photo_vertex_bake_sample_source == "original":
-                            sample_path = (
-                                masked_to_original.get(str(cam.image_path))
-                                or masked_to_original.get(Path(cam.image_path).name)
-                                or cam.image_path
-                            )
-                        else:
-                            sample_path = (
-                                original_to_masked.get(str(cam.image_path))
-                                or original_to_masked.get(Path(cam.image_path).name)
-                                or Path(cam.image_path)
-                            )
-                        photo_views.append(
-                            CameraView(
-                                image_path=sample_path,
-                                image_size=cam.image_size,
-                                K=cam.K,
-                                w2c=cam.w2c,
-                            )
-                        )
+                source_remap = self._prepare_texture_source_remap(
+                    job_id=job_id,
+                    original_paths=original_paths,
+                    masked_paths=masked_paths,
+                )
+                photo_views = self._build_photo_views(
+                    reconstruction,
+                    original_paths=original_paths,
+                    masked_paths=masked_paths,
+                    source_remap=source_remap,
+                )
             except Exception:
                 photo_views = []
 

@@ -429,6 +429,30 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "`original` (default): sample full uploads for richer photo realism on the object surface. Use `masked` when you see backdrop color bleed onto vertices.",
         },
         {
+            "key": "texture_surface_abstraction_enabled",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true: preprocess texture source images before photo-vertex bake to flatten illumination/shadow gradients while preserving surface details.",
+        },
+        {
+            "key": "texture_surface_abstraction_strength",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Blend amount (0..1) for abstracted texture images used in photo bake. Higher values reduce lighting artifacts more aggressively.",
+        },
+        {
+            "key": "texture_surface_detail_preserve",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "How much high-frequency detail from original luminance is re-injected after illumination flattening (0..1).",
+        },
+        {
+            "key": "texture_surface_illumination_blur",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "Gaussian blur kernel used to estimate illumination field before abstraction (odd integer; larger = smoother lighting removal).",
+        },
+        {
             "key": "sam_model_type",
             "scope": "both",
             "worker_env": None,
