@@ -1,9 +1,29 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+
+@dataclass
+class SurfaceRegionEntry:
+    view_name: str
+    source_path: Path
+    output_path: Path
+    area_ratio: float
+    confidence: float
+    centroid: tuple[float, float]
+    label_hint: str | None = None
+    failed: bool = False
+    failure_reason: str | None = None
+
+
+@dataclass
+class SurfaceRegionResult:
+    remap: dict[str, Path]
+    entries: list[SurfaceRegionEntry]
 
 
 def _largest_component(mask_u8: np.ndarray) -> np.ndarray:
@@ -63,6 +83,55 @@ def _extract_dominant_surface_mask(
     return cand
 
 
+def _score_region_confidence(
+    rgb: np.ndarray,
+    fg: np.ndarray,
+    region_mask: np.ndarray,
+) -> float:
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    lap = cv2.Laplacian(gray, cv2.CV_32F)
+    sharpness = float(np.var(lap)) / 600.0
+    sharpness = float(np.clip(sharpness, 0.0, 1.0))
+
+    fg_count = float(max(1, np.count_nonzero(fg)))
+    area_ratio = float(np.count_nonzero(region_mask)) / fg_count
+    area_score = float(np.clip((area_ratio - 0.02) / 0.18, 0.0, 1.0))
+
+    ys, xs = np.where(region_mask > 0)
+    if ys.size == 0:
+        center_score = 0.0
+    else:
+        h, w = gray.shape[:2]
+        cx = float(xs.mean()) / max(1.0, float(w - 1))
+        cy = float(ys.mean()) / max(1.0, float(h - 1))
+        center_dist = float(np.hypot(cx - 0.5, cy - 0.5))
+        center_score = float(np.clip(1.0 - (center_dist / 0.70), 0.0, 1.0))
+
+    smooth_score = float(np.clip(1.0 - sharpness * 0.7, 0.0, 1.0))
+    score = 0.40 * area_score + 0.35 * smooth_score + 0.25 * center_score
+    return float(np.clip(score, 0.0, 1.0))
+
+
+def _region_centroid(region_mask: np.ndarray) -> tuple[float, float]:
+    ys, xs = np.where(region_mask > 0)
+    if ys.size == 0:
+        return 0.5, 0.5
+    h, w = region_mask.shape[:2]
+    cx = float(xs.mean()) / max(1.0, float(w - 1))
+    cy = float(ys.mean()) / max(1.0, float(h - 1))
+    return cx, cy
+
+
+def infer_label_from_centroid(cx: float, cy: float) -> str:
+    if cy < 0.30:
+        return "top"
+    if cx < 0.33:
+        return "left"
+    if cx > 0.67:
+        return "right"
+    return "front"
+
+
 def build_dominant_surface_texture_images(
     *,
     job_id: str,
@@ -71,11 +140,12 @@ def build_dominant_surface_texture_images(
     smooth_percentile: float,
     min_area_ratio: float,
     expand_px: int,
-) -> dict[str, Path]:
+) -> SurfaceRegionResult:
     out_dir = cache_root / job_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     remap: dict[str, Path] = {}
+    entries: list[SurfaceRegionEntry] = []
     seen: set[Path] = set()
     idx = 0
     for src in image_paths:
@@ -86,8 +156,21 @@ def build_dominant_surface_texture_images(
 
         bgr = cv2.imread(str(p), cv2.IMREAD_COLOR)
         if bgr is None:
+            entries.append(
+                SurfaceRegionEntry(
+                    view_name=p.name,
+                    source_path=p,
+                    output_path=p,
+                    area_ratio=0.0,
+                    confidence=0.0,
+                    centroid=(0.5, 0.5),
+                    failed=True,
+                    failure_reason="image_read_failed",
+                )
+            )
             continue
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        fg = (np.any(rgb > 8, axis=2).astype(np.uint8) * 255)
         m = _extract_dominant_surface_mask(
             rgb,
             smooth_percentile=smooth_percentile,
@@ -100,9 +183,29 @@ def build_dominant_surface_texture_images(
         idx += 1
         cv2.imwrite(str(dst), cv2.cvtColor(out_rgb, cv2.COLOR_RGB2BGR))
 
+        fg_count = float(max(1, np.count_nonzero(fg)))
+        area_ratio = float(np.count_nonzero(m)) / fg_count
+        confidence = _score_region_confidence(rgb, fg, m)
+        cx, cy = _region_centroid(m)
+        label_hint = infer_label_from_centroid(cx, cy)
+
+        entries.append(
+            SurfaceRegionEntry(
+                view_name=p.name,
+                source_path=p,
+                output_path=dst,
+                area_ratio=area_ratio,
+                confidence=confidence,
+                centroid=(cx, cy),
+                label_hint=label_hint,
+                failed=False,
+                failure_reason=None,
+            )
+        )
+
         remap[str(p)] = dst
         remap[str(src)] = dst
         remap[src.name] = dst
 
-    return remap
+    return SurfaceRegionResult(remap=remap, entries=entries)
 

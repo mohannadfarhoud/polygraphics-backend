@@ -295,12 +295,13 @@ class ReconstructionPipeline:
         job_id: str,
         original_paths: list[Path],
         masked_paths: list[Path],
-    ) -> dict[str, Path]:
+    ) -> tuple[dict[str, Path], dict[str, dict[str, object]]]:
         sample_source = str(
             getattr(self.runtime_settings, "mesh_photo_vertex_bake_sample_source", "original")
         ).strip().lower()
         base_paths = list(original_paths if sample_source == "original" else masked_paths)
         remap: dict[str, Path] = {}
+        region_meta: dict[str, dict[str, object]] = {}
 
         # Stage 1: illumination / albedo abstraction.
         if bool(getattr(self.runtime_settings, "texture_surface_abstraction_enabled", False)):
@@ -328,14 +329,32 @@ class ReconstructionPipeline:
                 for p in base_paths:
                     key = str(p.resolve())
                     src_paths.append(remap.get(key) or remap.get(str(p)) or remap.get(p.name) or p)
-                region_map = build_dominant_surface_texture_images(
+                self._publish(
+                    job_id,
+                    JobStatus.PROCESSING,
+                    stage="phase_surface_region_extract",
+                    progress=80,
+                )
+                region_result = build_dominant_surface_texture_images(
                     job_id=job_id,
                     image_paths=src_paths,
                     cache_root=self.config.root_dir / "data" / "surface_region_texture",
-                    smooth_percentile=float(getattr(self.runtime_settings, "surface_region_smooth_percentile", 55.0)),
-                    min_area_ratio=float(getattr(self.runtime_settings, "surface_region_min_area_ratio", 0.18)),
-                    expand_px=int(getattr(self.runtime_settings, "surface_region_expand_px", 3)),
+                    smooth_percentile=float(getattr(self.runtime_settings, "surface_region_smooth_percentile", 85.0)),
+                    min_area_ratio=float(getattr(self.runtime_settings, "surface_region_min_area_ratio", 0.08)),
+                    expand_px=int(getattr(self.runtime_settings, "surface_region_expand_px", 8)),
                 )
+                region_map = region_result.remap
+                region_meta = {
+                    str(entry.source_path.resolve()): {
+                        "confidence": float(entry.confidence),
+                        "label_hint": entry.label_hint,
+                        "area_ratio": float(entry.area_ratio),
+                        "failed": bool(entry.failed),
+                        "failure_reason": entry.failure_reason,
+                        "view_name": entry.view_name,
+                    }
+                    for entry in region_result.entries
+                }
                 if remap:
                     # Chain maps: original -> abstracted -> dominant-region.
                     chained: dict[str, Path] = {}
@@ -348,7 +367,7 @@ class ReconstructionPipeline:
             except Exception as exc:
                 _log.warning("surface region texture extraction failed job=%s: %s", job_id, exc)
 
-        return remap
+        return remap, region_meta
 
     def _run_ai_prior_pipeline(
         self,
@@ -525,6 +544,11 @@ class ReconstructionPipeline:
         )
         return model_url
 
+    def _write_texture_report(self, job_id: str, payload: dict) -> None:
+        out = self.config.root_dir / "uploads" / job_id / "texture_report.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
     def _run_mesh_pipeline(
         self,
         job_id: str,
@@ -617,8 +641,9 @@ class ReconstructionPipeline:
 
         if self.runtime_settings.mesh_photo_vertex_bake:
             photo_views: list[CameraView] = []
+            region_meta: dict[str, dict[str, object]] = {}
             try:
-                source_remap = self._prepare_texture_source_remap(
+                source_remap, region_meta = self._prepare_texture_source_remap(
                     job_id=job_id,
                     original_paths=original_paths,
                     masked_paths=masked_paths,
@@ -636,14 +661,113 @@ class ReconstructionPipeline:
                 try:
                     from .color_baking import bake_vertex_colors_from_views
 
-                    self._publish(job_id, JobStatus.PROCESSING, stage="photo_vertex_bake", progress=86)
-                    bake_vertex_colors_from_views(mesh, photo_views)
+                    projection_min_conf = float(
+                        getattr(self.runtime_settings, "region_projection_min_confidence", 0.60)
+                    )
+                    for view in photo_views:
+                        key = str(Path(view.image_path).resolve())
+                        meta = region_meta.get(key)
+                        if meta is None:
+                            meta = region_meta.get(Path(view.image_path).name)
+                        if meta:
+                            view.surface_region_confidence = float(meta.get("confidence", 1.0))
+                            lh = meta.get("label_hint")
+                            view.surface_region_label = str(lh) if lh else None
+                        else:
+                            view.surface_region_confidence = 1.0
+                    self._publish(
+                        job_id,
+                        JobStatus.PROCESSING,
+                        stage="phase_surface_region_projection",
+                        progress=86,
+                    )
+                    baked, bake_diag = bake_vertex_colors_from_views(
+                        mesh,
+                        photo_views,
+                        blend_weight=float(getattr(self.runtime_settings, "region_projection_blend_weight", 0.65)),
+                        min_confidence=projection_min_conf,
+                        seam_smoothing=float(getattr(self.runtime_settings, "region_projection_seam_smoothing", 0.55)),
+                    )
+                    texture_route_taken = "mapanything"
+                    texture_quality_reason = "photo_bake_missing_views"
+                    if baked:
+                        self._publish(
+                            job_id,
+                            JobStatus.PROCESSING,
+                            stage="phase_surface_region_blend",
+                            progress=89,
+                        )
+                        regions_projected = int(
+                            (bake_diag.region_projection_coverage or {}).get("regions_projected", 0)
+                        )
+                        mesh_cov = float(
+                            (bake_diag.region_projection_coverage or {}).get("mesh_area_ratio", 0.0)
+                        )
+                        region_enabled = bool(getattr(self.runtime_settings, "surface_region_texture_enabled", False))
+                        if region_enabled and regions_projected > 0:
+                            if mesh_cov >= 0.55:
+                                texture_route_taken = "surface_region"
+                                texture_quality_reason = "region_projection_coverage_ok"
+                            else:
+                                texture_route_taken = "surface_region+mapanything_fill"
+                                texture_quality_reason = "low_region_projection_coverage_hybrid_fill"
+                        else:
+                            texture_route_taken = "mapanything"
+                            texture_quality_reason = "surface_region_disabled_or_low_confidence"
+                        self._write_texture_report(
+                            job_id,
+                            {
+                                "job_id": job_id,
+                                "dominant_surface_regions_detected": bake_diag.dominant_surface_regions_detected,
+                                "per_view_region_confidence": bake_diag.per_view_region_confidence,
+                                "region_projection_coverage": bake_diag.region_projection_coverage,
+                                "texture_route_taken": texture_route_taken,
+                                "texture_quality_reason": texture_quality_reason,
+                                "projection_min_confidence": projection_min_conf,
+                            },
+                        )
+                    else:
+                        self._write_texture_report(
+                            job_id,
+                            {
+                                "job_id": job_id,
+                                "dominant_surface_regions_detected": 0,
+                                "per_view_region_confidence": {},
+                                "region_projection_coverage": {"mesh_area_ratio": 0.0, "regions_projected": 0},
+                                "texture_route_taken": "mapanything",
+                                "texture_quality_reason": "region_projection_failed_fallback_mapanything",
+                                "projection_min_confidence": projection_min_conf,
+                            },
+                        )
                 except Exception as exc:
                     _log.warning(
                         "bake_vertex_colors_from_views failed job=%s (mesh may look flat/dark): %s",
                         job_id,
                         exc,
                     )
+                    self._write_texture_report(
+                        job_id,
+                        {
+                            "job_id": job_id,
+                            "dominant_surface_regions_detected": 0,
+                            "per_view_region_confidence": {},
+                            "region_projection_coverage": {"mesh_area_ratio": 0.0, "regions_projected": 0},
+                            "texture_route_taken": "mapanything",
+                            "texture_quality_reason": "projection_exception_fallback_mapanything",
+                        },
+                    )
+            else:
+                self._write_texture_report(
+                    job_id,
+                    {
+                        "job_id": job_id,
+                        "dominant_surface_regions_detected": 0,
+                        "per_view_region_confidence": {},
+                        "region_projection_coverage": {"mesh_area_ratio": 0.0, "regions_projected": 0},
+                        "texture_route_taken": "mapanything",
+                        "texture_quality_reason": "no_photo_views_fallback_mapanything",
+                    },
+                )
 
         self._publish(job_id, JobStatus.PROCESSING, stage="color_autobalance", progress=90)
         mesh = autobalance_vertex_colors(mesh)

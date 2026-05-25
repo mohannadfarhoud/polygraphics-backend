@@ -99,6 +99,21 @@
       "label": "Photo-projected vertex colours"
     },
     {
+      "id": "phase_surface_region_extract",
+      "progress": { "min": 80, "max": 80, "typical": 80 },
+      "label": "Extracting dominant surface regions"
+    },
+    {
+      "id": "phase_surface_region_projection",
+      "progress": { "min": 86, "max": 86, "typical": 86 },
+      "label": "Projecting regions to aligned mesh"
+    },
+    {
+      "id": "phase_surface_region_blend",
+      "progress": { "min": 89, "max": 89, "typical": 89 },
+      "label": "Blending projected regions"
+    },
+    {
       "id": "color_autobalance",
       "progress": { "min": 90, "max": 90, "typical": 90 },
       "label": "Color balancing + centering"
@@ -131,9 +146,12 @@
         { "id": "phase_3_sanitization", "progress": 65 },
         { "id": "meshing", "progress": 75 },
         { "id": "mesh_cleanup", "progress": 79 },
+        { "id": "phase_surface_region_extract", "progress": 80 },
         { "id": "shape_classification", "progress": 81 },
         { "id": "shape_template_correction", "progress": 84 },
         { "id": "vertex_color_transfer", "progress": 85 },
+        { "id": "phase_surface_region_projection", "progress": 86 },
+        { "id": "phase_surface_region_blend", "progress": 89 },
         { "id": "photo_vertex_bake", "progress": 86 },
         { "id": "color_autobalance", "progress": 90 },
         { "id": "exporting", "progress": 94 },

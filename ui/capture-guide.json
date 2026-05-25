@@ -115,6 +115,15 @@
       { "key": "mesh_photo_vertex_bake", "value": true, "rationale": "Bake vertex RGB from originals when cameras succeed." },
       { "key": "sam_segmentation_mode", "value": "center_subject_table", "rationale": "Table-aware SAM masking when the object is centred on a tabletop." },
       { "key": "max_input_image_side", "value": 1600, "rationale": "Matches default server cap; raise to 1920 for sharper bake if VRAM allows." }
+    ],
+    "surface_region_texture_hybrid": [
+      { "key": "surface_region_texture_enabled", "value": true, "rationale": "Enable dominant visible-surface extraction and region-first projection." },
+      { "key": "surface_region_smooth_percentile", "value": 85.0, "rationale": "Prefer stable coherent surface regions over noisy edges." },
+      { "key": "surface_region_min_area_ratio", "value": 0.08, "rationale": "Drop tiny regions that tend to produce projection ghosting." },
+      { "key": "surface_region_expand_px", "value": 8, "rationale": "Slight dilation helps avoid sparse projection holes." },
+      { "key": "region_projection_blend_weight", "value": 0.65, "rationale": "Balance confidence weighting with baseline photo bake." },
+      { "key": "region_projection_min_confidence", "value": 0.6, "rationale": "Reject low-confidence per-view regions and fallback to mapanything fill." },
+      { "key": "region_projection_seam_smoothing", "value": 0.55, "rationale": "Reduce seam visibility between projected regions." }
     ]
   }
 }

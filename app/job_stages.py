@@ -34,6 +34,9 @@ STAGE_SHAPE_CLASSIFICATION: Final = "shape_classification"
 STAGE_SHAPE_TEMPLATE_CORRECTION: Final = "shape_template_correction"
 STAGE_VERTEX_COLOR_TRANSFER: Final = "vertex_color_transfer"
 STAGE_PHOTO_VERTEX_BAKE: Final = "photo_vertex_bake"
+STAGE_PHASE_SURFACE_REGION_EXTRACT: Final = "phase_surface_region_extract"
+STAGE_PHASE_SURFACE_REGION_PROJECTION: Final = "phase_surface_region_projection"
+STAGE_PHASE_SURFACE_REGION_BLEND: Final = "phase_surface_region_blend"
 STAGE_MESH_CLEANUP: Final = "mesh_cleanup"
 STAGE_COLOR_AUTOBALANCE: Final = "color_autobalance"
 STAGE_COMPARE_MESH_PREVIEW: Final = "compare_mesh_preview"
@@ -56,6 +59,9 @@ ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_SHAPE_TEMPLATE_CORRECTION,
     STAGE_VERTEX_COLOR_TRANSFER,
     STAGE_PHOTO_VERTEX_BAKE,
+    STAGE_PHASE_SURFACE_REGION_EXTRACT,
+    STAGE_PHASE_SURFACE_REGION_PROJECTION,
+    STAGE_PHASE_SURFACE_REGION_BLEND,
     STAGE_MESH_CLEANUP,
     STAGE_COLOR_AUTOBALANCE,
     STAGE_COMPARE_MESH_PREVIEW,

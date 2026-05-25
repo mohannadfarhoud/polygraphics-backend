@@ -299,6 +299,46 @@ def _reconstruction_report(job_id: str) -> tuple[float | None, str | None, str |
     return conf_f, route_taken, quality_reason, report_url
 
 
+def _texture_report(
+    job_id: str,
+) -> tuple[int | None, dict[str, float], dict[str, float | int], str | None, str | None, str | None]:
+    p = UPLOAD_DIR / job_id / "texture_report.json"
+    if not p.is_file():
+        return None, {}, {}, None, None, None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None, {}, {}, None, None, None
+    detected_raw = data.get("dominant_surface_regions_detected")
+    detected = int(detected_raw) if isinstance(detected_raw, (int, float)) else None
+    pvc_raw = data.get("per_view_region_confidence")
+    pvc: dict[str, float] = {}
+    if isinstance(pvc_raw, dict):
+        for k, v in pvc_raw.items():
+            try:
+                pvc[str(k)] = float(v)
+            except Exception:
+                continue
+    cov_raw = data.get("region_projection_coverage")
+    cov: dict[str, float | int] = {}
+    if isinstance(cov_raw, dict):
+        for k, v in cov_raw.items():
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, int):
+                cov[str(k)] = int(v)
+            elif isinstance(v, float):
+                cov[str(k)] = float(v)
+    texture_route = data.get("texture_route_taken")
+    if not isinstance(texture_route, str):
+        texture_route = None
+    texture_reason = data.get("texture_quality_reason")
+    if not isinstance(texture_reason, str):
+        texture_reason = None
+    report_url = _relative_base(f"uploads/{job_id}/texture_report.json")
+    return detected, pvc, cov, texture_route, texture_reason, report_url
+
+
 def _should_rewrite_model_url(url: str | None) -> bool:
     if not url:
         return True
@@ -327,6 +367,20 @@ def _decorate_job_response(job: JobRecord) -> JobRecord:
     job.route_taken = route_taken
     job.quality_reason = quality_reason
     job.reconstruction_report_url = recon_report
+    (
+        dominant_regions,
+        per_view_confidence,
+        projection_coverage,
+        texture_route_taken,
+        texture_quality_reason,
+        texture_report_url,
+    ) = _texture_report(job.job_id)
+    job.dominant_surface_regions_detected = dominant_regions
+    job.per_view_region_confidence = per_view_confidence
+    job.region_projection_coverage = projection_coverage
+    job.texture_route_taken = texture_route_taken or route_taken
+    job.texture_quality_reason = texture_quality_reason or quality_reason
+    job.texture_report_url = texture_report_url
 
     if (
         job.model_format

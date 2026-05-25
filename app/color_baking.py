@@ -26,6 +26,15 @@ class CameraView:
     image_size: tuple[int, int]  # (W, H) the K below was estimated for
     K: np.ndarray  # 3x3 intrinsics matrix (float64)
     w2c: np.ndarray  # 4x4 world->camera transform (float64)
+    surface_region_confidence: float = 1.0
+    surface_region_label: str | None = None
+
+
+@dataclass
+class BakeDiagnostics:
+    per_view_region_confidence: dict[str, float]
+    region_projection_coverage: dict[str, float | int]
+    dominant_surface_regions_detected: int
 
 
 def _read_image_at(path: Path, size: tuple[int, int]) -> np.ndarray | None:
@@ -43,7 +52,10 @@ def bake_vertex_colors_from_views(
     views: list[CameraView],
     *,
     skip_dark_threshold: int = 8,
-) -> bool:
+    blend_weight: float = 0.65,
+    min_confidence: float = 0.60,
+    seam_smoothing: float = 0.55,
+) -> tuple[bool, BakeDiagnostics]:
     """Sample colours per-vertex from ``views`` and overwrite ``mesh.vertex_colors``.
 
     Pixels darker than ``skip_dark_threshold`` (sum of channels) are skipped so
@@ -52,18 +64,26 @@ def bake_vertex_colors_from_views(
     """
     verts = np.asarray(mesh.vertices)
     if verts.size == 0 or not views:
-        return False
+        return False, BakeDiagnostics({}, {"mesh_area_ratio": 0.0, "regions_projected": 0}, 0)
 
     images: list[np.ndarray | None] = [_read_image_at(v.image_path, v.image_size) for v in views]
 
     n = verts.shape[0]
     color_sum = np.zeros((n, 3), dtype=np.float64)
-    color_cnt = np.zeros(n, dtype=np.int32)
+    weight_sum = np.zeros(n, dtype=np.float64)
     homog = np.concatenate([verts, np.ones((n, 1), dtype=np.float64)], axis=1)  # Nx4
+    projected_vertices = np.zeros(n, dtype=np.bool_)
+    per_view_conf: dict[str, float] = {}
+    regions_projected = 0
 
     for view, img in zip(views, images):
         if img is None:
             continue
+        view_conf = float(np.clip(getattr(view, "surface_region_confidence", 1.0), 0.0, 1.0))
+        if view_conf < min_confidence:
+            continue
+        per_view_conf[Path(view.image_path).name] = view_conf
+        regions_projected += 1
         W, H = int(view.image_size[0]), int(view.image_size[1])
 
         pcam = (np.asarray(view.w2c, dtype=np.float64) @ homog.T).T  # Nx4
@@ -111,15 +131,26 @@ def bake_vertex_colors_from_views(
 
         keep_idx = global_idx[non_dark]
         keep_rgb = rgb[non_dark] / 255.0
-        np.add.at(color_sum, keep_idx, keep_rgb)
-        np.add.at(color_cnt, keep_idx, 1)
+        base_w = float(np.clip(blend_weight, 0.0, 1.0))
+        conf_w = (1.0 - base_w) + (base_w * view_conf)
+        z_local = z[keep_idx]
+        z_norm = z_local / max(1e-6, float(np.percentile(z_local, 95)))
+        z_w = np.clip(1.0 - z_norm * float(np.clip(seam_smoothing, 0.0, 1.0)), 0.2, 1.0)
+        sample_w = conf_w * z_w
+        np.add.at(color_sum, keep_idx, keep_rgb * sample_w[:, None])
+        np.add.at(weight_sum, keep_idx, sample_w)
+        projected_vertices[keep_idx] = True
 
-    has_any = color_cnt > 0
+    has_any = weight_sum > 1e-8
     if not has_any.any():
-        return False
+        return False, BakeDiagnostics(
+            per_view_conf,
+            {"mesh_area_ratio": 0.0, "regions_projected": int(regions_projected)},
+            int(regions_projected),
+        )
 
     out_colors = np.empty((n, 3), dtype=np.float64)
-    out_colors[has_any] = color_sum[has_any] / color_cnt[has_any, None]
+    out_colors[has_any] = color_sum[has_any] / weight_sum[has_any, None]
 
     # Fill non-sampled vertices via nearest neighbour from sampled ones so the GLB
     # never has black holes where projection happened to miss.
@@ -155,4 +186,13 @@ def bake_vertex_colors_from_views(
                     out_colors[i] = (0.85, 0.85, 0.85)
 
     mesh.vertex_colors = o3d.utility.Vector3dVector(out_colors)
-    return True
+    coverage = float(np.count_nonzero(projected_vertices)) / float(max(1, n))
+    diagnostics = BakeDiagnostics(
+        per_view_region_confidence=per_view_conf,
+        region_projection_coverage={
+            "mesh_area_ratio": float(np.clip(coverage, 0.0, 1.0)),
+            "regions_projected": int(regions_projected),
+        },
+        dominant_surface_regions_detected=int(regions_projected),
+    )
+    return True, diagnostics

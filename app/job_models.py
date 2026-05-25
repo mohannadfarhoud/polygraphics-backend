@@ -88,6 +88,30 @@ class JobRecord(BaseModel):
         default=None,
         description="Relative URL to uploads/{job_id}/reconstruction_report.json when available.",
     )
+    dominant_surface_regions_detected: int | None = Field(
+        default=None,
+        description="How many dominant surface regions were extracted across views.",
+    )
+    per_view_region_confidence: dict[str, float] = Field(
+        default_factory=dict,
+        description="Per-view confidence scores for dominant surface region extraction/projection.",
+    )
+    region_projection_coverage: dict[str, float | int] = Field(
+        default_factory=dict,
+        description="Projection coverage metrics (for example mesh_area_ratio and regions_projected).",
+    )
+    texture_route_taken: str | None = Field(
+        default=None,
+        description="Texture route used: mapanything | surface_region | surface_region+mapanything_fill.",
+    )
+    texture_quality_reason: str | None = Field(
+        default=None,
+        description="Reason associated with texture route and quality assessment.",
+    )
+    texture_report_url: str | None = Field(
+        default=None,
+        description="Relative URL to uploads/{job_id}/texture_report.json when available.",
+    )
 
     @computed_field  # type: ignore[misc]
     @property
