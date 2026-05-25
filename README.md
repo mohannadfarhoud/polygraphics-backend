@@ -376,12 +376,15 @@ Stop-Service polyGraphicsBackend
 
 ## API
 
-- **`POST /jobs`** — multipart **`files`** in the body, optional **`job_id`**. Saves images under `uploads/{job_id}/`, creates the job as **`PENDING`** (nothing runs until you start). Use this when the UI uploads first and starts processing later.
+- **`POST /jobs`** — multipart **`files`** in the body, optional **`job_id`**, optional **`capture_metadata`** (JSON text). Saves images under `uploads/{job_id}/`, writes metadata to `uploads/{job_id}/capture_metadata.json` when provided, and creates the job as **`PENDING`** (nothing runs until you start). Use this when the UI uploads first and starts processing later.
 - **`POST /jobs/{job_id}/start`** — begins the pipeline (**`PENDING` → `QUEUED` → …**). Requires **at least 2** images saved for that job.
-- **`POST /jobs/reconstruct`** — convenience: **upload + start in one call** (same multipart fields). Requires at least 2 images.
+- **`POST /jobs/reconstruct`** — convenience: **upload + start in one call** (same multipart fields; supports optional `capture_metadata` JSON text). Requires at least 2 images.
+- **`PUT /jobs/{job_id}/capture-metadata`** — upsert structured capture metadata as JSON body after a job exists (useful when mobile upload and metadata upload are separate operations).
+- **`GET /jobs/{job_id}/capture-metadata`** — fetch the stored capture metadata payload for debugging/analytics.
 - After any upload route, poll **`GET /jobs/{job_id}`** for status and **`model_url`** when **`COMPLETED`**.
 - `GET /jobs` — list all jobs (from `config/jobs.json`).
 - `GET /jobs/{job_id}` — job status, `model_url`, `error`.
+  - also includes metadata-derived fields when present: `capture_metadata_url`, `capture_metadata_version`, `capture_total_frames`, `capture_accepted_frames`, `capture_avg_quality_score`, `capture_orbit_coverage_deg`.
 - `POST /jobs/{job_id}/stop` — cooperative cancel (`STOPPED`).
 - `POST /jobs/{job_id}/continue` — resume from `STOPPED`, `FAILED`, or `PAUSED` (re-queues; needs `uploads/{job_id}/input_*`).
 - `POST /jobs/{job_id}/reprocess` — re-run from saved inputs (including after `COMPLETED`).
@@ -390,6 +393,42 @@ Stop-Service polyGraphicsBackend
 - `GET /job-stages` — JSON for UI progress labels (same as `ui/job-stages-progress.json`).
 - `GET /capture-guide` — capture UX + recommended `PUT /settings` field overlays for object/scene photogrammetry (`ui/capture-guide.json`).
 - `GET /server/status` — hardware/software snapshot.
+
+### Android capture metadata payload
+
+`capture_metadata` (multipart text field on upload routes) and `PUT /jobs/{job_id}/capture-metadata` (JSON body) use the same structure:
+
+```json
+{
+  "schema_version": "1.0",
+  "session_id": "session-123",
+  "session": {
+    "object_label": "shoe",
+    "lighting": "indoor",
+    "camera_fov_deg": 76.0
+  },
+  "frames": [
+    {
+      "file": "IMG_0001.jpg",
+      "frame_index": 0,
+      "timestamp_ms": 1715321000123,
+      "yaw_deg": -20.0,
+      "pitch_deg": 8.0,
+      "depth_m": 0.42,
+      "quality_score": 0.91,
+      "accepted": true
+    }
+  ],
+  "summary": {
+    "total_frames": 24,
+    "accepted_frames": 20,
+    "avg_quality_score": 0.84,
+    "orbit_coverage_deg": 282.0
+  }
+}
+```
+
+`summary` is optional; server derives it when omitted.
 
 ## `model_url` (downloads)
 

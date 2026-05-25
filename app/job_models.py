@@ -112,6 +112,30 @@ class JobRecord(BaseModel):
         default=None,
         description="Relative URL to uploads/{job_id}/texture_report.json when available.",
     )
+    capture_metadata_url: str | None = Field(
+        default=None,
+        description="Relative URL to uploads/{job_id}/capture_metadata.json when app metadata is uploaded.",
+    )
+    capture_metadata_version: str | None = Field(
+        default=None,
+        description="Capture metadata schema version provided by the client app.",
+    )
+    capture_total_frames: int | None = Field(
+        default=None,
+        description="Total captured frames reported by client metadata summary.",
+    )
+    capture_accepted_frames: int | None = Field(
+        default=None,
+        description="Accepted frames reported by client metadata summary.",
+    )
+    capture_avg_quality_score: float | None = Field(
+        default=None,
+        description="Average per-frame quality score from app metadata summary (0..1).",
+    )
+    capture_orbit_coverage_deg: float | None = Field(
+        default=None,
+        description="Estimated orbit coverage in degrees from app metadata summary.",
+    )
 
     @computed_field  # type: ignore[misc]
     @property

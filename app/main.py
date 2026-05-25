@@ -25,6 +25,13 @@ from pydantic import BaseModel, Field
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.websockets import WebSocketDisconnect
 
+from .capture_metadata import (
+    capture_metadata_response_fields,
+    parse_capture_metadata_form,
+    read_capture_metadata,
+    validate_capture_metadata_payload,
+    write_capture_metadata,
+)
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, NoopWebSocketNotifier, WebSocketNotifier
 from .job_manager import JobManager, JobRecord, ModelListItem, remote_workers_enabled
@@ -339,6 +346,15 @@ def _texture_report(
     return detected, pvc, cov, texture_route, texture_reason, report_url
 
 
+def _capture_metadata_report(job_id: str) -> tuple[str | None, str | None, int | None, int | None, float | None, float | None]:
+    payload = read_capture_metadata(UPLOAD_DIR, job_id)
+    if payload is None:
+        return None, None, None, None, None, None
+    version, total, accepted, avg_quality, coverage = capture_metadata_response_fields(payload)
+    report_url = _relative_base(f"uploads/{job_id}/capture_metadata.json")
+    return report_url, version, total, accepted, avg_quality, coverage
+
+
 def _should_rewrite_model_url(url: str | None) -> bool:
     if not url:
         return True
@@ -381,6 +397,20 @@ def _decorate_job_response(job: JobRecord) -> JobRecord:
     job.texture_route_taken = texture_route_taken or route_taken
     job.texture_quality_reason = texture_quality_reason or quality_reason
     job.texture_report_url = texture_report_url
+    (
+        capture_metadata_url,
+        capture_metadata_version,
+        capture_total_frames,
+        capture_accepted_frames,
+        capture_avg_quality_score,
+        capture_orbit_coverage_deg,
+    ) = _capture_metadata_report(job.job_id)
+    job.capture_metadata_url = capture_metadata_url
+    job.capture_metadata_version = capture_metadata_version
+    job.capture_total_frames = capture_total_frames
+    job.capture_accepted_frames = capture_accepted_frames
+    job.capture_avg_quality_score = capture_avg_quality_score
+    job.capture_orbit_coverage_deg = capture_orbit_coverage_deg
 
     if (
         job.model_format
@@ -481,6 +511,16 @@ class WorkerFailBody(BaseModel):
 class WorkerProgressBody(BaseModel):
     stage: str = "processing"
     progress: int = Field(default=0, ge=0, le=100)
+
+
+class CaptureMetadataUpsertResult(BaseModel):
+    job_id: str
+    capture_metadata_url: str
+    capture_metadata_version: str | None = None
+    capture_total_frames: int | None = None
+    capture_accepted_frames: int | None = None
+    capture_avg_quality_score: float | None = None
+    capture_orbit_coverage_deg: float | None = None
 
 
 def verify_worker_token(x_worker_token: str | None = Header(default=None, alias="X-Worker-Token")) -> None:
@@ -750,6 +790,41 @@ def get_job(job_id: str) -> JobRecord:
     return _decorate_job_response(job)
 
 
+@app.get("/jobs/{job_id}/capture-metadata", response_model=dict[str, Any])
+def get_job_capture_metadata(job_id: str) -> dict[str, Any]:
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    payload = read_capture_metadata(UPLOAD_DIR, job_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Capture metadata not found for this job")
+    return payload
+
+
+@app.put("/jobs/{job_id}/capture-metadata", response_model=CaptureMetadataUpsertResult)
+def put_job_capture_metadata(job_id: str, payload: dict[str, Any]) -> CaptureMetadataUpsertResult:
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        normalized = validate_capture_metadata_payload(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid capture metadata payload: {exc}") from None
+    write_capture_metadata(UPLOAD_DIR, job_id, normalized)
+    url, version, total, accepted, avg_quality, coverage = _capture_metadata_report(job_id)
+    if not url:
+        raise HTTPException(status_code=500, detail="Failed to persist capture metadata")
+    return CaptureMetadataUpsertResult(
+        job_id=job_id,
+        capture_metadata_url=url,
+        capture_metadata_version=version,
+        capture_total_frames=total,
+        capture_accepted_frames=accepted,
+        capture_avg_quality_score=avg_quality,
+        capture_orbit_coverage_deg=coverage,
+    )
+
+
 @app.get("/jobs/{job_id}/masked-preview", response_class=HTMLResponse, tags=["jobs"])
 def job_masked_preview(job_id: str) -> HTMLResponse:
     """Browse SAM-isolated RGB frames (same files as ``masked_view_urls`` on ``GET /jobs/{job_id}``)."""
@@ -846,6 +921,13 @@ def list_models() -> list[ModelListItem]:
 async def create_job_from_uploads(
     files: list[UploadFile] = File(..., description="One or more images; job stays PENDING until you call POST /jobs/{job_id}/start"),
     job_id: str | None = Form(default=None),
+    capture_metadata: str | None = Form(
+        default=None,
+        description=(
+            "Optional JSON text payload from Android capture session with per-frame orientation/depth/quality info. "
+            "Stored at uploads/{job_id}/capture_metadata.json."
+        ),
+    ),
 ) -> JobRecord:
     """Accept multipart images in the body, save them under uploads/{job_id}/, create job as PENDING (does not run pipeline yet)."""
     current_settings = settings_store.load()
@@ -854,9 +936,16 @@ async def create_job_from_uploads(
     if len(files) < 1:
         raise HTTPException(status_code=400, detail="At least one file is required")
 
+    try:
+        metadata_payload = parse_capture_metadata_form(capture_metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
     use_job_id = job_id or str(uuid.uuid4())
     _assert_upload_allowed(use_job_id)
     await _save_job_files(use_job_id, files)
+    if metadata_payload is not None:
+        write_capture_metadata(UPLOAD_DIR, use_job_id, metadata_payload)
     return _decorate_job_response(job_manager.create_job_pending(use_job_id, len(files)))
 
 
@@ -875,6 +964,13 @@ def start_job(job_id: str) -> JobRecord:
 async def reconstruct(
     files: list[UploadFile] = File(...),
     job_id: str | None = Form(default=None),
+    capture_metadata: str | None = Form(
+        default=None,
+        description=(
+            "Optional JSON text payload from Android capture session with per-frame orientation/depth/quality info. "
+            "Stored at uploads/{job_id}/capture_metadata.json."
+        ),
+    ),
 ) -> JobRecord:
     """Convenience: same as POST /jobs then POST /jobs/{id}/start — upload and run immediately."""
     current_settings = settings_store.load()
@@ -883,9 +979,16 @@ async def reconstruct(
     if len(files) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 images for reconstruction")
 
+    try:
+        metadata_payload = parse_capture_metadata_form(capture_metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
     use_job_id = job_id or str(uuid.uuid4())
     _assert_upload_allowed(use_job_id)
     await _save_job_files(use_job_id, files)
+    if metadata_payload is not None:
+        write_capture_metadata(UPLOAD_DIR, use_job_id, metadata_payload)
     try:
         return _decorate_job_response(job_manager.enqueue_new_job(use_job_id, len(files)))
     except RuntimeError as exc:
