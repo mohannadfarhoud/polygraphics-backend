@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -397,6 +398,52 @@ class ReconstructionPipeline:
             settings=self.runtime_settings,
             work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
         )
+        # TripoSR-local passthrough mode: return provider mesh directly for viewing
+        # without any mesh cleanup/refinement/autobalance stages after generation.
+        if prior.provider == "triposr_local":
+            self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
+            glb_path = self.config.output_dir / f"{job_id}.glb"
+            src_raw = prior.details.get("output_mesh")
+            src = Path(str(src_raw)).resolve() if isinstance(src_raw, str) and src_raw else None
+            try:
+                if src and src.is_file():
+                    if src != glb_path.resolve():
+                        glb_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src, glb_path)
+                else:
+                    export_glb(
+                        prior.mesh,
+                        glb_path,
+                        compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
+                    )
+            except Exception:
+                export_glb(
+                    prior.mesh,
+                    glb_path,
+                    compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
+                )
+            model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
+            self._write_reconstruction_report(
+                job_id,
+                {
+                    "job_id": job_id,
+                    "reconstruction_confidence": round(float(quality_score), 4),
+                    "route_taken": "prior_only",
+                    "quality_reason": "triposr_local_passthrough",
+                    "ai_prior_provider": prior.provider,
+                    "ai_prior_confidence": round(float(prior.confidence), 4),
+                    "details": prior.details,
+                },
+            )
+            self._publish(
+                job_id,
+                JobStatus.COMPLETED,
+                stage="completed",
+                progress=100,
+                model_url=model_url,
+                model_format="glb",
+            )
+            return model_url
         mesh = keep_largest_mesh_component(prior.mesh)
         if route == "coarse_prior":
             mesh = decimate(mesh, max(10_000, int(self.config.decimation_target_triangles * 0.25)))
