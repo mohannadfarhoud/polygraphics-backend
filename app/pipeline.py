@@ -91,6 +91,7 @@ class ReconstructionPipeline:
             )
             self._publish(job_id, JobStatus.PROCESSING, stage="phase_0_input_curation", progress=8)
             quality_score = 1.0
+            preferred_prior_input: Path | None = None
             try:
                 from .capture_quality import run_capture_quality_gate
 
@@ -127,6 +128,35 @@ class ReconstructionPipeline:
                 # Standard path: SAM masks full-frame photos before any MapAnything / mesh work.
                 masked_paths = self._run_segmentation(job_id, image_paths, cancel_event=cancel_event)
                 originals_for_mesh = image_paths
+            depth_fail_hard = bool(getattr(self.runtime_settings, "depth_consistency_fail_on_low_score", False))
+            depth_score = 1.0
+            try:
+                from .depth_normalization import run_depth_normalization_gate
+
+                self._publish(job_id, JobStatus.PROCESSING, stage="phase_depth_normalization", progress=40)
+                depth_norm = run_depth_normalization_gate(
+                    job_id=job_id,
+                    masked_paths=masked_paths,
+                    original_paths=originals_for_mesh,
+                    settings=self.runtime_settings,
+                    upload_dir=self.config.root_dir / "uploads",
+                )
+                masked_paths = depth_norm.masked_paths
+                originals_for_mesh = depth_norm.original_paths
+                preferred_prior_input = depth_norm.selected_masked_path
+                depth_score = float(depth_norm.consistency_score)
+                # Blend capture + depth consistency so route confidence reflects both.
+                quality_score = float(max(0.0, min(1.0, (0.75 * quality_score) + (0.25 * depth_score))))
+                min_depth_score = float(getattr(self.runtime_settings, "depth_consistency_min_score", 0.40))
+                if depth_norm.applied and depth_fail_hard and depth_score < min_depth_score:
+                    raise RuntimeError(
+                        f"Depth consistency too low ({depth_score:.3f} < {min_depth_score:.3f}). "
+                        "Retake with more stable camera distance around the object."
+                    )
+            except Exception as exc:
+                if depth_fail_hard:
+                    raise
+                _log.warning("depth normalization stage failed job=%s: %s", job_id, exc)
             try:
                 self.segmenter.release_gpu_memory()
             except Exception:
@@ -163,6 +193,7 @@ class ReconstructionPipeline:
                     job_id=job_id,
                     masked_paths=masked_paths,
                     original_paths=originals_for_mesh,
+                    preferred_prior_input=preferred_prior_input,
                     quality_score=quality_score,
                     cancel_event=cancel_event,
                 )
@@ -171,6 +202,7 @@ class ReconstructionPipeline:
                     job_id=job_id,
                     masked_paths=masked_paths,
                     original_paths=originals_for_mesh,
+                    preferred_prior_input=preferred_prior_input,
                     quality_score=quality_score,
                     cancel_event=cancel_event,
                 )
@@ -378,6 +410,7 @@ class ReconstructionPipeline:
         job_id: str,
         masked_paths: list[Path],
         original_paths: list[Path],
+        preferred_prior_input: Path | None = None,
         quality_score: float,
         cancel_event: threading.Event | None = None,
     ) -> str:
@@ -397,6 +430,7 @@ class ReconstructionPipeline:
             masked_images=masked_paths,
             settings=self.runtime_settings,
             work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
+            preferred_input_image=preferred_prior_input,
         )
         # TripoSR-local passthrough mode: return provider mesh directly for viewing
         # without any mesh cleanup/refinement/autobalance stages after generation.
@@ -486,6 +520,7 @@ class ReconstructionPipeline:
         job_id: str,
         masked_paths: list[Path],
         original_paths: list[Path],
+        preferred_prior_input: Path | None = None,
         quality_score: float,
         cancel_event: threading.Event | None = None,
     ) -> str:
@@ -506,6 +541,7 @@ class ReconstructionPipeline:
             masked_images=masked_paths,
             settings=self.runtime_settings,
             work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
+            preferred_input_image=preferred_prior_input,
         )
         mesh = keep_largest_mesh_component(prior.mesh)
         route_taken = "prior_only"

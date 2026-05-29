@@ -28,6 +28,16 @@ class RuntimeSettings(BaseModel):
     capture_max_selected_images: int = Field(default=20, ge=2, le=256)
     capture_duplicate_similarity: float = Field(default=0.995, ge=0.8, le=1.0)
     capture_diversity_min_distance: float = Field(default=0.045, ge=0.0, le=1.0)
+    # Post-mask depth consistency normalization before reconstruction (proxy depth from object footprint).
+    depth_normalization_enabled: bool = True
+    depth_reference_mode: Literal["median_best", "first"] = "median_best"
+    depth_consistency_apply_filter: bool = True
+    depth_consistency_max_relative: float = Field(default=0.35, ge=0.05, le=2.0)
+    depth_consistency_min_kept_images: int = Field(default=3, ge=2, le=256)
+    depth_consistency_min_score: float = Field(default=0.40, ge=0.0, le=1.0)
+    depth_consistency_fail_on_low_score: bool = False
+    depth_selection_quality_weight: float = Field(default=0.55, ge=0.0, le=1.0)
+    depth_selection_proximity_weight: float = Field(default=0.45, ge=0.0, le=1.0)
     # Confidence routing across AI-prior and hybrid pipelines.
     reconstruction_confidence_high_threshold: float = Field(default=0.72, ge=0.0, le=1.0)
     reconstruction_confidence_min_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
@@ -235,6 +245,14 @@ class RuntimeSettings(BaseModel):
         try:
             if high is not None and low is not None and float(high) < float(low):
                 d["reconstruction_confidence_high_threshold"] = float(low)
+        except Exception:
+            pass
+        try:
+            qw = float(d.get("depth_selection_quality_weight", 0.55))
+            pw = float(d.get("depth_selection_proximity_weight", 0.45))
+            if qw <= 0.0 and pw <= 0.0:
+                d["depth_selection_quality_weight"] = 0.55
+                d["depth_selection_proximity_weight"] = 0.45
         except Exception:
             pass
 

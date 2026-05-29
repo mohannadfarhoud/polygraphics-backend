@@ -176,6 +176,7 @@ def run_ai_prior_mesh(
     masked_images: list[Path],
     settings: RuntimeSettings,
     work_dir: Path,
+    preferred_input_image: Path | None = None,
 ) -> AiPriorResult:
     provider = str(getattr(settings, "ai_prior_provider", "command")).strip().lower()
     confidence = float(getattr(settings, "ai_prior_default_confidence", 0.62))
@@ -268,7 +269,19 @@ def run_ai_prior_mesh(
             raise RuntimeError(f"TripoSR entry script not found: {entry}")
 
         py = _ensure_python_executable(getattr(settings, "ai_prior_triposr_python_executable", None))
-        input_image = _pick_best_input_image_for_triposr(masked_images)
+        preferred_ok = False
+        input_image: Path
+        if preferred_input_image is not None:
+            pref = Path(preferred_input_image).resolve()
+            for p in masked_images:
+                if p.resolve() == pref:
+                    input_image = p
+                    preferred_ok = True
+                    break
+            else:
+                input_image = _pick_best_input_image_for_triposr(masked_images)
+        else:
+            input_image = _pick_best_input_image_for_triposr(masked_images)
         output_dir = work_dir / "triposr_output"
         output_dir.mkdir(parents=True, exist_ok=True)
         args_template = (
@@ -324,6 +337,7 @@ def run_ai_prior_mesh(
                 "triposr_entry_script": str(entry),
                 "triposr_python": str(py),
                 "selected_input_image": str(input_image),
+                "preferred_input_used": bool(preferred_ok),
                 "output_dir": str(output_dir),
                 "command_args": args,
                 "timeout_seconds": max(30, timeout_s),

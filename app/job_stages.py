@@ -19,6 +19,7 @@ STAGE_PHASE_0_INPUT_CURATION: Final = "phase_0_input_curation"
 # Backward-compat alias for older clients.
 STAGE_PHASE_0_QUALITY_FILTER: Final = "phase_0_quality_filter"
 STAGE_PHASE_1_SEGMENTATION: Final = "phase_1_segmentation"
+STAGE_PHASE_DEPTH_NORMALIZATION: Final = "phase_depth_normalization"
 STAGE_PHASE_2_ALIGNMENT: Final = "phase_2_alignment"
 STAGE_PHASE_3_SANITIZATION: Final = "phase_3_sanitization"
 STAGE_PHASE_4_COLMAP_BRIDGE: Final = "phase_4_colmap_bridge"   # neural seed → COLMAP text for GS/train.py reader
@@ -46,6 +47,7 @@ ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_PHASE_0_INPUT_CURATION,
     STAGE_PHASE_0_QUALITY_FILTER,
     STAGE_PHASE_1_SEGMENTATION,
+    STAGE_PHASE_DEPTH_NORMALIZATION,
     STAGE_PHASE_2_ALIGNMENT,
     STAGE_PHASE_3_SANITIZATION,
     STAGE_PHASE_4_COLMAP_BRIDGE,

@@ -40,6 +40,11 @@
       "note": "API may send full stage as \"phase_1_segmentation (i/total)\" while progress sweeps 10..40."
     },
     {
+      "id": "phase_depth_normalization",
+      "progress": { "min": 40, "max": 40, "typical": 40 },
+      "label": "Depth normalization (post-mask consistency)"
+    },
+    {
       "id": "phase_2_alignment",
       "progress": { "min": 40, "max": 60, "typical": 45 },
       "label": "Metric reconstruction (MapAnything)"
@@ -142,6 +147,7 @@
         { "id": "starting", "progress": 5 },
         { "id": "phase_0_input_curation", "progress": 8 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_depth_normalization", "progress": 40 },
         { "id": "phase_2_alignment", "progress": 45 },
         { "id": "phase_3_sanitization", "progress": 65 },
         { "id": "meshing", "progress": 75 },
@@ -164,6 +170,7 @@
         { "id": "starting", "progress": 5 },
         { "id": "phase_0_input_curation", "progress": 8 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_depth_normalization", "progress": 40 },
         { "id": "compare_mesh_preview", "progress": 42 },
         { "id": "phase_2_alignment", "progress": 45 },
         { "id": "phase_3_sanitization", "progress": 55 },
@@ -180,6 +187,7 @@
         { "id": "starting", "progress": 5 },
         { "id": "phase_0_input_curation", "progress": 8 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_depth_normalization", "progress": 40 },
         { "id": "phase_confidence_routing", "progress": 41 },
         { "id": "phase_prior_generation", "progress": 52 },
         { "id": "exporting", "progress": 94 },
@@ -192,6 +200,7 @@
         { "id": "starting", "progress": 5 },
         { "id": "phase_0_input_curation", "progress": 8 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
+        { "id": "phase_depth_normalization", "progress": 40 },
         { "id": "phase_confidence_routing", "progress": 41 },
         { "id": "phase_prior_generation", "progress": 52 },
         { "id": "phase_prior_refinement", "progress": 66 },
