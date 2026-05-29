@@ -279,6 +279,16 @@ def effective_reconstruction_backend(
     return settings.reconstruction_backend
 
 
+def minimum_input_images(settings: RuntimeSettings) -> int:
+    """Minimum input count expected by the active backend path."""
+    backend = str(effective_reconstruction_backend(settings)).strip().lower()
+    if backend == "ai_prior":
+        provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
+        if provider == "triposr_local":
+            return 1
+    return 2
+
+
 class SettingsStore:
     def __init__(self, root_dir: Path) -> None:
         self.root_dir = root_dir

@@ -14,7 +14,7 @@ from .interfaces import JobRepository, JobStatus, WebSocketNotifier
 from .job_models import JobRecord, ModelListItem
 from . import jobs_db
 from .pipeline import JobCancelled, ReconstructionPipeline
-from .runtime_settings import RuntimeSettings, SettingsStore
+from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_images
 
 
 def _mirror_masked_views_to_uploads(root_dir: Path, upload_dir: Path, masked_dir_name: str, job_id: str) -> None:
@@ -244,9 +244,13 @@ class JobManager:
             raise KeyError(job_id)
         if job.status != JobStatus.PENDING:
             raise RuntimeError(f"Can only start a PENDING job; current status is {job.status.value}")
+        settings = self.settings_store.load()
+        min_images = int(minimum_input_images(settings))
         paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < 2:
-            raise RuntimeError("Need at least 2 images under uploads/{job_id}/ before starting")
+        if len(paths) < min_images:
+            raise RuntimeError(
+                f"Need at least {min_images} image(s) under uploads/{{job_id}}/ before starting"
+            )
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
         if not remote_workers_enabled():
@@ -320,9 +324,13 @@ class JobManager:
             raise RuntimeError(
                 f"Use reprocess for completed jobs. Cannot continue from status {job.status.value}"
             )
+        settings = self.settings_store.load()
+        min_images = int(minimum_input_images(settings))
         paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < 2:
-            raise RuntimeError("Not enough input images to continue; need at least 2 images under uploads/{job_id}/")
+        if len(paths) < min_images:
+            raise RuntimeError(
+                f"Not enough input images to continue; need at least {min_images} image(s) under uploads/{{job_id}}/"
+            )
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
         if not remote_workers_enabled():
@@ -347,9 +355,13 @@ class JobManager:
             raise RuntimeError("Job is already queued")
         if job.status == JobStatus.PENDING:
             raise RuntimeError("Job has not started yet; use POST /jobs/{job_id}/start")
+        settings = self.settings_store.load()
+        min_images = int(minimum_input_images(settings))
         paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < 2:
-            raise RuntimeError("Not enough input images; need at least 2 images under uploads/{job_id}/")
+        if len(paths) < min_images:
+            raise RuntimeError(
+                f"Not enough input images; need at least {min_images} image(s) under uploads/{{job_id}}/"
+            )
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
         if not remote_workers_enabled():
@@ -510,11 +522,16 @@ class JobManager:
             return
         if job.status != JobStatus.QUEUED:
             return
-        paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < 2:
-            self.update_job(job_id, JobStatus.FAILED, error="Not enough input images (need at least 2)")
-            return
         settings = self.settings_store.load()
+        min_images = int(minimum_input_images(settings))
+        paths = _sorted_input_images(self.upload_dir / job_id)
+        if len(paths) < min_images:
+            self.update_job(
+                job_id,
+                JobStatus.FAILED,
+                error=f"Not enough input images (need at least {min_images})",
+            )
+            return
         cancel_ev = self._cancel_events.setdefault(job_id, threading.Event())
         job_repo = PerJobJobRepository(self, job_id)
         pipe = self.build_pipeline(settings, job_repo, None)

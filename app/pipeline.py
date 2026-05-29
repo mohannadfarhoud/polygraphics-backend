@@ -30,7 +30,12 @@ from .cuda_memory import effective_gpu_isolate_phases, purge_torch_cuda
 from .pipeline_ready import assert_pipeline_ready
 from .point_cloud import build_point_cloud, remove_statistical_outliers
 from .reconstruction import Dust3RReconstructor
-from .runtime_settings import RuntimeSettings, effective_reconstruction_backend, gaussian_splatting_skipped_via_env
+from .runtime_settings import (
+    RuntimeSettings,
+    effective_reconstruction_backend,
+    gaussian_splatting_skipped_via_env,
+    minimum_input_images,
+)
 from .segmentation import SamSegmenter
 
 _log = logging.getLogger(__name__)
@@ -107,8 +112,11 @@ class ReconstructionPipeline:
                 # Let hard policy errors propagate; only ignore unexpected telemetry failures.
                 if str(self.runtime_settings.capture_reject_policy).strip().lower() == "hard":
                     raise
-            if len(image_paths) < 2:
-                raise RuntimeError("Capture quality filter left fewer than 2 usable images; please retake.")
+            min_images = int(minimum_input_images(self.runtime_settings))
+            if len(image_paths) < min_images:
+                raise RuntimeError(
+                    f"Capture quality filter left fewer than {min_images} usable image(s); please retake."
+                )
             if self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(

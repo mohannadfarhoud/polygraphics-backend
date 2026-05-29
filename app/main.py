@@ -38,7 +38,7 @@ from .job_manager import JobManager, JobRecord, ModelListItem, remote_workers_en
 from .pipeline import ReconstructionPipeline
 from .reconstruction import Dust3RReconstructor
 from .segmentation import SamSegmenter
-from .runtime_settings import RuntimeSettings, SettingsStore
+from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_images
 from .settings_guide import settings_deployment_guide
 from .server_status import collect_server_status
 from .worker_hub import WorkerHub, init_hub
@@ -951,7 +951,7 @@ async def create_job_from_uploads(
 
 @app.post("/jobs/{job_id}/start", response_model=JobRecord)
 def start_job(job_id: str) -> JobRecord:
-    """Begin processing for a PENDING job (requires at least 2 images on disk)."""
+    """Begin processing for a PENDING job (minimum image count depends on active backend)."""
     try:
         return _decorate_job_response(job_manager.start_job(job_id))
     except KeyError:
@@ -976,8 +976,12 @@ async def reconstruct(
     current_settings = settings_store.load()
     if len(files) > current_settings.max_images:
         raise HTTPException(status_code=400, detail=f"Too many files. max_images={current_settings.max_images}")
-    if len(files) < 2:
-        raise HTTPException(status_code=400, detail="Need at least 2 images for reconstruction")
+    min_images = int(minimum_input_images(current_settings))
+    if len(files) < min_images:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Need at least {min_images} image(s) for reconstruction with current backend",
+        )
 
     try:
         metadata_payload = parse_capture_metadata_form(capture_metadata)

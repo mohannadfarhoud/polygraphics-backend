@@ -244,7 +244,7 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         from app.pipeline import ReconstructionPipeline
         from app.pipeline_ready import assert_pipeline_ready
         from app.reconstruction import Dust3RReconstructor
-        from app.runtime_settings import RuntimeSettings, effective_reconstruction_backend
+        from app.runtime_settings import RuntimeSettings, effective_reconstruction_backend, minimum_input_images
         from app.segmentation import SamSegmenter
 
         from app.cuda_memory import bootstrap_worker_cuda
@@ -270,9 +270,10 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         print(f"[polygraph-worker] job {job_id}: validating checkpoints and backends...", flush=True)
         assert_pipeline_ready(settings)
 
-        if len(image_urls) < 2:
+        min_images = int(minimum_input_images(settings))
+        if len(image_urls) < min_images:
             raise RuntimeError(
-                f"Assignment lists {len(image_urls)} image URL(s); need at least 2. "
+                f"Assignment lists {len(image_urls)} image URL(s); need at least {min_images}. "
                 "Confirm uploads finished and POST /jobs/{job_id}/start ran on the API."
             )
 
