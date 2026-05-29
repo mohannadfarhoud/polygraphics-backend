@@ -5,6 +5,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +54,45 @@ def _ensure_command_provider(settings: RuntimeSettings) -> Path:
     raise RuntimeError(f"AI prior command not found: {raw}")
 
 
+def _ensure_python_executable(raw_path: str | None) -> Path:
+    raw = (raw_path or "").strip()
+    if raw:
+        p = Path(raw)
+        if p.is_file():
+            return p
+        found = shutil.which(raw)
+        if found:
+            return Path(found)
+        raise RuntimeError(f"TripoSR python executable not found: {raw}")
+    return Path(sys.executable)
+
+
+def _foreground_pixels(path: Path) -> int:
+    img = o3d.io.read_image(str(path))
+    arr = np.asarray(img)
+    if arr.size == 0:
+        return 0
+    if arr.ndim == 3:
+        fg = np.any(arr > 8, axis=2)
+    else:
+        fg = arr > 8
+    return int(np.count_nonzero(fg))
+
+
+def _pick_best_input_image_for_triposr(masked_images: list[Path]) -> Path:
+    if not masked_images:
+        raise RuntimeError("TripoSR local provider needs at least one masked image.")
+    ranked = sorted(
+        ((p, _foreground_pixels(p)) for p in masked_images),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    best_path, best_score = ranked[0]
+    if best_score <= 0:
+        return masked_images[0]
+    return best_path
+
+
 def _write_manifest(masked_images: list[Path], manifest_path: Path) -> None:
     payload = {"masked_images": [str(p.resolve()) for p in masked_images]}
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -63,6 +103,7 @@ def _resolve_output_mesh(
     configured_output: Path,
     settings: RuntimeSettings,
     work_dir: Path,
+    extra_search_dirs: list[Path] | None = None,
 ) -> Path:
     # 1) Explicit output from args template.
     candidates: list[Path] = [configured_output]
@@ -83,6 +124,19 @@ def _resolve_output_mesh(
         "output.ply",
     ):
         candidates.append(work_dir / name)
+    for d in extra_search_dirs or []:
+        for name in (
+            "ai_prior_mesh.glb",
+            "ai_prior_mesh.obj",
+            "ai_prior_mesh.ply",
+            "mesh.glb",
+            "mesh.obj",
+            "mesh.ply",
+            "output.glb",
+            "output.obj",
+            "output.ply",
+        ):
+            candidates.append(d / name)
 
     for p in candidates:
         if p.is_file():
@@ -96,6 +150,20 @@ def _resolve_output_mesh(
                 f"AI prior output has unsupported extension: {p}. "
                 "Expected .glb or convertible .obj/.ply."
             )
+    scan_dirs = [work_dir, *(extra_search_dirs or [])]
+    fallback_hits: list[Path] = []
+    for d in scan_dirs:
+        if not d.is_dir():
+            continue
+        for ext in ("*.glb", "*.obj", "*.ply"):
+            fallback_hits.extend(d.rglob(ext))
+    fallback_hits = [p for p in fallback_hits if p.is_file()]
+    if fallback_hits:
+        newest = sorted(fallback_hits, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+        if newest.suffix.lower() == ".glb":
+            return newest
+        out = work_dir / "ai_prior_mesh.glb"
+        return _convert_mesh_to_glb(newest, out)
     raise RuntimeError(
         "AI prior command succeeded but no mesh output was found. "
         "Expected --output path or ai_prior_output_mesh_path to point to .glb/.obj/.ply."
@@ -181,6 +249,87 @@ def run_ai_prior_mesh(
             },
         )
 
+    if provider == "triposr_local":
+        repo_raw = str(getattr(settings, "ai_prior_triposr_repo_path", "")).strip()
+        if not repo_raw:
+            raise RuntimeError(
+                "ai_prior_provider='triposr_local' requires ai_prior_triposr_repo_path "
+                "to point to a local TripoSR repository on the worker."
+            )
+        repo = Path(repo_raw)
+        if not repo.is_dir():
+            raise RuntimeError(f"TripoSR repo path does not exist: {repo}")
+
+        entry_raw = str(getattr(settings, "ai_prior_triposr_entry_script", "run.py")).strip() or "run.py"
+        entry = Path(entry_raw)
+        if not entry.is_absolute():
+            entry = repo / entry
+        if not entry.is_file():
+            raise RuntimeError(f"TripoSR entry script not found: {entry}")
+
+        py = _ensure_python_executable(getattr(settings, "ai_prior_triposr_python_executable", None))
+        input_image = _pick_best_input_image_for_triposr(masked_images)
+        output_dir = work_dir / "triposr_output"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        args_template = (
+            str(getattr(settings, "ai_prior_triposr_args_template", "")).strip()
+            or "{input_image} --output-dir {output_dir}"
+        )
+        args = args_template.format(
+            job_id=job_id,
+            input_image=str(input_image),
+            output_dir=str(output_dir),
+            output_mesh=str(out_mesh),
+            repo_path=str(repo),
+        )
+        cmd = [str(py), str(entry)] + shlex.split(args, posix=False)
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(repo) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=max(30, timeout_s),
+                check=False,
+                cwd=str(repo),
+                env=env,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"TripoSR local command timed out after {max(30, timeout_s)}s. "
+                f"Command: {' '.join(cmd)}"
+            ) from exc
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-40:]
+            raise RuntimeError(
+                "TripoSR local command failed.\n"
+                f"Command: {' '.join(cmd)}\n"
+                + "\n".join(tail)
+            )
+        out_mesh = _resolve_output_mesh(
+            configured_output=out_mesh,
+            settings=settings,
+            work_dir=work_dir,
+            extra_search_dirs=[output_dir],
+        )
+        mesh = _load_mesh(out_mesh)
+        return AiPriorResult(
+            mesh=mesh,
+            confidence=confidence,
+            provider=provider,
+            details={
+                "output_mesh": str(out_mesh),
+                "triposr_repo_path": str(repo),
+                "triposr_entry_script": str(entry),
+                "triposr_python": str(py),
+                "selected_input_image": str(input_image),
+                "output_dir": str(output_dir),
+                "command_args": args,
+                "timeout_seconds": max(30, timeout_s),
+            },
+        )
+
     if provider == "mock":
         # Minimal local fallback for development/testing when a real AI model is unavailable.
         # It builds a mesh from the union of segmented silhouettes as a coarse prior.
@@ -222,6 +371,6 @@ def run_ai_prior_mesh(
 
     raise RuntimeError(
         f"Unsupported ai_prior_provider={provider!r}. "
-        "Supported providers: command, mock."
+        "Supported providers: command, triposr_local, mock."
     )
 

@@ -33,7 +33,7 @@ class RuntimeSettings(BaseModel):
     reconstruction_confidence_min_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     reconstruction_low_confidence_policy: Literal["fail", "prior_only", "coarse_prior"] = "prior_only"
     # AI-prior backend options (pluggable provider adapter).
-    ai_prior_provider: Literal["command", "mock"] = "command"
+    ai_prior_provider: Literal["command", "mock", "triposr_local"] = "command"
     ai_prior_command: str | None = None
     ai_prior_command_args_template: str = "--input-manifest {input_manifest} --output {output_mesh}"
     ai_prior_output_mesh_path: str | None = None
@@ -41,6 +41,13 @@ class RuntimeSettings(BaseModel):
     ai_prior_api_key_env: str = "AI_PRIOR_API_KEY"
     ai_prior_require_api_key: bool = False
     ai_prior_default_confidence: float = Field(default=0.62, ge=0.0, le=1.0)
+    # When true: bypass confidence routing and keep prior-only route (useful for simple TripoSR-local flow).
+    ai_prior_force_prior_only: bool = False
+    # TripoSR local provider options (no cloud API credits; runs model on worker machine).
+    ai_prior_triposr_repo_path: str | None = None
+    ai_prior_triposr_python_executable: str | None = None
+    ai_prior_triposr_entry_script: str = "run.py"
+    ai_prior_triposr_args_template: str = "{input_image} --output-dir {output_dir}"
     # Hybrid prior-refinement route settings.
     hybrid_refine_backend: Literal["mapanything", "dust3r", "colmap", "none"] = "mapanything"
     hybrid_refine_strength: float = Field(default=0.20, ge=0.0, le=1.0)
@@ -220,6 +227,9 @@ class RuntimeSettings(BaseModel):
             d.pop("compare_mesh_dust3r_colmap_with_gs", False)
         )
         d["compare_mesh_preview_with_gs"] = preview
+        provider = str(d.get("ai_prior_provider", "")).strip().lower()
+        if provider == "triposr":
+            d["ai_prior_provider"] = "triposr_local"
         high = d.get("reconstruction_confidence_high_threshold")
         low = d.get("reconstruction_confidence_min_threshold")
         try:

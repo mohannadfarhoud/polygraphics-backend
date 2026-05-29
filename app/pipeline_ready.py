@@ -103,11 +103,35 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 raise RuntimeError(
                     f"AI prior provider requires API key env {key_env!r}, but it is not set on this machine."
                 )
+        elif provider == "triposr_local":
+            repo_raw = str(getattr(settings, "ai_prior_triposr_repo_path", "")).strip()
+            if not repo_raw:
+                raise RuntimeError(
+                    "ai_prior_provider=triposr_local requires ai_prior_triposr_repo_path "
+                    "(local TripoSR repo path on the worker)."
+                )
+            repo = Path(repo_raw)
+            if not repo.is_dir():
+                raise RuntimeError(f"TripoSR repo path not found: {repo_raw}")
+            entry_raw = str(getattr(settings, "ai_prior_triposr_entry_script", "run.py")).strip() or "run.py"
+            entry = Path(entry_raw)
+            if not entry.is_absolute():
+                entry = repo / entry
+            if not entry.is_file():
+                raise RuntimeError(f"TripoSR entry script not found: {entry}")
+            py_raw = str(getattr(settings, "ai_prior_triposr_python_executable", "")).strip()
+            if py_raw:
+                py_path = Path(py_raw)
+                if not py_path.is_file():
+                    import shutil
+
+                    if shutil.which(py_raw) is None:
+                        raise RuntimeError(f"TripoSR python executable not found: {py_raw}")
         elif provider == "mock":
             pass
         else:
             raise RuntimeError(
-                f"Unsupported ai_prior_provider={provider!r}; expected 'command' or 'mock'."
+                f"Unsupported ai_prior_provider={provider!r}; expected 'command', 'triposr_local', or 'mock'."
             )
 
     backend = effective_reconstruction_backend(settings)

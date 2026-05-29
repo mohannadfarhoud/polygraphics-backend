@@ -190,6 +190,8 @@ class ReconstructionPipeline:
         out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def _route_from_confidence(self, confidence: float) -> tuple[str, str]:
+        if bool(getattr(self.runtime_settings, "ai_prior_force_prior_only", False)):
+            return "forced", "prior_only"
         high = float(getattr(self.runtime_settings, "reconstruction_confidence_high_threshold", 0.72))
         low = float(getattr(self.runtime_settings, "reconstruction_confidence_min_threshold", 0.45))
         if confidence >= high:

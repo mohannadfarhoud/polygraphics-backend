@@ -312,6 +312,45 @@ Use `PUT /settings`:
    - `uploads/{job_id}/capture_quality_report.json`
    - `uploads/{job_id}/reconstruction_report.json`
 
+## TripoSR local provider (no API credits)
+
+Use this when you want local worker inference (no hosted Tripo API billing) and a simpler prior-only route.
+
+### 1) Install TripoSR on worker
+
+- Clone TripoSR on the worker machine (example: `C:\polyGraphics\third_party\TripoSR`)
+- Install TripoSR dependencies in the worker Python environment.
+- Verify local run command works (from TripoSR docs): `python run.py <image> --output-dir <dir>`
+
+### 2) Worker environment
+
+In `.env.worker`:
+
+```env
+POLYGRAPH_OVERRIDE_TRIPOSR_REPO=C:\polyGraphics\third_party\TripoSR
+# optional:
+# POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON=C:\Users\mohannad\polygraph_worker\.venv\Scripts\python.exe
+```
+
+### 3) Runtime settings (simple TripoSR-first profile)
+
+```json
+{
+  "reconstruction_backend": "ai_prior",
+  "ai_prior_provider": "triposr_local",
+  "ai_prior_force_prior_only": true,
+  "ai_prior_triposr_repo_path": "C:\\polyGraphics\\third_party\\TripoSR",
+  "ai_prior_triposr_entry_script": "run.py",
+  "ai_prior_triposr_args_template": "{input_image} --output-dir {output_dir}",
+  "capture_quality_gate_enabled": true,
+  "capture_reject_policy": "soft"
+}
+```
+
+Notes:
+- `triposr_local` currently feeds the best masked view to TripoSR (selected by largest foreground area).
+- Output can be `.glb`, `.obj`, or `.ply`; backend normalizes to `.glb`.
+
 ## Run
 
 ```bash
