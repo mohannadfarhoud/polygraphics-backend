@@ -478,6 +478,7 @@ Stop-Service polyGraphicsBackend
 - `GET /settings` / `PUT /settings` — runtime options.
 - `GET /job-stages` — JSON for UI progress labels (same as `ui/job-stages-progress.json`).
 - `GET /capture-guide` — capture UX + recommended `PUT /settings` field overlays for object/scene photogrammetry (`ui/capture-guide.json`).
+- `GET /capture-guide/web` — machine-readable web capture contract (live frame checks, thresholds, upload gates, metadata schema) derived from current runtime settings.
 - `GET /server/status` — hardware/software snapshot.
 
 ### Android capture metadata payload

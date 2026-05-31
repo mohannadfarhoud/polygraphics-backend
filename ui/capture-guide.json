@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "title": "Capture and quality guide (PolyCam-class behaviour, open stack)",
+  "machine_contract_endpoint": "/capture-guide/web",
   "disclaimer": "Commercial apps like PolyCam do not publish their full pipeline. This file describes standard photogrammetry and 3D Gaussian Splatting practice, and how to drive this API (SAM + MapAnything + GS) toward similar results. Your web UI can render it verbatim or map fields to localised copy.",
   "pipeline_comparison": {
     "typical_commercial_object_mode": [

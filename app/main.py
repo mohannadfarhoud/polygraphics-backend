@@ -41,6 +41,7 @@ from .segmentation import SamSegmenter
 from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_images
 from .settings_guide import settings_deployment_guide
 from .server_status import collect_server_status
+from .web_capture_contract import build_web_capture_contract
 from .worker_hub import WorkerHub, init_hub
 
 # Resolve project root reliably when running as a Windows service (CWD may be
@@ -750,6 +751,12 @@ def capture_guide() -> dict[str, Any]:
     if not _CAPTURE_GUIDE_JSON.is_file():
         raise HTTPException(status_code=404, detail="capture-guide file missing on server")
     return json.loads(_CAPTURE_GUIDE_JSON.read_text(encoding="utf-8"))
+
+
+@app.get("/capture-guide/web")
+def capture_guide_web() -> dict[str, Any]:
+    """Web-capture contract with runtime-aligned thresholds for live UI checks and upload gating."""
+    return build_web_capture_contract(settings_store.load())
 
 
 @app.get("/settings", response_model=RuntimeSettings)
