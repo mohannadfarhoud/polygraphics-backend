@@ -58,9 +58,11 @@ def bake_vertex_colors_from_views(
 ) -> tuple[bool, BakeDiagnostics]:
     """Sample colours per-vertex from ``views`` and overwrite ``mesh.vertex_colors``.
 
-    Pixels darker than ``skip_dark_threshold`` (sum of channels) are skipped so
-    masked-out (black) backgrounds don't pollute the average. Returns ``True``
-    when at least one vertex received a sample, ``False`` otherwise.
+    Pure-black pixels (RGB == 0,0,0) are excluded from interpolation so masked
+    backgrounds do not leak into baked colors. Additionally, pixels darker than
+    ``skip_dark_threshold`` (sum of channels) are skipped as a second guard.
+    Returns ``True`` when at least one vertex received a sample, ``False``
+    otherwise.
     """
     verts = np.asarray(mesh.vertices)
     if verts.size == 0 or not views:
@@ -118,14 +120,33 @@ def bake_vertex_colors_from_views(
         I01 = img[y0, x1].astype(np.float64)
         I10 = img[y1, x0].astype(np.float64)
         I11 = img[y1, x1].astype(np.float64)
-        rgb = (
-            (1.0 - wx)[:, None] * (1.0 - wy)[:, None] * I00
-            + wx[:, None] * (1.0 - wy)[:, None] * I01
-            + (1.0 - wx)[:, None] * wy[:, None] * I10
-            + wx[:, None] * wy[:, None] * I11
-        )
+
+        # Bilinear interpolation with black-aware masking:
+        # drop exact black source taps (0,0,0), renormalize with remaining taps.
+        w00 = (1.0 - wx) * (1.0 - wy)
+        w01 = wx * (1.0 - wy)
+        w10 = (1.0 - wx) * wy
+        w11 = wx * wy
+        m00 = np.any(I00 > 0.0, axis=1)
+        m01 = np.any(I01 > 0.0, axis=1)
+        m10 = np.any(I10 > 0.0, axis=1)
+        m11 = np.any(I11 > 0.0, axis=1)
+        w00 *= m00.astype(np.float64)
+        w01 *= m01.astype(np.float64)
+        w10 *= m10.astype(np.float64)
+        w11 *= m11.astype(np.float64)
+        wsum = w00 + w01 + w10 + w11
+        valid_interp = wsum > 1e-12
+        if not valid_interp.any():
+            continue
+        rgb = np.zeros((global_idx.shape[0], 3), dtype=np.float64)
+        rgb += w00[:, None] * I00
+        rgb += w01[:, None] * I01
+        rgb += w10[:, None] * I10
+        rgb += w11[:, None] * I11
+        rgb[valid_interp] /= wsum[valid_interp, None]
         sums = rgb.sum(axis=1)
-        non_dark = sums > int(skip_dark_threshold)
+        non_dark = valid_interp & (sums > int(skip_dark_threshold))
         if not non_dark.any():
             continue
 
