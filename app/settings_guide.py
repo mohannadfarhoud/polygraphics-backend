@@ -204,7 +204,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "ai_prior_force_prior_only",
             "scope": "both",
             "worker_env": None,
-            "notes": "When true: skip confidence-based fail/hybrid routing and keep prior-only route (simple TripoSR-first flow).",
+            "notes": "When true: skip confidence-based fail/hybrid routing and keep prior-only route (simple Tripo-first flow). Also enables 1-image minimum when ai_prior_provider=command (for single-image cloud generators like Tripo API).",
         },
         {
             "key": "ai_prior_triposr_repo_path",
@@ -668,6 +668,8 @@ def settings_deployment_guide() -> dict[str, Any]:
             {"name": "POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON", "purpose": "Optional worker-local override for ai_prior_triposr_python_executable."},
             {"name": "POLYGRAPH_AI_PRIOR_UPSTREAM_CMD", "purpose": "Real provider command used by scripts/ai_prior_command_adapter.py."},
             {"name": "POLYGRAPH_AI_PRIOR_UPSTREAM_ARGS_TEMPLATE", "purpose": "Optional args template for upstream provider command."},
+            {"name": "TRIPO_API_KEY", "purpose": "Tripo OpenAPI key used by scripts/tripo_api_upstream.py when testing cloud generation."},
+            {"name": "TRIPO_MODEL_VERSION", "purpose": "Optional Tripo image-to-model version (example v3.1-20260211)."},
         ],
         "fields": fields,
         "limitations": (

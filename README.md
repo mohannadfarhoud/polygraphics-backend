@@ -312,6 +312,53 @@ Use `PUT /settings`:
    - `uploads/{job_id}/capture_quality_report.json`
    - `uploads/{job_id}/reconstruction_report.json`
 
+## Tripo API cloud provider (demo/evaluation)
+
+Use this when you want to compare hosted Tripo quality during a trial window.
+
+### 1) Install Tripo SDK on worker
+
+```powershell
+pip install tripo3d
+```
+
+### 2) Configure worker environment
+
+In `.env.worker`:
+
+```env
+POLYGRAPH_OVERRIDE_AI_PRIOR_COMMAND=C:\Users\mohannad\polygraph_worker\scripts\ai_prior_command_adapter_windows.bat
+POLYGRAPH_AI_PRIOR_UPSTREAM_CMD=C:\Users\mohannad\polygraph_worker\scripts\tripo_api_upstream_windows.bat
+TRIPO_API_KEY=tsk_xxx
+
+# optional quality/cost tuning:
+# TRIPO_MODEL_VERSION=v3.1-20260211
+# TRIPO_TEXTURE_QUALITY=detailed
+# TRIPO_POLL_TIMEOUT_SECONDS=1800
+```
+
+### 3) Configure runtime settings (strict Tripo-only route)
+
+Use `PUT /settings`:
+
+```json
+{
+  "reconstruction_backend": "ai_prior",
+  "ai_prior_provider": "command",
+  "ai_prior_command": "C:\\Users\\mohannad\\polygraph_worker\\scripts\\ai_prior_command_adapter_windows.bat",
+  "ai_prior_command_args_template": "--input-manifest {input_manifest} --output {output_mesh}",
+  "ai_prior_api_key_env": "TRIPO_API_KEY",
+  "ai_prior_require_api_key": true,
+  "ai_prior_force_prior_only": true,
+  "ai_prior_timeout_seconds": 1800
+}
+```
+
+Notes:
+- `scripts/tripo_api_upstream.py` receives all masked views, picks the best single view, and submits Tripo `image_to_model`.
+- In `command` mode with `ai_prior_force_prior_only=true`, backend minimum input becomes 1 image (useful for quick trials).
+- The AI-prior route keeps Tripo output as the final mesh path unless you intentionally switch to hybrid refinement.
+
 ## TripoSR local provider (no API credits)
 
 Use this when you want local worker inference (no hosted Tripo API billing) and a simpler prior-only route.
@@ -416,7 +463,7 @@ Stop-Service polyGraphicsBackend
 ## API
 
 - **`POST /jobs`** — multipart **`files`** in the body, optional **`job_id`**, optional **`capture_metadata`** (JSON text). Saves images under `uploads/{job_id}/`, writes metadata to `uploads/{job_id}/capture_metadata.json` when provided, and creates the job as **`PENDING`** (nothing runs until you start). Use this when the UI uploads first and starts processing later.
-- **`POST /jobs/{job_id}/start`** — begins the pipeline (**`PENDING` → `QUEUED` → …**). Minimum images depend on backend (for example, `ai_prior` + `triposr_local` accepts 1; classic multi-view backends require 2+).
+- **`POST /jobs/{job_id}/start`** — begins the pipeline (**`PENDING` → `QUEUED` → …**). Minimum images depend on backend (for example, `ai_prior` + `triposr_local` accepts 1, and `ai_prior` + `command` with `ai_prior_force_prior_only=true` accepts 1; classic multi-view backends require 2+).
 - **`POST /jobs/reconstruct`** — convenience: **upload + start in one call** (same multipart fields; supports optional `capture_metadata` JSON text). Minimum images depend on active backend.
 - **`PUT /jobs/{job_id}/capture-metadata`** — upsert structured capture metadata as JSON body after a job exists (useful when mobile upload and metadata upload are separate operations).
 - **`GET /jobs/{job_id}/capture-metadata`** — fetch the stored capture metadata payload for debugging/analytics.

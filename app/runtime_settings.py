@@ -286,6 +286,10 @@ def minimum_input_images(settings: RuntimeSettings) -> int:
         provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
         if provider == "triposr_local":
             return 1
+        if provider == "command" and bool(getattr(settings, "ai_prior_force_prior_only", False)):
+            # Command-mode single-image generators (e.g. Tripo API) can run with one view
+            # when we intentionally keep a strict prior-only route.
+            return 1
     return 2
 
 
