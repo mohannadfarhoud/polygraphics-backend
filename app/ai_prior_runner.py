@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -93,6 +94,157 @@ def _pick_best_input_image_for_triposr(masked_images: list[Path]) -> Path:
     return best_path
 
 
+def _triposr_original_quality_score(path: Path) -> float:
+    try:
+        import cv2
+    except Exception:
+        return 0.0
+    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None or img.size == 0:
+        return 0.0
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    mean_luma = float(gray.mean())
+    exposure_penalty = abs(mean_luma - 128.0)
+    return sharpness - (0.35 * exposure_penalty)
+
+
+def _pick_best_original_image_for_triposr(original_images: list[Path]) -> Path:
+    if not original_images:
+        raise RuntimeError("TripoSR original-image selection needs at least one image.")
+    ranked = sorted(
+        ((p, _triposr_original_quality_score(p)) for p in original_images),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    return ranked[0][0]
+
+
+def _masked_index_from_filename(path: Path) -> int | None:
+    m = re.search(r"masked_(\d+)", path.stem, re.IGNORECASE)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except Exception:
+        return None
+
+
+def _resolve_triposr_source_image(
+    *,
+    selected_masked_image: Path,
+    masked_images: list[Path],
+    original_images: list[Path] | None,
+) -> tuple[Path, str]:
+    if not original_images:
+        return selected_masked_image, "masked_fallback_no_originals"
+
+    sel_resolved = selected_masked_image.resolve()
+    selected_idx: int | None = None
+    for i, p in enumerate(masked_images):
+        try:
+            if p.resolve() == sel_resolved:
+                selected_idx = i
+                break
+        except Exception:
+            if str(p) == str(selected_masked_image):
+                selected_idx = i
+                break
+
+    if selected_idx is not None and selected_idx < len(original_images) and len(masked_images) == len(original_images):
+        return original_images[selected_idx], "original_index_aligned"
+
+    hint_idx = _masked_index_from_filename(selected_masked_image)
+    if hint_idx is not None and hint_idx < len(original_images):
+        return original_images[hint_idx], "original_index_from_masked_name"
+
+    if selected_idx is not None and selected_idx < len(original_images):
+        return original_images[selected_idx], "original_index_best_effort"
+
+    return selected_masked_image, "masked_fallback_unmatched"
+
+
+def _foreground_bbox(path: Path) -> tuple[int, int, int, int] | None:
+    try:
+        import cv2
+    except Exception:
+        return None
+    img = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    if img is None or img.size == 0:
+        return None
+    fg = np.any(img > 8, axis=2)
+    if not np.any(fg):
+        return None
+    ys, xs = np.where(fg)
+    return int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+
+
+def _build_triposr_center_focus_input(
+    *,
+    source_image: Path,
+    masked_hint_image: Path | None,
+    output_dir: Path,
+) -> Path:
+    try:
+        import cv2
+    except Exception:
+        return source_image
+
+    src = cv2.imread(str(source_image), cv2.IMREAD_COLOR)
+    if src is None or src.size == 0:
+        return source_image
+
+    h, w = src.shape[:2]
+    short_side = float(max(1, min(h, w)))
+    bbox = _foreground_bbox(masked_hint_image) if masked_hint_image is not None else None
+    if bbox is not None:
+        x0, y0, x1, y1 = bbox
+        cx = 0.5 * (x0 + x1)
+        cy = 0.5 * (y0 + y1)
+        obj_side = float(max(1, max((x1 - x0 + 1), (y1 - y0 + 1))))
+        crop_side = max(obj_side * 1.60, short_side * 0.60)
+    else:
+        cx = 0.5 * float(w - 1)
+        cy = 0.5 * float(h - 1)
+        crop_side = short_side * 0.84
+
+    crop_side = float(max(96.0, min(short_side, crop_side)))
+    side_i = int(round(crop_side))
+    half_i = side_i // 2
+    left = int(round(cx)) - half_i
+    top = int(round(cy)) - half_i
+    right = left + side_i
+    bottom = top + side_i
+
+    if left < 0:
+        right -= left
+        left = 0
+    if top < 0:
+        bottom -= top
+        top = 0
+    if right > w:
+        left -= right - w
+        right = w
+    if bottom > h:
+        top -= bottom - h
+        bottom = h
+    left = max(0, left)
+    top = max(0, top)
+    right = min(w, right)
+    bottom = min(h, bottom)
+
+    crop = src[top:bottom, left:right]
+    if crop.size == 0 or crop.shape[0] < 8 or crop.shape[1] < 8:
+        return source_image
+    interp = cv2.INTER_CUBIC if crop.shape[0] < h or crop.shape[1] < w else cv2.INTER_AREA
+    focused = cv2.resize(crop, (w, h), interpolation=interp)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / f"{source_image.stem}_triposr_center_focus.png"
+    ok = cv2.imwrite(str(out), focused)
+    return out if ok else source_image
+
+
 def _write_manifest(masked_images: list[Path], manifest_path: Path) -> None:
     payload = {"masked_images": [str(p.resolve()) for p in masked_images]}
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -174,6 +326,7 @@ def run_ai_prior_mesh(
     *,
     job_id: str,
     masked_images: list[Path],
+    original_images: list[Path] | None = None,
     settings: RuntimeSettings,
     work_dir: Path,
     preferred_input_image: Path | None = None,
@@ -282,15 +435,32 @@ def run_ai_prior_mesh(
                 input_image = _pick_best_input_image_for_triposr(masked_images)
         else:
             input_image = _pick_best_input_image_for_triposr(masked_images)
+        if original_images:
+            source_input_image = _pick_best_original_image_for_triposr(original_images)
+            source_reason = "best_original_quality"
+            masked_hint_image: Path | None = None
+        else:
+            source_input_image, source_reason = _resolve_triposr_source_image(
+                selected_masked_image=input_image,
+                masked_images=masked_images,
+                original_images=original_images,
+            )
+            masked_hint_image = input_image
         output_dir = work_dir / "triposr_output"
         output_dir.mkdir(parents=True, exist_ok=True)
+        center_focus_dir = work_dir / "triposr_inputs"
+        command_input_image = _build_triposr_center_focus_input(
+            source_image=source_input_image,
+            masked_hint_image=masked_hint_image,
+            output_dir=center_focus_dir,
+        )
         args_template = (
             str(getattr(settings, "ai_prior_triposr_args_template", "")).strip()
             or "{input_image} --output-dir {output_dir}"
         )
         args = args_template.format(
             job_id=job_id,
-            input_image=str(input_image),
+            input_image=str(command_input_image),
             output_dir=str(output_dir),
             output_mesh=str(out_mesh),
             repo_path=str(repo),
@@ -336,7 +506,12 @@ def run_ai_prior_mesh(
                 "triposr_repo_path": str(repo),
                 "triposr_entry_script": str(entry),
                 "triposr_python": str(py),
-                "selected_input_image": str(input_image),
+                "selected_input_image": str(command_input_image),
+                "selected_masked_image": str(input_image),
+                "triposr_source_image": str(source_input_image),
+                "triposr_source_reason": source_reason,
+                "triposr_center_focus_applied": str(command_input_image) != str(source_input_image),
+                "triposr_center_focus_mode": "central_object_from_original",
                 "preferred_input_used": bool(preferred_ok),
                 "output_dir": str(output_dir),
                 "command_args": args,

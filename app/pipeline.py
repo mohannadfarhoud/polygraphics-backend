@@ -117,7 +117,22 @@ class ReconstructionPipeline:
                 raise RuntimeError(
                     f"Capture quality filter left fewer than {min_images} usable image(s); please retake."
                 )
-            if self.runtime_settings.skip_sam_segmentation:
+            backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
+            ai_provider = str(getattr(self.runtime_settings, "ai_prior_provider", "")).strip().lower()
+            triposr_center_original_mode = backend == "ai_prior" and ai_provider == "triposr_local"
+
+            if triposr_center_original_mode:
+                # TripoSR center-object mode: consume original images directly and let the
+                # Tripo input-prep stage enforce central-object focus without SAM dependency.
+                self._publish(
+                    job_id,
+                    JobStatus.PROCESSING,
+                    stage="phase_1_segmentation (skipped_triposr_center_mode)",
+                    progress=40,
+                )
+                masked_paths = list(image_paths)
+                originals_for_mesh = list(image_paths)
+            elif self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(
                     job_id,
@@ -138,41 +153,40 @@ class ReconstructionPipeline:
                 originals_for_mesh = image_paths
             depth_fail_hard = bool(getattr(self.runtime_settings, "depth_consistency_fail_on_low_score", False))
             depth_score = 1.0
-            try:
-                from .depth_normalization import run_depth_normalization_gate
+            if not triposr_center_original_mode:
+                try:
+                    from .depth_normalization import run_depth_normalization_gate
 
-                self._publish(job_id, JobStatus.PROCESSING, stage="phase_depth_normalization", progress=40)
-                depth_norm = run_depth_normalization_gate(
-                    job_id=job_id,
-                    masked_paths=masked_paths,
-                    original_paths=originals_for_mesh,
-                    settings=self.runtime_settings,
-                    upload_dir=self.config.root_dir / "uploads",
-                )
-                masked_paths = depth_norm.masked_paths
-                originals_for_mesh = depth_norm.original_paths
-                preferred_prior_input = depth_norm.selected_masked_path
-                depth_score = float(depth_norm.consistency_score)
-                # Blend capture + depth consistency so route confidence reflects both.
-                quality_score = float(max(0.0, min(1.0, (0.75 * quality_score) + (0.25 * depth_score))))
-                min_depth_score = float(getattr(self.runtime_settings, "depth_consistency_min_score", 0.40))
-                if depth_norm.applied and depth_fail_hard and depth_score < min_depth_score:
-                    raise RuntimeError(
-                        f"Depth consistency too low ({depth_score:.3f} < {min_depth_score:.3f}). "
-                        "Retake with more stable camera distance around the object."
+                    self._publish(job_id, JobStatus.PROCESSING, stage="phase_depth_normalization", progress=40)
+                    depth_norm = run_depth_normalization_gate(
+                        job_id=job_id,
+                        masked_paths=masked_paths,
+                        original_paths=originals_for_mesh,
+                        settings=self.runtime_settings,
+                        upload_dir=self.config.root_dir / "uploads",
                     )
-            except Exception as exc:
-                if depth_fail_hard:
-                    raise
-                _log.warning("depth normalization stage failed job=%s: %s", job_id, exc)
+                    masked_paths = depth_norm.masked_paths
+                    originals_for_mesh = depth_norm.original_paths
+                    preferred_prior_input = depth_norm.selected_masked_path
+                    depth_score = float(depth_norm.consistency_score)
+                    # Blend capture + depth consistency so route confidence reflects both.
+                    quality_score = float(max(0.0, min(1.0, (0.75 * quality_score) + (0.25 * depth_score))))
+                    min_depth_score = float(getattr(self.runtime_settings, "depth_consistency_min_score", 0.40))
+                    if depth_norm.applied and depth_fail_hard and depth_score < min_depth_score:
+                        raise RuntimeError(
+                            f"Depth consistency too low ({depth_score:.3f} < {min_depth_score:.3f}). "
+                            "Retake with more stable camera distance around the object."
+                        )
+                except Exception as exc:
+                    if depth_fail_hard:
+                        raise
+                    _log.warning("depth normalization stage failed job=%s: %s", job_id, exc)
             try:
                 self.segmenter.release_gpu_memory()
             except Exception:
                 pass
             purge_torch_cuda()
             self._raise_if_cancelled(cancel_event)
-
-            backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
             if backend == "gaussian_splatting":
                 if self.runtime_settings.compare_mesh_preview_with_gs:
                     self._publish(
@@ -436,6 +450,7 @@ class ReconstructionPipeline:
         prior = run_ai_prior_mesh(
             job_id=job_id,
             masked_images=masked_paths,
+            original_images=original_paths,
             settings=self.runtime_settings,
             work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
             preferred_input_image=preferred_prior_input,
@@ -547,6 +562,7 @@ class ReconstructionPipeline:
         prior = run_ai_prior_mesh(
             job_id=job_id,
             masked_images=masked_paths,
+            original_images=original_paths,
             settings=self.runtime_settings,
             work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
             preferred_input_image=preferred_prior_input,
