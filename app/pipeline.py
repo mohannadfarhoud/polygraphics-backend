@@ -91,36 +91,33 @@ class ReconstructionPipeline:
             from .mapanything_input_prep import prepare_precut_opaque_views_for_mapanything
 
             _VIDEO_EXTS = frozenset({".mp4", ".mov", ".webm", ".avi", ".mkv"})
-            video_input_mode = bool(getattr(self.runtime_settings, "video_input_enabled", False))
+            video_feature_on = bool(getattr(self.runtime_settings, "video_input_enabled", False))
 
             # ------------------------------------------------------------------
-            # Video input mode: extract frames FIRST so the full quality
-            # pipeline operates on real image frames, not the video file.
-            # If video mode is off, strip any stray video files from the list.
+            # Video input: only when a video file is present in this job.
+            # video_input_enabled means "allow video jobs", not "require video".
+            # Image-only uploads (even with video_input_enabled=true) proceed as images.
             # ------------------------------------------------------------------
-            if video_input_mode:
-                from .video_frame_extractor import find_video_in_upload_dir, run_video_extraction
+            video_path: Path | None = None
+            if video_feature_on:
+                from .video_frame_extractor import find_video_in_upload_dir
+
+                video_path = find_video_in_upload_dir(
+                    self.config.root_dir / "uploads", job_id
+                )
+                if video_path is None:
+                    for p in image_paths:
+                        if p.suffix.lower() in _VIDEO_EXTS:
+                            video_path = p
+                            break
+
+            if video_path is not None:
+                from .video_frame_extractor import run_video_extraction
 
                 self._publish(
                     job_id, JobStatus.PROCESSING,
                     stage="phase_video_extraction", progress=6,
                 )
-                # Accept either an explicit video upload or, if the "image" paths
-                # are just a video file forwarded by the worker, detect it there.
-                video_path = find_video_in_upload_dir(
-                    self.config.root_dir / "uploads", job_id
-                )
-                if video_path is None:
-                    # Fallback: first path passed in might be the video itself
-                    for p in image_paths:
-                        if p.suffix.lower() in _VIDEO_EXTS:
-                            video_path = p
-                            break
-                if video_path is None:
-                    raise RuntimeError(
-                        "video_input_enabled=true but no video file found under "
-                        f"uploads/{job_id}/. Upload a .mp4/.mov/.webm file."
-                    )
                 extraction = run_video_extraction(
                     job_id=job_id,
                     video_path=video_path,
@@ -145,6 +142,12 @@ class ReconstructionPipeline:
             else:
                 # Safety: filter out any video files passed as images
                 image_paths = [p for p in image_paths if p.suffix.lower() not in _VIDEO_EXTS]
+                if video_feature_on:
+                    _log.info(
+                        "job=%s: video_input_enabled but no video in uploads — using %d image(s) directly",
+                        job_id,
+                        len(image_paths),
+                    )
 
             image_paths = downscale_job_images_if_needed(
                 job_id,

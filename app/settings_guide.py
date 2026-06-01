@@ -182,7 +182,11 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "video_input_enabled",
             "scope": "both",
             "worker_env": None,
-            "notes": "When true: pipeline accepts a single uploaded video, extracts frames with FFmpeg, filters by quality, and feeds the best frame to reconstruction. Use POST /jobs/video or POST /jobs/video/reconstruct.",
+            "notes": (
+                "When true: jobs that include a video file (POST /jobs/video or video in uploads) "
+                "extract frames with FFmpeg before reconstruction. Image-only jobs are unaffected — "
+                "a single photo still routes to TripoSR without requiring a video."
+            ),
         },
         {
             "key": "video_input_extraction_fps",
