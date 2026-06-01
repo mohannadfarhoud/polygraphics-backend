@@ -151,6 +151,61 @@ class JobManager:
             jobs_db.save_record(self._db_path, record)
         return record
 
+    def _delete_job_artifacts(self, job_id: str, settings: RuntimeSettings) -> None:
+        """Remove files/directories associated with a job id."""
+        output_dir = self.root_dir / settings.output_dir_name
+        for ext in (".glb", ".ply"):
+            p = output_dir / f"{job_id}{ext}"
+            try:
+                if p.is_file():
+                    p.unlink()
+            except OSError:
+                pass
+        for p in output_dir.glob(f"{job_id}_compare_*.glb"):
+            try:
+                if p.is_file():
+                    p.unlink()
+            except OSError:
+                pass
+
+        dir_candidates = [
+            self.upload_dir / job_id,
+            self.root_dir / settings.masked_dir_name / job_id,
+            self.root_dir / settings.masks_dir_name / job_id,
+            self.root_dir / "data" / "job_inputs" / job_id,
+            self.root_dir / "data" / "ai_prior_workspace" / job_id,
+            self.root_dir / "data" / "gs_workspace" / job_id,
+            self.root_dir / "data" / "phase_scratch" / job_id,
+            self.root_dir / "data" / "texture_abstraction" / job_id,
+            self.root_dir / "data" / "surface_region_texture" / job_id,
+        ]
+        for d in dir_candidates:
+            try:
+                if d.is_dir():
+                    shutil.rmtree(d, ignore_errors=True)
+            except OSError:
+                pass
+
+    def delete_job(self, job_id: str) -> None:
+        """Delete a job record and all known on-disk artifacts for this job id."""
+        with self._lock:
+            job = jobs_db.get_job(self._db_path, job_id)
+            if not job:
+                raise KeyError(job_id)
+            if job.status in (JobStatus.QUEUED, JobStatus.PROCESSING):
+                raise RuntimeError(
+                    f"Cannot delete active job (status={job.status.value}). Stop it first, then delete."
+                )
+            active = self._active_threads.get(job_id)
+            if active is not None and active.is_alive():
+                raise RuntimeError("Cannot delete job while local worker thread is still running.")
+            jobs_db.delete_job(self._db_path, job_id)
+            self._cancel_events.pop(job_id, None)
+            self._active_threads.pop(job_id, None)
+
+        settings = self.settings_store.load()
+        self._delete_job_artifacts(job_id, settings)
+
     def update_job(
         self,
         job_id: str,

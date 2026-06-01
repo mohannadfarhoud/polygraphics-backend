@@ -468,12 +468,13 @@ Stop-Service polyGraphicsBackend
 - **`PUT /jobs/{job_id}/capture-metadata`** — upsert structured capture metadata as JSON body after a job exists (useful when mobile upload and metadata upload are separate operations).
 - **`GET /jobs/{job_id}/capture-metadata`** — fetch the stored capture metadata payload for debugging/analytics.
 - After any upload route, poll **`GET /jobs/{job_id}`** for status and **`model_url`** when **`COMPLETED`**.
-- `GET /jobs` — list all jobs (from `config/jobs.json`).
+- `GET /jobs` — list all jobs.
 - `GET /jobs/{job_id}` — job status, `model_url`, `error`.
   - also includes metadata-derived fields when present: `capture_metadata_url`, `capture_metadata_version`, `capture_total_frames`, `capture_accepted_frames`, `capture_avg_quality_score`, `capture_orbit_coverage_deg`.
 - `POST /jobs/{job_id}/stop` — cooperative cancel (`STOPPED`).
 - `POST /jobs/{job_id}/continue` — resume from `STOPPED`, `FAILED`, or `PAUSED` (re-queues; needs `uploads/{job_id}/input_*`).
 - `POST /jobs/{job_id}/reprocess` — re-run from saved inputs (including after `COMPLETED`).
+- `DELETE /jobs/{job_id}` — delete a gallery/job item (job row + uploaded images + generated model/report artifacts). Active jobs must be stopped first.
 - `GET /models` — list `.glb` and `.ply` files under the configured output directory (`url`, **`image_url`** preview of first upload, `size_bytes`, … — no server filesystem paths).
 - `GET /settings` / `PUT /settings` — runtime options.
 - `GET /job-stages` — JSON for UI progress labels (same as `ui/job-stages-progress.json`).

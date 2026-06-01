@@ -524,6 +524,11 @@ class CaptureMetadataUpsertResult(BaseModel):
     capture_orbit_coverage_deg: float | None = None
 
 
+class DeleteJobResult(BaseModel):
+    job_id: str
+    deleted: bool = True
+
+
 def verify_worker_token(x_worker_token: str | None = Header(default=None, alias="X-Worker-Token")) -> None:
     secret = os.getenv("APP_WORKER_TOKEN", "").strip()
     if not secret:
@@ -910,6 +915,18 @@ def reprocess_job(job_id: str) -> JobRecord:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.delete("/jobs/{job_id}", response_model=DeleteJobResult)
+def delete_job(job_id: str) -> DeleteJobResult:
+    """Delete a gallery/job item (job row + generated/uploaded artifacts)."""
+    try:
+        job_manager.delete_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    return DeleteJobResult(job_id=job_id, deleted=True)
 
 
 @app.get("/models", response_model=list[ModelListItem])

@@ -167,3 +167,11 @@ def save_record(db_path: Path, rec: JobRecord) -> None:
     with _connect(db_path) as conn:
         _save_record_conn(conn, rec)
         conn.commit()
+
+
+def delete_job(db_path: Path, job_id: str) -> bool:
+    """Delete a job row by id. Returns True if a row was removed."""
+    with _connect(db_path) as conn:
+        cur = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+        conn.commit()
+        return int(cur.rowcount or 0) > 0
