@@ -329,8 +329,14 @@ def run_ai_prior_mesh(
     settings: RuntimeSettings,
     work_dir: Path,
     preferred_input_image: Path | None = None,
+    provider_override: str | None = None,
 ) -> AiPriorResult:
-    provider = str(getattr(settings, "ai_prior_provider", "command")).strip().lower()
+    # provider_override is set by the auto-backend resolver in pipeline.py
+    provider = (
+        provider_override.strip().lower()
+        if provider_override
+        else str(getattr(settings, "ai_prior_provider", "command")).strip().lower()
+    )
     confidence = float(getattr(settings, "ai_prior_default_confidence", 0.62))
     timeout_s = int(getattr(settings, "ai_prior_timeout_seconds", 600))
     work_dir.mkdir(parents=True, exist_ok=True)

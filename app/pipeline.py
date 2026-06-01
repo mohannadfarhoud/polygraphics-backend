@@ -35,6 +35,7 @@ from .runtime_settings import (
     effective_reconstruction_backend,
     gaussian_splatting_skipped_via_env,
     minimum_input_images,
+    resolve_auto_backend,
 )
 from .segmentation import SamSegmenter
 
@@ -153,8 +154,26 @@ class ReconstructionPipeline:
                 raise RuntimeError(
                     f"Capture quality filter left fewer than {min_images} usable image(s); please retake."
                 )
-            backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
+            raw_backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
             ai_provider = str(getattr(self.runtime_settings, "ai_prior_provider", "")).strip().lower()
+
+            # ------------------------------------------------------------------
+            # Auto backend selection: resolve "auto" → concrete backend based
+            # on how many images survived the quality gate.
+            # ------------------------------------------------------------------
+            if raw_backend == "auto":
+                backend, auto_ai_provider = resolve_auto_backend(
+                    self.runtime_settings, len(image_paths)
+                )
+                if auto_ai_provider is not None:
+                    ai_provider = auto_ai_provider
+                _log.info(
+                    "job=%s: auto backend selected %r (provider=%r) for %d image(s)",
+                    job_id, backend, ai_provider, len(image_paths),
+                )
+            else:
+                backend = raw_backend
+
             # Single-image AI models (TripoSR / InstantMesh): SAM runs normally to produce clean
             # masked images; depth normalization is skipped (not useful for single-image models).
             triposr_local_mode = backend == "ai_prior" and ai_provider == "triposr_local"
@@ -247,6 +266,8 @@ class ReconstructionPipeline:
                     cancel_event=cancel_event,
                 )
             if backend == "ai_prior":
+                # Pass resolved ai_provider so auto-selected TripoSR is actually used.
+                _provider_override = ai_provider if raw_backend == "auto" else None
                 return self._run_ai_prior_pipeline(
                     job_id=job_id,
                     masked_paths=masked_paths,
@@ -254,6 +275,7 @@ class ReconstructionPipeline:
                     preferred_prior_input=preferred_prior_input,
                     quality_score=quality_score,
                     cancel_event=cancel_event,
+                    provider_override=_provider_override,
                 )
             if backend == "hybrid_prior_refine":
                 return self._run_hybrid_prior_pipeline(
@@ -471,6 +493,7 @@ class ReconstructionPipeline:
         preferred_prior_input: Path | None = None,
         quality_score: float,
         cancel_event: threading.Event | None = None,
+        provider_override: str | None = None,
     ) -> str:
         from .ai_prior_runner import run_ai_prior_mesh
 
@@ -490,6 +513,7 @@ class ReconstructionPipeline:
             settings=self.runtime_settings,
             work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
             preferred_input_image=preferred_prior_input,
+            provider_override=provider_override,
         )
         # TripoSR-local passthrough mode: return provider mesh directly for viewing
         # without any mesh cleanup/refinement/autobalance stages after generation.

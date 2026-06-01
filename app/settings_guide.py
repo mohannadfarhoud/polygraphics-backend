@@ -12,7 +12,32 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "reconstruction_backend",
             "scope": "both",
             "worker_env": None,
-            "notes": "Mesh: mapanything (.glb), dust3r (.glb), colmap (.glb), ai_prior (.glb), or hybrid_prior_refine (.glb); gaussian_splatting (.ply) for splats.",
+            "notes": (
+                "`auto` (recommended default): selects backend by image count automatically — "
+                "TripoSR for 1–auto_backend_triposr_max_images images, DUSt3R for a few more, MapAnything for many. "
+                "Manual options: mapanything (.glb), dust3r (.glb), colmap (.glb), ai_prior (.glb), "
+                "hybrid_prior_refine (.glb); gaussian_splatting (.ply) for splats."
+            ),
+        },
+        {
+            "key": "auto_backend_triposr_max_images",
+            "scope": "both",
+            "worker_env": None,
+            "notes": (
+                "Only when reconstruction_backend=auto: use TripoSR (single-image AI) when "
+                "image count is at most this value. Default 3. Set 0 to never auto-select TripoSR "
+                "(requires ai_prior_triposr_repo_path to be configured)."
+            ),
+        },
+        {
+            "key": "auto_backend_dust3r_max_images",
+            "scope": "both",
+            "worker_env": None,
+            "notes": (
+                "Only when reconstruction_backend=auto: use DUSt3R when image count is above "
+                "auto_backend_triposr_max_images and at most this value. Default 15. "
+                "Above this threshold MapAnything is used. Set 0 to skip DUSt3R."
+            ),
         },
         {
             "key": "reconstruction_image_source",

@@ -10,10 +10,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class RuntimeSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
+    # `auto` selects backend by image count automatically (recommended default).
     # `mapanything`/`dust3r`/`colmap` mesh to `.glb`; `gaussian_splatting` yields `.ply` splats.
     reconstruction_backend: Literal[
-        "mapanything", "dust3r", "colmap", "gaussian_splatting", "ai_prior", "hybrid_prior_refine"
-    ] = "mapanything"
+        "auto", "mapanything", "dust3r", "colmap", "gaussian_splatting", "ai_prior", "hybrid_prior_refine"
+    ] = "auto"
+
+    # ---------------------------------------------------------------------------
+    # Auto-selection thresholds (used when reconstruction_backend == "auto").
+    # ---------------------------------------------------------------------------
+    # Use TripoSR (single-image AI) when image count is at most this value.
+    # Set 0 to never auto-select TripoSR.
+    auto_backend_triposr_max_images: int = Field(default=3, ge=0, le=100)
+    # Use DUSt3R when image count is above triposr threshold and at most this value.
+    # Set 0 to skip DUSt3R and go straight to MapAnything.
+    auto_backend_dust3r_max_images: int = Field(default=15, ge=0, le=256)
+    # Image count above dust3r threshold always routes to MapAnything.
     # Which images feed geometry matching/reconstruction. `original` is more robust for sparse matching;
     # `masked` keeps strict object-only context but can reduce feature richness on low-texture objects.
     reconstruction_image_source: Literal["original", "masked"] = "original"
@@ -257,9 +269,6 @@ class RuntimeSettings(BaseModel):
         if not isinstance(data, dict):
             return data
         d = dict(data)
-        rb = d.get("reconstruction_backend")
-        if rb == "auto":
-            d["reconstruction_backend"] = "mapanything"
 
         preview = bool(d.get("compare_mesh_preview_with_gs", False)) or bool(
             d.pop("compare_mesh_dust3r_colmap_with_gs", False)
@@ -300,16 +309,58 @@ def gaussian_splatting_skipped_via_env() -> bool:
 
 def effective_reconstruction_backend(
     settings: RuntimeSettings,
-) -> Literal["mapanything", "dust3r", "colmap", "gaussian_splatting", "ai_prior", "hybrid_prior_refine"]:
-    """What the pipeline actually runs (`POLYGRAPH_SKIP_GAUSSIAN_SPLATTING` forces mesh path)."""
+) -> Literal["auto", "mapanything", "dust3r", "colmap", "gaussian_splatting", "ai_prior", "hybrid_prior_refine"]:
+    """What the pipeline actually runs (`POLYGRAPH_SKIP_GAUSSIAN_SPLATTING` forces mesh path).
+
+    Returns ``"auto"`` unchanged — the pipeline resolves it to a concrete backend after
+    the image count is known. Use ``resolve_auto_backend`` for a concrete value.
+    """
     if gaussian_splatting_skipped_via_env():
         return "mapanything"
     return settings.reconstruction_backend
 
 
+def resolve_auto_backend(
+    settings: RuntimeSettings,
+    image_count: int,
+) -> tuple[str, str | None]:
+    """Resolve ``"auto"`` backend to a concrete backend + optional ai_prior_provider.
+
+    Selection logic (thresholds configurable via settings):
+
+    * 1 .. auto_backend_triposr_max_images  → triposr_local (when repo is configured)
+    * (triposr_max+1) .. auto_backend_dust3r_max_images → dust3r
+    * above dust3r_max → mapanything
+
+    Returns (backend, ai_provider_override_or_none).
+    """
+    triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
+    dust3r_max = int(getattr(settings, "auto_backend_dust3r_max_images", 15))
+
+    # TripoSR path: single-image AI — only use if repo is configured on worker.
+    triposr_repo = str(getattr(settings, "ai_prior_triposr_repo_path", "") or "").strip()
+    triposr_available = bool(triposr_repo)
+
+    if triposr_max > 0 and image_count <= triposr_max and triposr_available:
+        return "ai_prior", "triposr_local"
+
+    # DUSt3R path: better geometry for few images.
+    if dust3r_max > 0 and image_count <= dust3r_max:
+        return "dust3r", None
+
+    # MapAnything: fast feed-forward for many images.
+    return "mapanything", None
+
+
 def minimum_input_images(settings: RuntimeSettings) -> int:
     """Minimum input count expected by the active backend path."""
     backend = str(effective_reconstruction_backend(settings)).strip().lower()
+    # auto can handle a single image (TripoSR branch).
+    if backend == "auto":
+        triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
+        if triposr_max > 0:
+            return 1
+        return 2
     if backend == "ai_prior":
         provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
         if provider in ("triposr_local", "instantmesh_local"):

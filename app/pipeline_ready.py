@@ -159,6 +159,21 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
     backend = effective_reconstruction_backend(settings)
 
+    if backend == "auto":
+        # Concrete backend is resolved at runtime based on image count.
+        # Only verify SAM (always required as the first stage).
+        # If TripoSR repo is configured, also verify it (most likely auto path for few images).
+        triposr_repo_raw = str(getattr(settings, "ai_prior_triposr_repo_path", "") or "").strip()
+        triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
+        if triposr_max > 0 and triposr_repo_raw:
+            triposr_repo = Path(triposr_repo_raw)
+            if not triposr_repo.is_dir():
+                raise RuntimeError(
+                    f"auto backend: ai_prior_triposr_repo_path does not exist: {triposr_repo_raw}. "
+                    "Fix the path or set auto_backend_triposr_max_images=0 to skip TripoSR auto-routing."
+                )
+        return  # Other backends validated lazily at runtime
+
     if backend == "mapanything":
         _need_mapanything()
     elif backend == "dust3r":
