@@ -24,7 +24,9 @@ class RuntimeSettings(BaseModel):
     auto_backend_triposr_max_images: int = Field(default=3, ge=0, le=100)
     # Use DUSt3R when image count is above triposr threshold and at most this value.
     # Set 0 to skip DUSt3R and go straight to MapAnything.
-    auto_backend_dust3r_max_images: int = Field(default=15, ge=0, le=256)
+    # Default 25: video at 4fps typically produces 20-40 good frames after filtering
+    # which routes to DUSt3R (4–25) or MapAnything (26+).
+    auto_backend_dust3r_max_images: int = Field(default=25, ge=0, le=256)
     # Image count above dust3r threshold always routes to MapAnything.
     # Which images feed geometry matching/reconstruction. `original` is more robust for sparse matching;
     # `masked` keeps strict object-only context but can reduce feature richness on low-texture objects.
@@ -58,10 +60,11 @@ class RuntimeSettings(BaseModel):
     # Video input mode — accept a single video instead of image collection.
     # ---------------------------------------------------------------------------
     video_input_enabled: bool = False
-    # Frames-per-second to extract from the uploaded video (2 FPS ≈ 30 frames for 15s video).
-    video_input_extraction_fps: float = Field(default=2.0, ge=0.1, le=30.0)
-    # Hard cap on extracted frames sent to quality scoring (subsampled uniformly if exceeded).
-    video_input_max_frames: int = Field(default=60, ge=5, le=300)
+    # Frames-per-second to extract from the uploaded video (4 FPS ≈ 60 frames for 15s video).
+    # Higher = more candidate frames = better multi-view coverage when DUSt3R/MapAnything is selected.
+    video_input_extraction_fps: float = Field(default=4.0, ge=0.1, le=30.0)
+    # Hard cap on extracted frames before quality scoring (subsampled uniformly if exceeded).
+    video_input_max_frames: int = Field(default=120, ge=5, le=300)
     # Reject input videos longer than this (seconds). Set 0 to disable.
     video_input_max_duration_seconds: int = Field(default=30, ge=0, le=600)
     # Maximum upload size for a video file in megabytes. 0 = no limit (rely on OS).

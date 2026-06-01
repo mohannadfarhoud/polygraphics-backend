@@ -133,9 +133,14 @@ class ReconstructionPipeline:
                 )
                 self._publish(
                     job_id, JobStatus.PROCESSING,
-                    stage="phase_video_frame_selection", progress=9,
+                    stage=f"phase_video_frame_selection ({extraction.total_kept}/{extraction.total_extracted} frames kept)",
+                    progress=9,
                 )
                 image_paths = extraction.kept_frames if extraction.kept_frames else extraction.all_frames
+                _log.info(
+                    "job=%s: video extracted=%d, quality-kept=%d → these will drive backend auto-selection",
+                    job_id, extraction.total_extracted, len(image_paths),
+                )
             else:
                 # Safety: filter out any video files passed as images
                 image_paths = [p for p in image_paths if p.suffix.lower() not in _VIDEO_EXTS]
