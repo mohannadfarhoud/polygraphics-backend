@@ -93,6 +93,10 @@ class RuntimeSettings(BaseModel):
     ai_prior_triposr_python_executable: str | None = None
     ai_prior_triposr_entry_script: str = "run.py"
     ai_prior_triposr_args_template: str = "{input_image} --output-dir {output_dir}"
+    # TripoSR texture: bake UV atlas (much sharper than default vertex colors).
+    triposr_bake_texture: bool = True
+    triposr_texture_resolution: int = Field(default=2048, ge=512, le=8192)
+    triposr_mc_resolution: int = Field(default=256, ge=64, le=512)
     # InstantMesh local provider (Tencent InstantMesh single-image-to-3D).
     ai_prior_instantmesh_repo_path: str | None = None
     ai_prior_instantmesh_python_executable: str | None = None

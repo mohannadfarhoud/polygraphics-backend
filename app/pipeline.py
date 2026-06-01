@@ -571,30 +571,60 @@ class ReconstructionPipeline:
             preferred_input_image=preferred_prior_input,
             provider_override=provider_override,
         )
-        # TripoSR-local passthrough mode: return provider mesh directly for viewing
-        # without any mesh cleanup/refinement/autobalance stages after generation.
+        # TripoSR-local passthrough: export textured GLB when TripoSR baked a UV atlas.
         if prior.provider == "triposr_local":
+            from .meshing import export_textured_mesh_to_glb
+
             self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
             glb_path = self.config.output_dir / f"{job_id}.glb"
-            src_raw = prior.details.get("output_mesh")
-            src = Path(str(src_raw)).resolve() if isinstance(src_raw, str) and src_raw else None
+            mesh_src_raw = prior.details.get("triposr_mesh_path") or prior.details.get("output_mesh")
+            texture_src_raw = prior.details.get("triposr_texture_path")
+            texture_mode = str(prior.details.get("triposr_texture_mode") or "vertex_colors")
+            mesh_src = Path(str(mesh_src_raw)).resolve() if mesh_src_raw else None
+            texture_src = (
+                Path(str(texture_src_raw)).resolve()
+                if isinstance(texture_src_raw, str) and texture_src_raw
+                else None
+            )
             try:
-                if src and src.is_file():
-                    if src != glb_path.resolve():
+                if mesh_src and mesh_src.is_file() and texture_src and texture_src.is_file():
+                    export_textured_mesh_to_glb(mesh_src, texture_src, glb_path)
+                    texture_route = "triposr_uv_atlas"
+                    texture_reason = f"baked_atlas_{int(getattr(self.runtime_settings, 'triposr_texture_resolution', 2048))}"
+                elif mesh_src and mesh_src.suffix.lower() == ".glb" and mesh_src.is_file():
+                    if mesh_src != glb_path.resolve():
                         glb_path.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, glb_path)
+                        shutil.copy2(mesh_src, glb_path)
+                    texture_route = "triposr_glb_passthrough"
+                    texture_reason = "provider_glb"
                 else:
+                    balanced = autobalance_vertex_colors(prior.mesh)
                     export_glb(
-                        prior.mesh,
+                        balanced,
                         glb_path,
                         compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
                     )
+                    texture_route = "triposr_vertex_colors"
+                    texture_reason = "vertex_colors_autobalanced"
             except Exception:
+                balanced = autobalance_vertex_colors(prior.mesh)
                 export_glb(
-                    prior.mesh,
+                    balanced,
                     glb_path,
                     compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
                 )
+                texture_route = "triposr_vertex_colors"
+                texture_reason = "export_exception_fallback"
+            self._write_texture_report(
+                job_id,
+                {
+                    "job_id": job_id,
+                    "texture_route_taken": texture_route,
+                    "texture_quality_reason": texture_reason,
+                    "triposr_texture_mode": texture_mode,
+                    "triposr_texture_path": str(texture_src) if texture_src else None,
+                },
+            )
             model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
             self._write_reconstruction_report(
                 job_id,

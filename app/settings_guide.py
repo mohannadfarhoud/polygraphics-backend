@@ -305,7 +305,34 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "ai_prior_triposr_args_template",
             "scope": "both",
             "worker_env": None,
-            "notes": "CLI argument template for TripoSR local provider. Tokens: {job_id}, {input_image}, {output_dir}, {output_mesh}, {repo_path}.",
+            "notes": (
+                "CLI argument template for TripoSR local provider. Tokens: {job_id}, {input_image}, "
+                "{output_dir}, {output_mesh}, {repo_path}. "
+                "Texture flags (--bake-texture, --texture-resolution, --mc-resolution) are appended "
+                "automatically from triposr_bake_texture / triposr_texture_resolution / triposr_mc_resolution "
+                "unless already present in the template."
+            ),
+        },
+        {
+            "key": "triposr_bake_texture",
+            "scope": "both",
+            "worker_env": None,
+            "notes": (
+                "When true (default): TripoSR runs with --bake-texture to produce a UV texture atlas "
+                "instead of blurry vertex colors. Much better realism in GLB viewers."
+            ),
+        },
+        {
+            "key": "triposr_texture_resolution",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "UV atlas size in pixels when triposr_bake_texture=true. Default 2048; use 4096 for sharper detail (more VRAM/time).",
+        },
+        {
+            "key": "triposr_mc_resolution",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "TripoSR marching-cubes grid resolution (--mc-resolution). Default 256. Higher = denser mesh, more VRAM.",
         },
         {
             "key": "ai_prior_instantmesh_repo_path",

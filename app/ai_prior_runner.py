@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 
-from .meshing import export_glb
+from .meshing import export_glb, find_triposr_textured_assets
 from .runtime_settings import RuntimeSettings
 
 
@@ -66,6 +66,22 @@ def _ensure_python_executable(raw_path: str | None) -> Path:
         raise RuntimeError(f"TripoSR python executable not found: {raw}")
     return Path(sys.executable)
 
+
+def _triposr_extra_cli_args(settings: RuntimeSettings, args_joined: str) -> list[str]:
+    """Append TripoSR texture/quality flags unless already present in the template."""
+    extra: list[str] = []
+    joined = args_joined.lower()
+    if bool(getattr(settings, "triposr_bake_texture", True)) and "--bake-texture" not in joined:
+        extra.append("--bake-texture")
+        if "--texture-resolution" not in joined:
+            res = int(getattr(settings, "triposr_texture_resolution", 2048))
+            extra.extend(["--texture-resolution", str(res)])
+        if "--model-save-format" not in joined:
+            extra.extend(["--model-save-format", "obj"])
+    if "--mc-resolution" not in joined:
+        mc = int(getattr(settings, "triposr_mc_resolution", 256))
+        extra.extend(["--mc-resolution", str(mc)])
+    return extra
 
 
 def _score_triposr_original(original_path: Path) -> float:
@@ -536,7 +552,8 @@ def run_ai_prior_mesh(
             output_mesh=str(out_mesh),
             repo_path=str(repo),
         )
-        cmd = [str(py), str(entry)] + shlex.split(args, posix=False)
+        extra_args = _triposr_extra_cli_args(settings, args)
+        cmd = [str(py), str(entry)] + shlex.split(args, posix=False) + extra_args
         env = os.environ.copy()
         env["PYTHONPATH"] = str(repo) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
         try:
@@ -561,19 +578,27 @@ def run_ai_prior_mesh(
                 f"Command: {' '.join(cmd)}\n"
                 + "\n".join(tail)
             )
-        out_mesh = _resolve_output_mesh(
-            configured_output=out_mesh,
-            settings=settings,
-            work_dir=work_dir,
-            extra_search_dirs=[output_dir],
-        )
-        mesh = _load_mesh(out_mesh)
+        out_mesh_path, texture_path = find_triposr_textured_assets(output_dir)
+        if out_mesh_path is None:
+            out_mesh_path = _resolve_output_mesh(
+                configured_output=out_mesh,
+                settings=settings,
+                work_dir=work_dir,
+                extra_search_dirs=[output_dir],
+            )
+        else:
+            out_mesh = out_mesh_path
+        texture_mode = "atlas" if texture_path is not None else "vertex_colors"
+        mesh = _load_mesh(out_mesh_path)
         return AiPriorResult(
             mesh=mesh,
             confidence=confidence,
             provider=provider,
             details={
-                "output_mesh": str(out_mesh),
+                "output_mesh": str(out_mesh_path),
+                "triposr_mesh_path": str(out_mesh_path),
+                "triposr_texture_path": str(texture_path) if texture_path else None,
+                "triposr_texture_mode": texture_mode,
                 "triposr_repo_path": str(repo),
                 "triposr_entry_script": str(entry),
                 "triposr_python": str(py),
@@ -582,7 +607,7 @@ def run_ai_prior_mesh(
                 "triposr_isolation": "passthrough_original",
                 "debug_dir": str(debug_dir),
                 "output_dir": str(output_dir),
-                "command_args": args,
+                "command_args": " ".join(cmd),
                 "timeout_seconds": max(30, timeout_s),
             },
         )

@@ -200,3 +200,88 @@ def export_glb(
     tri.export(str(output_path))
     return output_path
 
+
+def find_triposr_textured_assets(search_root: Path) -> tuple[Path | None, Path | None]:
+    """Locate TripoSR mesh + optional baked texture atlas under ``search_root``.
+
+    TripoSR with ``--bake-texture`` writes ``mesh.obj`` + ``texture.png`` per input index
+    (e.g. ``output/0/mesh.obj``). Returns ``(mesh_path, texture_path)``; texture is
+    ``None`` when only vertex-color output exists.
+    """
+    search_root = Path(search_root)
+    if not search_root.is_dir():
+        return None, None
+
+    best: tuple[float, Path, Path | None] | None = None
+    mesh_names = ("mesh.obj", "mesh.glb", "model.obj", "output.obj")
+
+    for texture_path in search_root.rglob("texture.png"):
+        if not texture_path.is_file():
+            continue
+        parent = texture_path.parent
+        for name in mesh_names:
+            mesh_path = parent / name
+            if mesh_path.is_file():
+                score = mesh_path.stat().st_mtime
+                if best is None or score >= best[0]:
+                    best = (score, mesh_path, texture_path)
+                break
+
+    if best is not None:
+        return best[1], best[2]
+
+    # Vertex-color fallback: newest mesh file under output tree.
+    mesh_hits: list[tuple[float, Path]] = []
+    for pattern in ("**/mesh.obj", "**/mesh.glb", "**/*.obj", "**/*.glb"):
+        for mesh_path in search_root.glob(pattern):
+            if mesh_path.is_file() and mesh_path.name.lower() != "texture.png":
+                mesh_hits.append((mesh_path.stat().st_mtime, mesh_path))
+    if mesh_hits:
+        mesh_hits.sort(key=lambda t: t[0], reverse=True)
+        return mesh_hits[0][1], None
+    return None, None
+
+
+def export_textured_mesh_to_glb(
+    mesh_path: Path,
+    texture_path: Path | None,
+    output_path: Path,
+) -> Path:
+    """Export TripoSR OBJ+PNG (or textured mesh) to GLB preserving UV texture when possible."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    mesh_path = Path(mesh_path)
+
+    if mesh_path.suffix.lower() == ".glb" and (texture_path is None or not Path(texture_path).is_file()):
+        if mesh_path.resolve() != output_path.resolve():
+            import shutil
+
+            shutil.copy2(mesh_path, output_path)
+        return output_path
+
+    loaded = trimesh.load(str(mesh_path), force="mesh", process=False)
+    if isinstance(loaded, trimesh.Scene):
+        tris = [g for g in loaded.geometry.values() if isinstance(g, trimesh.Trimesh)]
+        if not tris:
+            raise RuntimeError(f"No mesh geometry found in {mesh_path}")
+        tri = trimesh.util.concatenate(tris) if len(tris) > 1 else tris[0]
+    elif isinstance(loaded, trimesh.Trimesh):
+        tri = loaded
+    else:
+        raise RuntimeError(f"Unsupported mesh type loaded from {mesh_path}")
+
+    tex = Path(texture_path) if texture_path is not None else None
+    if tex is not None and tex.is_file():
+        img = trimesh.load_image(str(tex))
+        uvs = getattr(tri.visual, "uv", None)
+        if uvs is not None and len(uvs) > 0:
+            tri.visual = trimesh.visual.TextureVisuals(uv=uvs, image=img)
+        else:
+            _log.warning(
+                "TripoSR mesh %s has no UV coordinates; exporting without texture atlas.",
+                mesh_path,
+            )
+
+    tri.export(str(output_path))
+    return output_path
+
