@@ -353,24 +353,16 @@ def resolve_auto_backend(
 
 
 def minimum_input_images(settings: RuntimeSettings) -> int:
-    """Minimum input count expected by the active backend path."""
-    backend = str(effective_reconstruction_backend(settings)).strip().lower()
-    # auto can handle a single image (TripoSR branch).
-    if backend == "auto":
-        triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
-        if triposr_max > 0:
-            return 1
-        return 2
-    if backend == "ai_prior":
-        provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
-        if provider in ("triposr_local", "instantmesh_local"):
-            # Both are single-image models; also accept video upload (1 video → frames).
-            return 1
-        if provider == "command" and bool(getattr(settings, "ai_prior_force_prior_only", False)):
-            # Command-mode single-image generators (e.g. Tripo API) can run with one view
-            # when we intentionally keep a strict prior-only route.
-            return 1
-    return 2
+    """Minimum input count expected by the active backend path.
+
+    Always returns 1: the pipeline accepts a single image, a single video,
+    or a collection of images. Multi-view backends (mapanything, dust3r) need
+    at least 2 *frames* to reconstruct, but those frames may come from a video
+    that is counted as 1 upload. Validation against the real frame count happens
+    inside the pipeline after extraction.
+    """
+    _ = settings  # reserved for future per-backend overrides
+    return 1
 
 
 class SettingsStore:

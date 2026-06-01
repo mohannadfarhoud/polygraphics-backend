@@ -89,19 +89,32 @@ class ReconstructionPipeline:
             from .image_preprocess import downscale_job_images_if_needed
             from .mapanything_input_prep import prepare_precut_opaque_views_for_mapanything
 
+            _VIDEO_EXTS = frozenset({".mp4", ".mov", ".webm", ".avi", ".mkv"})
+            video_input_mode = bool(getattr(self.runtime_settings, "video_input_enabled", False))
+
             # ------------------------------------------------------------------
-            # Video input mode: extract + quality-filter frames before anything else.
+            # Video input mode: extract frames FIRST so the full quality
+            # pipeline operates on real image frames, not the video file.
+            # If video mode is off, strip any stray video files from the list.
             # ------------------------------------------------------------------
-            if bool(getattr(self.runtime_settings, "video_input_enabled", False)):
+            if video_input_mode:
                 from .video_frame_extractor import find_video_in_upload_dir, run_video_extraction
 
                 self._publish(
                     job_id, JobStatus.PROCESSING,
                     stage="phase_video_extraction", progress=6,
                 )
+                # Accept either an explicit video upload or, if the "image" paths
+                # are just a video file forwarded by the worker, detect it there.
                 video_path = find_video_in_upload_dir(
                     self.config.root_dir / "uploads", job_id
                 )
+                if video_path is None:
+                    # Fallback: first path passed in might be the video itself
+                    for p in image_paths:
+                        if p.suffix.lower() in _VIDEO_EXTS:
+                            video_path = p
+                            break
                 if video_path is None:
                     raise RuntimeError(
                         "video_input_enabled=true but no video file found under "
@@ -122,8 +135,10 @@ class ReconstructionPipeline:
                     job_id, JobStatus.PROCESSING,
                     stage="phase_video_frame_selection", progress=9,
                 )
-                # Replace image_paths with the quality-filtered frames from video
                 image_paths = extraction.kept_frames if extraction.kept_frames else extraction.all_frames
+            else:
+                # Safety: filter out any video files passed as images
+                image_paths = [p for p in image_paths if p.suffix.lower() not in _VIDEO_EXTS]
 
             image_paths = downscale_job_images_if_needed(
                 job_id,
@@ -149,10 +164,10 @@ class ReconstructionPipeline:
                 # Let hard policy errors propagate; only ignore unexpected telemetry failures.
                 if str(self.runtime_settings.capture_reject_policy).strip().lower() == "hard":
                     raise
-            min_images = int(minimum_input_images(self.runtime_settings))
-            if len(image_paths) < min_images:
+            if len(image_paths) < 1:
                 raise RuntimeError(
-                    f"Capture quality filter left fewer than {min_images} usable image(s); please retake."
+                    "No usable images left after quality filtering. "
+                    "Please retake with better lighting and a steadier hand."
                 )
             raw_backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
             ai_provider = str(getattr(self.runtime_settings, "ai_prior_provider", "")).strip().lower()
