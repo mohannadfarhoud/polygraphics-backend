@@ -127,11 +127,34 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
                     if shutil.which(py_raw) is None:
                         raise RuntimeError(f"TripoSR python executable not found: {py_raw}")
+        elif provider == "instantmesh_local":
+            repo_raw = str(getattr(settings, "ai_prior_instantmesh_repo_path", "")).strip()
+            if not repo_raw:
+                raise RuntimeError(
+                    "ai_prior_provider=instantmesh_local requires ai_prior_instantmesh_repo_path "
+                    "(local InstantMesh repo path on the worker)."
+                )
+            repo = Path(repo_raw)
+            if not repo.is_dir():
+                raise RuntimeError(f"InstantMesh repo path not found: {repo_raw}")
+            entry_raw = str(getattr(settings, "ai_prior_instantmesh_entry_script", "run.py")).strip() or "run.py"
+            entry = Path(entry_raw)
+            if not entry.is_absolute():
+                entry = repo / entry
+            if not entry.is_file():
+                raise RuntimeError(f"InstantMesh entry script not found: {entry}")
+            py_raw = str(getattr(settings, "ai_prior_instantmesh_python_executable", "")).strip()
+            if py_raw:
+                py_path = Path(py_raw)
+                if not py_path.is_file():
+                    import shutil as _shutil
+                    if _shutil.which(py_raw) is None:
+                        raise RuntimeError(f"InstantMesh python executable not found: {py_raw}")
         elif provider == "mock":
             pass
         else:
             raise RuntimeError(
-                f"Unsupported ai_prior_provider={provider!r}; expected 'command', 'triposr_local', or 'mock'."
+                f"Unsupported ai_prior_provider={provider!r}; expected 'command', 'triposr_local', 'instantmesh_local', or 'mock'."
             )
 
     backend = effective_reconstruction_backend(settings)

@@ -368,10 +368,36 @@ def _should_rewrite_model_url(url: str | None) -> bool:
     return False
 
 
+def _selected_frame_url(job_id: str) -> str | None:
+    """URL for the frame chosen for reconstruction (InstantMesh/video jobs)."""
+    report = UPLOAD_DIR / job_id / "reconstruction_report.json"
+    if not report.is_file():
+        return None
+    try:
+        data = json.loads(report.read_text(encoding="utf-8"))
+        rel = data.get("selected_frame_rel")
+        if isinstance(rel, str) and rel:
+            return f"{_uploads_base_url().rstrip('/')}/{rel.replace(chr(92), '/').lstrip('/')}"
+    except Exception:
+        pass
+    # Fallback: look for debug artifact directly
+    debug_dir = UPLOAD_DIR / job_id / "instantmesh_debug"
+    if not debug_dir.is_dir():
+        ai_ws = UPLOAD_DIR.parent / "data" / "ai_prior_workspace" / job_id / "instantmesh_debug"
+        if ai_ws.is_dir():
+            debug_dir = ai_ws
+    for name in ("selected_frame.jpg", "selected_image.jpg"):
+        p = debug_dir / name
+        if p.is_file():
+            return f"{_uploads_base_url().rstrip('/')}/{job_id}/instantmesh_debug/{name}"
+    return None
+
+
 def _decorate_job_response(job: JobRecord) -> JobRecord:
     """Attach image_sample_url; rewrite stale loopback model_url from DB; backfill old rows."""
     settings = settings_store.load()
     job.image_sample_url = _image_sample_url(job.job_id)
+    job.selected_frame_url = _selected_frame_url(job.job_id)
     job.masked_view_urls = _masked_view_urls(job.job_id)
     job.masked_preview_page_url = _relative_api_path(f"jobs/{job.job_id}/masked-preview")
     cscore, crejected, ckept, creport = _capture_quality_report(job.job_id)
@@ -939,6 +965,80 @@ def list_models() -> list[ModelListItem]:
         it.model_copy(update={"image_url": _image_sample_url(it.job_id)})
         for it in items
     ]
+
+
+_VIDEO_MIME_TYPES = frozenset({
+    "video/mp4", "video/quicktime", "video/webm",
+    "video/x-msvideo", "video/x-matroska", "video/avi",
+})
+_VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".webm", ".avi", ".mkv"})
+
+
+async def _save_video_file(job_id: str, video: UploadFile) -> Path:
+    """Save uploaded video as uploads/{job_id}/input_video.<ext>."""
+    raw_name = video.filename or ""
+    suffix = Path(raw_name).suffix.lower()
+    if suffix not in _VIDEO_EXTENSIONS:
+        suffix = ".mp4"
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    dest = job_dir / f"input_video{suffix}"
+    dest.write_bytes(await video.read())
+    return dest
+
+
+@app.post("/jobs/video", response_model=JobRecord)
+async def create_job_from_video(
+    video: UploadFile = File(..., description="Single video file (.mp4, .mov, .webm). Job stays PENDING until POST /jobs/{job_id}/start."),
+    job_id: str | None = Form(default=None),
+) -> JobRecord:
+    """Accept a single video upload. Frames are extracted automatically when the job starts.
+
+    Requires `video_input_enabled=true` in PUT /settings and `ai_prior_provider=instantmesh_local`
+    (or triposr_local) so the pipeline knows to run frame extraction before reconstruction.
+    """
+    current_settings = settings_store.load()
+    raw_name = video.filename or ""
+    suffix = Path(raw_name).suffix.lower()
+    if suffix not in _VIDEO_EXTENSIONS:
+        content_type = (video.content_type or "").lower()
+        if not any(ct in content_type for ct in ("video",)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type {suffix!r}. Expected .mp4, .mov, or .webm.",
+            )
+
+    max_mb = int(getattr(current_settings, "video_input_max_file_mb", 500))
+    use_job_id = job_id or str(uuid.uuid4())
+    _assert_upload_allowed(use_job_id)
+    await _save_video_file(use_job_id, video)
+    return _decorate_job_response(job_manager.create_job_pending(use_job_id, image_count=1))
+
+
+@app.post("/jobs/video/reconstruct", response_model=JobRecord)
+async def reconstruct_from_video(
+    video: UploadFile = File(..., description="Single video file (.mp4, .mov, .webm). Uploaded and processed immediately."),
+    job_id: str | None = Form(default=None),
+) -> JobRecord:
+    """Convenience: same as POST /jobs/video then POST /jobs/{id}/start — upload video and run immediately."""
+    current_settings = settings_store.load()
+    raw_name = video.filename or ""
+    suffix = Path(raw_name).suffix.lower()
+    if suffix not in _VIDEO_EXTENSIONS:
+        content_type = (video.content_type or "").lower()
+        if "video" not in content_type:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type {suffix!r}. Expected .mp4, .mov, or .webm.",
+            )
+
+    use_job_id = job_id or str(uuid.uuid4())
+    _assert_upload_allowed(use_job_id)
+    await _save_video_file(use_job_id, video)
+    try:
+        return _decorate_job_response(job_manager.enqueue_new_job(use_job_id, image_count=1))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
 @app.post("/jobs", response_model=JobRecord)

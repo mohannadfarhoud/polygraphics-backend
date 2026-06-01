@@ -88,6 +88,42 @@ class ReconstructionPipeline:
             from .image_preprocess import downscale_job_images_if_needed
             from .mapanything_input_prep import prepare_precut_opaque_views_for_mapanything
 
+            # ------------------------------------------------------------------
+            # Video input mode: extract + quality-filter frames before anything else.
+            # ------------------------------------------------------------------
+            if bool(getattr(self.runtime_settings, "video_input_enabled", False)):
+                from .video_frame_extractor import find_video_in_upload_dir, run_video_extraction
+
+                self._publish(
+                    job_id, JobStatus.PROCESSING,
+                    stage="phase_video_extraction", progress=6,
+                )
+                video_path = find_video_in_upload_dir(
+                    self.config.root_dir / "uploads", job_id
+                )
+                if video_path is None:
+                    raise RuntimeError(
+                        "video_input_enabled=true but no video file found under "
+                        f"uploads/{job_id}/. Upload a .mp4/.mov/.webm file."
+                    )
+                extraction = run_video_extraction(
+                    job_id=job_id,
+                    video_path=video_path,
+                    upload_dir=self.config.root_dir / "uploads",
+                    fps=float(getattr(self.runtime_settings, "video_input_extraction_fps", 2.0)),
+                    min_sharpness=float(getattr(self.runtime_settings, "video_frame_min_sharpness", 0.04)),
+                    min_exposure=float(getattr(self.runtime_settings, "video_frame_min_exposure", 0.10)),
+                    max_frames=int(getattr(self.runtime_settings, "video_input_max_frames", 60)),
+                    max_duration_seconds=int(getattr(self.runtime_settings, "video_input_max_duration_seconds", 30)),
+                    ffmpeg_bin=getattr(self.runtime_settings, "video_ffmpeg_binary", None) or None,
+                )
+                self._publish(
+                    job_id, JobStatus.PROCESSING,
+                    stage="phase_video_frame_selection", progress=9,
+                )
+                # Replace image_paths with the quality-filtered frames from video
+                image_paths = extraction.kept_frames if extraction.kept_frames else extraction.all_frames
+
             image_paths = downscale_job_images_if_needed(
                 job_id,
                 image_paths,
@@ -119,9 +155,11 @@ class ReconstructionPipeline:
                 )
             backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
             ai_provider = str(getattr(self.runtime_settings, "ai_prior_provider", "")).strip().lower()
-            # TripoSR local: SAM runs normally so the runner receives clean segmented images.
-            # Depth normalization is skipped (single-image model; multi-view depth is irrelevant).
+            # Single-image AI models (TripoSR / InstantMesh): SAM runs normally to produce clean
+            # masked images; depth normalization is skipped (not useful for single-image models).
             triposr_local_mode = backend == "ai_prior" and ai_provider == "triposr_local"
+            instantmesh_local_mode = backend == "ai_prior" and ai_provider == "instantmesh_local"
+            single_image_ai_mode = triposr_local_mode or instantmesh_local_mode
 
             if self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
@@ -144,7 +182,7 @@ class ReconstructionPipeline:
                 originals_for_mesh = image_paths
             depth_fail_hard = bool(getattr(self.runtime_settings, "depth_consistency_fail_on_low_score", False))
             depth_score = 1.0
-            if not triposr_local_mode:
+            if not single_image_ai_mode:
                 try:
                     from .depth_normalization import run_depth_normalization_gate
 
@@ -201,6 +239,13 @@ class ReconstructionPipeline:
                 )
                 return model_url
 
+            if backend == "ai_prior" and instantmesh_local_mode:
+                return self._run_instantmesh_pipeline(
+                    job_id=job_id,
+                    masked_paths=masked_paths,
+                    original_paths=originals_for_mesh,
+                    cancel_event=cancel_event,
+                )
             if backend == "ai_prior":
                 return self._run_ai_prior_pipeline(
                     job_id=job_id,
@@ -516,6 +561,76 @@ class ReconstructionPipeline:
                 "ai_prior_provider": prior.provider,
                 "ai_prior_confidence": round(float(prior.confidence), 4),
                 "details": prior.details,
+            },
+        )
+        self._publish(
+            job_id,
+            JobStatus.COMPLETED,
+            stage="completed",
+            progress=100,
+            model_url=model_url,
+            model_format="glb",
+        )
+        return model_url
+
+    def _run_instantmesh_pipeline(
+        self,
+        *,
+        job_id: str,
+        masked_paths: list[Path],
+        original_paths: list[Path],
+        cancel_event: threading.Event | None = None,
+    ) -> str:
+        """InstantMesh single-image reconstruction pipeline.
+
+        1. Select best (masked, original) pair using multi-factor quality score.
+        2. Run InstantMesh to produce a mesh.
+        3. Passthrough export — no extra post-processing.
+        """
+        from .instantmesh_runner import run_instantmesh
+        from .ai_prior_runner import _pick_best_triposr_pair  # shared selection logic
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="phase_prior_generation", progress=52)
+        best_masked, best_original = _pick_best_triposr_pair(masked_paths, original_paths)
+
+        result = run_instantmesh(
+            job_id=job_id,
+            selected_frame=best_original,
+            masked_frame=best_masked,
+            settings=self.runtime_settings,
+            work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
+        )
+        self._raise_if_cancelled(cancel_event)
+
+        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
+        glb_path = self.config.output_dir / f"{job_id}.glb"
+        src = result.output_mesh.resolve()
+        try:
+            if src != glb_path.resolve():
+                glb_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, glb_path)
+        except Exception:
+            export_glb(
+                result.mesh,
+                glb_path,
+                compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
+            )
+
+        model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
+
+        # Expose selected_frame URL via reconstruction report
+        frame_rel = str(result.selected_frame.relative_to(self.config.root_dir))
+        self._write_reconstruction_report(
+            job_id,
+            {
+                "job_id": job_id,
+                "reconstruction_backend": "ai_prior",
+                "ai_prior_provider": "instantmesh_local",
+                "route_taken": "instantmesh_passthrough",
+                "selected_frame": str(result.selected_frame),
+                "selected_frame_rel": frame_rel,
+                "debug_dir": str(result.debug_dir) if result.debug_dir else None,
+                "details": result.details,
             },
         )
         self._publish(

@@ -58,6 +58,9 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
         ("ai_prior_command", "POLYGRAPH_OVERRIDE_AI_PRIOR_COMMAND"),
         ("ai_prior_triposr_repo_path", "POLYGRAPH_OVERRIDE_TRIPOSR_REPO"),
         ("ai_prior_triposr_python_executable", "POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON"),
+        ("ai_prior_instantmesh_repo_path", "POLYGRAPH_OVERRIDE_INSTANTMESH_REPO"),
+        ("ai_prior_instantmesh_python_executable", "POLYGRAPH_OVERRIDE_INSTANTMESH_PYTHON"),
+        ("video_ffmpeg_binary", "POLYGRAPH_OVERRIDE_FFMPEG_BINARY"),
     )
     out = dict(settings_dict)
     for key, env in mapping:

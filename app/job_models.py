@@ -112,6 +112,13 @@ class JobRecord(BaseModel):
         default=None,
         description="Relative URL to uploads/{job_id}/texture_report.json when available.",
     )
+    selected_frame_url: str | None = Field(
+        default=None,
+        description=(
+            "URL of the frame chosen for 3D reconstruction (set for video/InstantMesh jobs). "
+            "Derived per response; not persisted."
+        ),
+    )
     capture_metadata_url: str | None = Field(
         default=None,
         description="Relative URL to uploads/{job_id}/capture_metadata.json when app metadata is uploaded.",

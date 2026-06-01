@@ -42,8 +42,28 @@ class RuntimeSettings(BaseModel):
     reconstruction_confidence_high_threshold: float = Field(default=0.72, ge=0.0, le=1.0)
     reconstruction_confidence_min_threshold: float = Field(default=0.45, ge=0.0, le=1.0)
     reconstruction_low_confidence_policy: Literal["fail", "prior_only", "coarse_prior"] = "prior_only"
+    # ---------------------------------------------------------------------------
+    # Video input mode — accept a single video instead of image collection.
+    # ---------------------------------------------------------------------------
+    video_input_enabled: bool = False
+    # Frames-per-second to extract from the uploaded video (2 FPS ≈ 30 frames for 15s video).
+    video_input_extraction_fps: float = Field(default=2.0, ge=0.1, le=30.0)
+    # Hard cap on extracted frames sent to quality scoring (subsampled uniformly if exceeded).
+    video_input_max_frames: int = Field(default=60, ge=5, le=300)
+    # Reject input videos longer than this (seconds). Set 0 to disable.
+    video_input_max_duration_seconds: int = Field(default=30, ge=0, le=600)
+    # Maximum upload size for a video file in megabytes. 0 = no limit (rely on OS).
+    video_input_max_file_mb: int = Field(default=500, ge=0, le=10000)
+    # Frame filter thresholds (frames scoring below these are discarded before best-frame selection).
+    video_frame_min_sharpness: float = Field(default=0.04, ge=0.0, le=1.0)
+    video_frame_min_exposure: float = Field(default=0.10, ge=0.0, le=1.0)
+    # FFmpeg binary path; leave empty to use system PATH.
+    video_ffmpeg_binary: str | None = None
+
+    # ---------------------------------------------------------------------------
     # AI-prior backend options (pluggable provider adapter).
-    ai_prior_provider: Literal["command", "mock", "triposr_local"] = "command"
+    # ---------------------------------------------------------------------------
+    ai_prior_provider: Literal["command", "mock", "triposr_local", "instantmesh_local"] = "command"
     ai_prior_command: str | None = None
     ai_prior_command_args_template: str = "--input-manifest {input_manifest} --output {output_mesh}"
     ai_prior_output_mesh_path: str | None = None
@@ -58,6 +78,14 @@ class RuntimeSettings(BaseModel):
     ai_prior_triposr_python_executable: str | None = None
     ai_prior_triposr_entry_script: str = "run.py"
     ai_prior_triposr_args_template: str = "{input_image} --output-dir {output_dir}"
+    # InstantMesh local provider (Tencent InstantMesh single-image-to-3D).
+    ai_prior_instantmesh_repo_path: str | None = None
+    ai_prior_instantmesh_python_executable: str | None = None
+    ai_prior_instantmesh_entry_script: str = "run.py"
+    ai_prior_instantmesh_args_template: str = "--input {input_image} --output-dir {output_dir}"
+    # InstantMesh post-processing options.
+    instantmesh_post_process: bool = True
+    instantmesh_decimate_target: int | None = None
     # Hybrid prior-refinement route settings.
     hybrid_refine_backend: Literal["mapanything", "dust3r", "colmap", "none"] = "mapanything"
     hybrid_refine_strength: float = Field(default=0.20, ge=0.0, le=1.0)
@@ -284,7 +312,8 @@ def minimum_input_images(settings: RuntimeSettings) -> int:
     backend = str(effective_reconstruction_backend(settings)).strip().lower()
     if backend == "ai_prior":
         provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
-        if provider == "triposr_local":
+        if provider in ("triposr_local", "instantmesh_local"):
+            # Both are single-image models; also accept video upload (1 video → frames).
             return 1
         if provider == "command" and bool(getattr(settings, "ai_prior_force_prior_only", False)):
             # Command-mode single-image generators (e.g. Tripo API) can run with one view

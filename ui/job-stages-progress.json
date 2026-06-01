@@ -9,6 +9,16 @@
       "label": "Preparing job"
     },
     {
+      "id": "phase_video_extraction",
+      "progress": { "min": 6, "max": 6, "typical": 6 },
+      "label": "Video frame extraction (FFmpeg)"
+    },
+    {
+      "id": "phase_video_frame_selection",
+      "progress": { "min": 9, "max": 9, "typical": 9 },
+      "label": "Selecting best reconstruction frame"
+    },
+    {
       "id": "phase_0_input_curation",
       "progress": { "min": 8, "max": 8, "typical": 8 },
       "label": "Input curation (quality + diversity)"
@@ -189,6 +199,21 @@
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
         { "id": "phase_depth_normalization", "progress": 40 },
         { "id": "phase_confidence_routing", "progress": 41 },
+        { "id": "phase_prior_generation", "progress": 52 },
+        { "id": "exporting", "progress": 94 },
+        { "id": "completed", "progress": 100 }
+      ]
+    },
+    "instantmesh_local_glb": {
+      "reconstruction_backend": "ai_prior",
+      "ai_prior_provider": "instantmesh_local",
+      "note": "Video input: phase_video_extraction and phase_video_frame_selection emitted before SAM when video_input_enabled=true.",
+      "order": [
+        { "id": "starting", "progress": 5 },
+        { "id": "phase_video_extraction", "progress": 6 },
+        { "id": "phase_video_frame_selection", "progress": 9 },
+        { "id": "phase_0_input_curation", "progress": 8 },
+        { "id": "phase_1_segmentation", "progress_range": [10, 40] },
         { "id": "phase_prior_generation", "progress": 52 },
         { "id": "exporting", "progress": 94 },
         { "id": "completed", "progress": 100 }

@@ -31,6 +31,8 @@ STAGE_PHASE_PRIOR_REFINEMENT: Final = "phase_prior_refinement"
 
 # Mesh-only finishing step (only emitted on the .glb backend).
 STAGE_MESHING: Final = "meshing"
+STAGE_PHASE_VIDEO_EXTRACTION: Final = "phase_video_extraction"
+STAGE_PHASE_VIDEO_FRAME_SELECTION: Final = "phase_video_frame_selection"
 STAGE_SHAPE_CLASSIFICATION: Final = "shape_classification"
 STAGE_SHAPE_TEMPLATE_CORRECTION: Final = "shape_template_correction"
 STAGE_VERTEX_COLOR_TRANSFER: Final = "vertex_color_transfer"
@@ -53,6 +55,8 @@ ALL_STAGES: Final[tuple[str, ...]] = (
     STAGE_PHASE_4_COLMAP_BRIDGE,
     STAGE_PHASE_4_COLMAP_SCENE,
     STAGE_PHASE_5_GAUSSIAN_SPLATTING,
+    STAGE_PHASE_VIDEO_EXTRACTION,
+    STAGE_PHASE_VIDEO_FRAME_SELECTION,
     STAGE_PHASE_CONFIDENCE_ROUTING,
     STAGE_PHASE_PRIOR_GENERATION,
     STAGE_PHASE_PRIOR_REFINEMENT,
