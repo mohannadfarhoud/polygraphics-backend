@@ -119,20 +119,11 @@ class ReconstructionPipeline:
                 )
             backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
             ai_provider = str(getattr(self.runtime_settings, "ai_prior_provider", "")).strip().lower()
-            triposr_center_original_mode = backend == "ai_prior" and ai_provider == "triposr_local"
+            # TripoSR local: SAM runs normally so the runner receives clean segmented images.
+            # Depth normalization is skipped (single-image model; multi-view depth is irrelevant).
+            triposr_local_mode = backend == "ai_prior" and ai_provider == "triposr_local"
 
-            if triposr_center_original_mode:
-                # TripoSR center-object mode: consume original images directly and let the
-                # Tripo input-prep stage enforce central-object focus without SAM dependency.
-                self._publish(
-                    job_id,
-                    JobStatus.PROCESSING,
-                    stage="phase_1_segmentation (skipped_triposr_center_mode)",
-                    progress=40,
-                )
-                masked_paths = list(image_paths)
-                originals_for_mesh = list(image_paths)
-            elif self.runtime_settings.skip_sam_segmentation:
+            if self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(
                     job_id,
@@ -153,7 +144,7 @@ class ReconstructionPipeline:
                 originals_for_mesh = image_paths
             depth_fail_hard = bool(getattr(self.runtime_settings, "depth_consistency_fail_on_low_score", False))
             depth_score = 1.0
-            if not triposr_center_original_mode:
+            if not triposr_local_mode:
                 try:
                     from .depth_normalization import run_depth_normalization_gate
 
