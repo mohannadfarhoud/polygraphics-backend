@@ -221,13 +221,22 @@ class ReconstructionPipeline:
                 len(image_paths),
             )
 
-            # Single-image AI models (TripoSR / InstantMesh): SAM runs normally to produce clean
-            # masked images; depth normalization is skipped (not useful for single-image models).
+            # TripoSR: pass full original photos — TripoSR isolates the central object.
+            # InstantMesh still uses SAM masks for frame selection / clean input prep.
             triposr_local_mode = backend == "ai_prior" and ai_provider == "triposr_local"
             instantmesh_local_mode = backend == "ai_prior" and ai_provider == "instantmesh_local"
             single_image_ai_mode = triposr_local_mode or instantmesh_local_mode
 
-            if self.runtime_settings.skip_sam_segmentation:
+            if triposr_local_mode:
+                self._publish(
+                    job_id,
+                    JobStatus.PROCESSING,
+                    stage="triposr_direct_input",
+                    progress=28,
+                )
+                masked_paths = list(image_paths)
+                originals_for_mesh = image_paths
+            elif self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(
                     job_id,

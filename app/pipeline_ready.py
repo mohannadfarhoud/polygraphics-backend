@@ -14,9 +14,13 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
     if settings.allow_placeholder_pipeline:
         return
 
-    if not settings.skip_sam_segmentation:
-        backend = str(getattr(settings, "isolation_backend", "sam")).strip().lower()
-        if backend == "sam":
+    backend = effective_reconstruction_backend(settings)
+    provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
+    triposr_only = backend == "ai_prior" and provider == "triposr_local"
+
+    if not settings.skip_sam_segmentation and not triposr_only:
+        isolation = str(getattr(settings, "isolation_backend", "sam")).strip().lower()
+        if isolation == "sam":
             if not settings.sam_checkpoint_path or not Path(settings.sam_checkpoint_path).is_file():
                 raise RuntimeError(
                     "SAM isolation requires sam_checkpoint_path to an existing .pth on the machine "
@@ -25,7 +29,7 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                     "Or switch isolation_backend to rembg. "
                     "With skip_sam_segmentation=true SAM/rembg is bypassed (upload RGBA cutouts)."
                 )
-        elif backend == "rembg":
+        elif isolation == "rembg":
             try:
                 import rembg  # noqa: F401
             except ImportError as exc:
@@ -34,7 +38,7 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                     "Install with: pip install rembg onnxruntime pillow"
                 ) from exc
         else:
-            raise RuntimeError(f"Unknown isolation_backend={backend!r}; expected 'sam' or 'rembg'.")
+            raise RuntimeError(f"Unknown isolation_backend={isolation!r}; expected 'sam' or 'rembg'.")
 
     def _need_mapanything() -> None:
         try:
@@ -157,12 +161,9 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 f"Unsupported ai_prior_provider={provider!r}; expected 'command', 'triposr_local', 'instantmesh_local', or 'mock'."
             )
 
-    backend = effective_reconstruction_backend(settings)
-
     if backend == "auto":
         # Concrete backend is resolved at runtime based on image count.
-        # Only verify SAM (always required as the first stage).
-        # If TripoSR repo is configured, also verify it (most likely auto path for few images).
+        # SAM is required for multi-view auto paths; TripoSR (1-few images) skips SAM at runtime.
         triposr_repo_raw = str(getattr(settings, "ai_prior_triposr_repo_path", "") or "").strip()
         triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
         if triposr_max > 0 and triposr_repo_raw:

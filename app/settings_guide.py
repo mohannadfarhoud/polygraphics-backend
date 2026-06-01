@@ -284,7 +284,10 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "ai_prior_triposr_repo_path",
             "scope": "stored_on_api",
             "worker_env": "POLYGRAPH_OVERRIDE_TRIPOSR_REPO",
-            "notes": "Required when ai_prior_provider=triposr_local: local path to TripoSR repository on the worker.",
+            "notes": (
+                "Required when ai_prior_provider=triposr_local: local path to TripoSR repository on the worker. "
+                "TripoSR mode skips SAM/background removal — the original photo is passed directly to TripoSR."
+            ),
         },
         {
             "key": "ai_prior_triposr_python_executable",

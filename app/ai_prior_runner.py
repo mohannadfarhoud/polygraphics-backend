@@ -68,6 +68,58 @@ def _ensure_python_executable(raw_path: str | None) -> Path:
 
 
 
+def _score_triposr_original(original_path: Path) -> float:
+    """Quality score for selecting the best TripoSR input without a segmentation mask.
+
+    Weights: 0.5 sharpness + 0.3 center saliency + 0.2 exposure.
+    TripoSR expects the main object near the image center — no SAM mask required.
+    """
+    try:
+        import cv2
+    except Exception:
+        return 0.0
+
+    src = cv2.imread(str(original_path), cv2.IMREAD_COLOR)
+    if src is None or src.size == 0:
+        return 0.0
+
+    h, w = src.shape[:2]
+    gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
+
+    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    sharpness = min(1.0, lap_var / 500.0)
+
+    mean_luma = float(gray.mean())
+    exposure_score = max(0.0, 1.0 - abs(mean_luma - 128.0) / 128.0)
+
+    # Center-weighted edge energy as a proxy for "object in the middle".
+    margin_x = int(w * 0.2)
+    margin_y = int(h * 0.2)
+    center = gray[margin_y : h - margin_y, margin_x : w - margin_x]
+    if center.size == 0:
+        center_alignment = 0.5
+    else:
+        center_lap = float(cv2.Laplacian(center, cv2.CV_64F).var())
+        full_lap = max(lap_var, 1.0)
+        center_alignment = min(1.0, center_lap / full_lap)
+
+    return 0.5 * sharpness + 0.3 * center_alignment + 0.2 * exposure_score
+
+
+def _pick_best_triposr_original(original_images: list[Path]) -> Path:
+    """Return the best original frame for TripoSR (no mask / isolation step)."""
+    if not original_images:
+        raise RuntimeError("TripoSR local provider needs at least one input image.")
+    best = original_images[0]
+    best_score = -1.0
+    for path in original_images:
+        score = _score_triposr_original(path)
+        if score > best_score:
+            best_score = score
+            best = path
+    return best
+
+
 def _score_triposr_candidate(masked_path: Path, original_path: Path) -> float:
     """Combined quality score for selecting the best TripoSR input frame.
 
@@ -238,6 +290,37 @@ def _prepare_clean_triposr_input(
     if debug_dir is not None:
         try:
             cv2.imwrite(str(debug_dir / "triposr_input.png"), result)
+        except Exception:
+            pass
+
+    return out_path
+
+
+def _prepare_passthrough_triposr_input(
+    *,
+    original_path: Path,
+    output_dir: Path,
+    debug_dir: Path | None = None,
+) -> Path:
+    """Pass the original photo to TripoSR unchanged — TripoSR handles object isolation."""
+    import shutil
+
+    if not original_path.is_file():
+        raise RuntimeError(f"TripoSR input image not found: {original_path}")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    suffix = original_path.suffix.lower() if original_path.suffix else ".jpg"
+    out_path = output_dir / f"triposr_input{suffix}"
+    shutil.copy2(original_path, out_path)
+
+    if debug_dir is not None:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy2(original_path, debug_dir / "selected_image.jpg")
+        except Exception:
+            pass
+        try:
+            shutil.copy2(out_path, debug_dir / "triposr_input.png")
         except Exception:
             pass
 
@@ -428,18 +511,17 @@ def run_ai_prior_mesh(
 
         py = _ensure_python_executable(getattr(settings, "ai_prior_triposr_python_executable", None))
 
-        # Select best (masked, original) pair using combined quality score.
-        best_masked, best_original = _pick_best_triposr_pair(masked_images, original_images)
+        originals = original_images if original_images else masked_images
+        best_original = _pick_best_triposr_original(originals)
 
         output_dir = work_dir / "triposr_output"
         output_dir.mkdir(parents=True, exist_ok=True)
         triposr_inputs_dir = work_dir / "triposr_inputs"
         debug_dir = work_dir / "triposr_debug"
 
-        # Build clean, centered, background-removed input image.
-        command_input_image = _prepare_clean_triposr_input(
+        # Full original photo — TripoSR isolates the central object internally.
+        command_input_image = _prepare_passthrough_triposr_input(
             original_path=best_original,
-            masked_path=best_masked,
             output_dir=triposr_inputs_dir,
             debug_dir=debug_dir,
         )
@@ -496,8 +578,8 @@ def run_ai_prior_mesh(
                 "triposr_entry_script": str(entry),
                 "triposr_python": str(py),
                 "triposr_input_image": str(command_input_image),
-                "selected_masked_image": str(best_masked),
                 "selected_original_image": str(best_original),
+                "triposr_isolation": "passthrough_original",
                 "debug_dir": str(debug_dir),
                 "output_dir": str(output_dir),
                 "command_args": args,
