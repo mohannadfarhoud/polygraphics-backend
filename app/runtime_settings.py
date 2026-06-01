@@ -323,6 +323,40 @@ def effective_reconstruction_backend(
     return settings.reconstruction_backend
 
 
+def pick_single_image_ai_provider(settings: RuntimeSettings) -> str:
+    """AI provider for single-image reconstruction (TripoSR preferred, InstantMesh fallback)."""
+    instantmesh_repo = str(getattr(settings, "ai_prior_instantmesh_repo_path", "") or "").strip()
+    if instantmesh_repo:
+        return "instantmesh_local"
+    return "triposr_local"
+
+
+_MULTI_VIEW_BACKENDS = frozenset(
+    {"mapanything", "dust3r", "colmap", "gaussian_splatting", "hybrid_prior_refine"}
+)
+
+
+def coerce_backend_for_image_count(
+    backend: str,
+    ai_provider: str,
+    settings: RuntimeSettings,
+    image_count: int,
+) -> tuple[str, str | None]:
+    """Ensure the chosen backend can run with ``image_count`` inputs.
+
+    Multi-view mesh backends need at least two images. A single image or video
+    that yields one good frame must use TripoSR / InstantMesh instead.
+    """
+    backend = str(backend).strip().lower()
+    ai_provider = str(ai_provider or "").strip().lower()
+    if image_count >= 2 or backend not in _MULTI_VIEW_BACKENDS:
+        if backend == "ai_prior" and not ai_provider:
+            return backend, pick_single_image_ai_provider(settings)
+        return backend, ai_provider or None
+
+    return "ai_prior", pick_single_image_ai_provider(settings)
+
+
 def resolve_auto_backend(
     settings: RuntimeSettings,
     image_count: int,
@@ -331,27 +365,25 @@ def resolve_auto_backend(
 
     Selection logic (thresholds configurable via settings):
 
-    * 1 .. auto_backend_triposr_max_images  → triposr_local (when repo is configured)
+    * 1 image → TripoSR / InstantMesh (single-image AI; never multi-view)
+    * 2 .. auto_backend_triposr_max_images → TripoSR when triposr_max > 0
     * (triposr_max+1) .. auto_backend_dust3r_max_images → dust3r
     * above dust3r_max → mapanything
 
     Returns (backend, ai_provider_override_or_none).
     """
+    if image_count < 2:
+        return "ai_prior", pick_single_image_ai_provider(settings)
+
     triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
     dust3r_max = int(getattr(settings, "auto_backend_dust3r_max_images", 15))
 
-    # TripoSR path: single-image AI — only use if repo is configured on worker.
-    triposr_repo = str(getattr(settings, "ai_prior_triposr_repo_path", "") or "").strip()
-    triposr_available = bool(triposr_repo)
-
-    if triposr_max > 0 and image_count <= triposr_max and triposr_available:
+    if triposr_max > 0 and image_count <= triposr_max:
         return "ai_prior", "triposr_local"
 
-    # DUSt3R path: better geometry for few images.
     if dust3r_max > 0 and image_count <= dust3r_max:
         return "dust3r", None
 
-    # MapAnything: fast feed-forward for many images.
     return "mapanything", None
 
 

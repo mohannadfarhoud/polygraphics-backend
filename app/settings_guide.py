@@ -25,8 +25,9 @@ def settings_deployment_guide() -> dict[str, Any]:
             "worker_env": None,
             "notes": (
                 "Only when reconstruction_backend=auto: use TripoSR (single-image AI) when "
-                "image count is at most this value. Default 3. Set 0 to never auto-select TripoSR "
-                "(requires ai_prior_triposr_repo_path to be configured)."
+                "image count is at most this value (default 3). One image always routes to "
+                "TripoSR/InstantMesh regardless of this threshold. Set 0 to skip TripoSR for "
+                "2+ image jobs (those fall through to DUSt3R/MapAnything)."
             ),
         },
         {

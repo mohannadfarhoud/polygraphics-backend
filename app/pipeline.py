@@ -35,6 +35,7 @@ from .runtime_settings import (
     effective_reconstruction_backend,
     gaussian_splatting_skipped_via_env,
     minimum_input_images,
+    coerce_backend_for_image_count,
     resolve_auto_backend,
 )
 from .segmentation import SamSegmenter
@@ -187,12 +188,38 @@ class ReconstructionPipeline:
                 )
                 if auto_ai_provider is not None:
                     ai_provider = auto_ai_provider
-                _log.info(
-                    "job=%s: auto backend selected %r (provider=%r) for %d image(s)",
-                    job_id, backend, ai_provider, len(image_paths),
-                )
             else:
                 backend = raw_backend
+
+            coerced_backend, coerced_provider = coerce_backend_for_image_count(
+                backend,
+                ai_provider,
+                self.runtime_settings,
+                len(image_paths),
+            )
+            if coerced_backend != backend or (
+                coerced_provider is not None and coerced_provider != ai_provider
+            ):
+                _log.warning(
+                    "job=%s: backend %r (provider=%r) incompatible with %d image(s) "
+                    "→ using %r (provider=%r)",
+                    job_id,
+                    backend,
+                    ai_provider,
+                    len(image_paths),
+                    coerced_backend,
+                    coerced_provider,
+                )
+            backend = coerced_backend
+            if coerced_provider is not None:
+                ai_provider = coerced_provider
+            _log.info(
+                "job=%s: reconstruction backend %r (provider=%r) for %d image(s)",
+                job_id,
+                backend,
+                ai_provider,
+                len(image_paths),
+            )
 
             # Single-image AI models (TripoSR / InstantMesh): SAM runs normally to produce clean
             # masked images; depth normalization is skipped (not useful for single-image models).
@@ -286,8 +313,8 @@ class ReconstructionPipeline:
                     cancel_event=cancel_event,
                 )
             if backend == "ai_prior":
-                # Pass resolved ai_provider so auto-selected TripoSR is actually used.
-                _provider_override = ai_provider if raw_backend == "auto" else None
+                # Use pipeline-resolved provider (auto-select / single-image coerce).
+                _provider_override = ai_provider or None
                 return self._run_ai_prior_pipeline(
                     job_id=job_id,
                     masked_paths=masked_paths,
@@ -824,7 +851,9 @@ class ReconstructionPipeline:
         reconstruction_inputs = original_paths if geometry_source == "original" else masked_paths
         if len(reconstruction_inputs) < 2:
             raise RuntimeError(
-                f"Not enough reconstruction inputs ({len(reconstruction_inputs)}) for source={geometry_source!r}"
+                f"Not enough reconstruction inputs ({len(reconstruction_inputs)}) for source={geometry_source!r}. "
+                "MapAnything/DUSt3R/COLMAP need at least 2 images. For a single photo, use "
+                "reconstruction_backend=auto (routes to TripoSR) or ai_prior with triposr_local."
             )
         # Phase 2 of the protocol: MapAnything metric reconstruction (+ optional confidence masking there).
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)
