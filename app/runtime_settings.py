@@ -97,6 +97,9 @@ class RuntimeSettings(BaseModel):
     triposr_bake_texture: bool = True
     triposr_texture_resolution: int = Field(default=2048, ge=512, le=8192)
     triposr_mc_resolution: int = Field(default=256, ge=64, le=512)
+    # When bake-texture fails (OOM/device), retry once without --bake-texture (vertex colors).
+    triposr_bake_texture_fallback: bool = True
+    triposr_chunk_size: int = Field(default=8192, ge=0, le=65536)
     # InstantMesh local provider (Tencent InstantMesh single-image-to-3D).
     ai_prior_instantmesh_repo_path: str | None = None
     ai_prior_instantmesh_python_executable: str | None = None

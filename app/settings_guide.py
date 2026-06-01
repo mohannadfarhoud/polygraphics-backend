@@ -339,6 +339,18 @@ def settings_deployment_guide() -> dict[str, Any]:
             "notes": "TripoSR marching-cubes grid resolution (--mc-resolution). Default 256. Higher = denser mesh, more VRAM.",
         },
         {
+            "key": "triposr_bake_texture_fallback",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "When true (default): if --bake-texture fails, retry once with vertex colors so the job still completes.",
+        },
+        {
+            "key": "triposr_chunk_size",
+            "scope": "both",
+            "worker_env": None,
+            "notes": "TripoSR --chunk-size (default 8192). Lower (e.g. 4096) if texture bake runs out of VRAM on 8GB GPUs.",
+        },
+        {
             "key": "ai_prior_instantmesh_repo_path",
             "scope": "stored_on_api",
             "worker_env": "POLYGRAPH_OVERRIDE_INSTANTMESH_REPO",

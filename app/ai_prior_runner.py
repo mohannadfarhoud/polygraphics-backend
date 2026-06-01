@@ -67,11 +67,21 @@ def _ensure_python_executable(raw_path: str | None) -> Path:
     return Path(sys.executable)
 
 
-def _triposr_extra_cli_args(settings: RuntimeSettings, args_joined: str) -> list[str]:
+def _triposr_extra_cli_args(
+    settings: RuntimeSettings,
+    args_joined: str,
+    *,
+    bake_texture: bool | None = None,
+) -> list[str]:
     """Append TripoSR texture/quality flags unless already present in the template."""
     extra: list[str] = []
     joined = args_joined.lower()
-    if bool(getattr(settings, "triposr_bake_texture", True)) and "--bake-texture" not in joined:
+    use_bake = (
+        bool(getattr(settings, "triposr_bake_texture", True))
+        if bake_texture is None
+        else bake_texture
+    )
+    if use_bake and "--bake-texture" not in joined:
         extra.append("--bake-texture")
         if "--texture-resolution" not in joined:
             res = int(getattr(settings, "triposr_texture_resolution", 2048))
@@ -81,7 +91,49 @@ def _triposr_extra_cli_args(settings: RuntimeSettings, args_joined: str) -> list
     if "--mc-resolution" not in joined:
         mc = int(getattr(settings, "triposr_mc_resolution", 256))
         extra.extend(["--mc-resolution", str(mc)])
+    if "--chunk-size" not in joined:
+        chunk = int(getattr(settings, "triposr_chunk_size", 8192))
+        extra.extend(["--chunk-size", str(chunk)])
+    if "--device" not in joined:
+        extra.extend(["--device", "cuda:0"])
     return extra
+
+
+def _resolve_triposr_entry_script(settings: RuntimeSettings, repo: Path) -> Path:
+    """TripoSR entry script; use bake-fix wrapper when texture atlas is enabled."""
+    entry_raw = str(getattr(settings, "ai_prior_triposr_entry_script", "run.py")).strip() or "run.py"
+    use_wrapper = bool(getattr(settings, "triposr_bake_texture", True)) and entry_raw.replace("\\", "/").endswith(
+        ("run.py", "triposr_run_wrapper.py")
+    )
+    if use_wrapper:
+        wrapper = Path(__file__).resolve().parent.parent / "scripts" / "triposr_run_wrapper.py"
+        if wrapper.is_file():
+            return wrapper
+    entry = Path(entry_raw)
+    if not entry.is_absolute():
+        entry = repo / entry
+    return entry
+
+
+def _run_triposr_subprocess(
+    *,
+    cmd: list[str],
+    repo: Path,
+    env: dict[str, str],
+    timeout_s: int,
+) -> subprocess.CompletedProcess[str]:
+    env = dict(env)
+    env["TRIPOSR_REPO"] = str(repo)
+    env["PYTHONPATH"] = str(repo) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=max(30, timeout_s),
+        check=False,
+        cwd=str(repo),
+        env=env,
+    )
 
 
 def _score_triposr_original(original_path: Path) -> float:
@@ -519,9 +571,7 @@ def run_ai_prior_mesh(
             raise RuntimeError(f"TripoSR repo path does not exist: {repo}")
 
         entry_raw = str(getattr(settings, "ai_prior_triposr_entry_script", "run.py")).strip() or "run.py"
-        entry = Path(entry_raw)
-        if not entry.is_absolute():
-            entry = repo / entry
+        entry = _resolve_triposr_entry_script(settings, repo)
         if not entry.is_file():
             raise RuntimeError(f"TripoSR entry script not found: {entry}")
 
@@ -552,25 +602,41 @@ def run_ai_prior_mesh(
             output_mesh=str(out_mesh),
             repo_path=str(repo),
         )
-        extra_args = _triposr_extra_cli_args(settings, args)
-        cmd = [str(py), str(entry)] + shlex.split(args, posix=False) + extra_args
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(repo) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+        texture_fallback = False
+        bake_attempt = bool(getattr(settings, "triposr_bake_texture", True))
+        extra_args = _triposr_extra_cli_args(settings, args, bake_texture=bake_attempt)
+        cmd = [str(py), str(entry)] + shlex.split(args, posix=False) + extra_args
         try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=max(30, timeout_s),
-                check=False,
-                cwd=str(repo),
-                env=env,
-            )
+            proc = _run_triposr_subprocess(cmd=cmd, repo=repo, env=env, timeout_s=timeout_s)
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(
                 f"TripoSR local command timed out after {max(30, timeout_s)}s. "
                 f"Command: {' '.join(cmd)}"
             ) from exc
+        if proc.returncode != 0 and bake_attempt and bool(getattr(settings, "triposr_bake_texture_fallback", True)):
+            tail_text = (proc.stderr or proc.stdout or "").lower()
+            if "--bake-texture" in " ".join(cmd).lower() or "baking texture" in tail_text or "grid_sample" in tail_text:
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "TripoSR --bake-texture failed; retrying with vertex colors only."
+                )
+                shutil.rmtree(output_dir, ignore_errors=True)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                texture_fallback = True
+                extra_args = _triposr_extra_cli_args(settings, args, bake_texture=False)
+                retry_entry = repo / entry_raw if not Path(entry_raw).is_absolute() else Path(entry_raw)
+                if not retry_entry.is_file():
+                    retry_entry = repo / "run.py"
+                cmd = [str(py), str(retry_entry)] + shlex.split(args, posix=False) + extra_args
+                try:
+                    proc = _run_triposr_subprocess(cmd=cmd, repo=repo, env=env, timeout_s=timeout_s)
+                except subprocess.TimeoutExpired as exc:
+                    raise RuntimeError(
+                        f"TripoSR local command timed out after {max(30, timeout_s)}s. "
+                        f"Command: {' '.join(cmd)}"
+                    ) from exc
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-40:]
             raise RuntimeError(
@@ -599,8 +665,9 @@ def run_ai_prior_mesh(
                 "triposr_mesh_path": str(out_mesh_path),
                 "triposr_texture_path": str(texture_path) if texture_path else None,
                 "triposr_texture_mode": texture_mode,
+                "triposr_texture_fallback": texture_fallback,
                 "triposr_repo_path": str(repo),
-                "triposr_entry_script": str(entry),
+                "triposr_entry_script": entry_raw,
                 "triposr_python": str(py),
                 "triposr_input_image": str(command_input_image),
                 "selected_original_image": str(best_original),
