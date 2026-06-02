@@ -548,6 +548,36 @@ Copy-and-paste snippets are in:
 - Each row has **`job_id`**, **`status`**, optional **`model_url`**, **`error`**, **`image_count`**, Unix **`created_at` / `updated_at`**, and API responses also include **`created_at_iso` / `updated_at_iso`** (UTC, `Z`).
 - On first start, if legacy **`config/jobs.json`** exists and the DB is empty, it is **imported once** and the JSON file is renamed to **`config/jobs.json.bak`**.
 
+## Virtual try-on config API
+
+Per-model settings for the polyGraphics-frontend earring try-on (camera + face tracking). Stored in the same SQLite DB as jobs (`model_try_on_config` table). Out of scope: video, landmarks, or per-frame poses.
+
+### Coordinate system
+
+All `*_point` fields use **normalized try-on space** (same as frontend `prepareTryOnModel`):
+
+- Model centered at origin; largest bounding-box axis = **1.0** unit
+- Each point: `{ "x", "y", "z" }` with components clamped to **[-1, 1]**
+- **Hanger** — hook attachment on the mesh (e.g. `{ "x": 0, "y": 0.5, "z": 0 }`)
+- **Profile** — second point on the thin/left side; orientation uses the vector **hanger → profile** (optional until set; must be ≥ **0.02** units from hanger when both are present)
+
+### Endpoints
+
+| Method | Path | Notes |
+|--------|------|--------|
+| `GET` | `/models/{job_id}/try-on` | Full config; **404** if never saved |
+| `PUT` | `/models/{job_id}/try-on` | Upsert; **partial body merges** with existing; `hanger_point` required on first save |
+| `GET` | `/models/{job_id}/hanger-point` | Legacy wrapper — `{ x, y, z }` only |
+| `PUT` | `/models/{job_id}/hanger-point` | Updates hanger only; does **not** clear profile/rotation |
+| `GET` | `/users/me/try-on-calibration` | Per-user offsets; requires header **`X-User-Id`** |
+| `PUT` | `/users/me/try-on-calibration` | Partial merge; requires **`X-User-Id`** |
+
+`job_id` must match a job in the DB or an existing `output/{job_id}.glb` / `.ply` (same as gallery models). Invalid `jewelry_type` or profile too close to hanger → **400**. Unknown model → **404**.
+
+Optional access control: send **`X-User-Id`** on writes; the first writer becomes owner (`APP_TRY_ON_BIND_OWNER=1`, default). Another user id → **403**. Public read/write when no owner is set.
+
+OpenAPI: live at **`GET /openapi.json`** (and under `APP_ROOT_PATH` if set). Regenerate committed copy: `python scripts/export_openapi.py` → `openapi.json`.
+
 ## Integration points
 
 - To use PostgreSQL/MySQL later, replace the `jobs_db` module (same `JobManager` API) or add a SQLAlchemy layer.

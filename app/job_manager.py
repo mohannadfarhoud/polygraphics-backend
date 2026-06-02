@@ -12,7 +12,7 @@ from typing import Callable
 from .config import PipelineConfig
 from .interfaces import JobRepository, JobStatus, WebSocketNotifier
 from .job_models import JobRecord, ModelListItem
-from . import jobs_db
+from . import jobs_db, try_on_db
 from .pipeline import JobCancelled, ReconstructionPipeline
 from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_images
 
@@ -200,6 +200,7 @@ class JobManager:
             if active is not None and active.is_alive():
                 raise RuntimeError("Cannot delete job while local worker thread is still running.")
             jobs_db.delete_job(self._db_path, job_id)
+            try_on_db.delete_model_try_on(self._db_path, job_id)
             self._cancel_events.pop(job_id, None)
             self._active_threads.pop(job_id, None)
 

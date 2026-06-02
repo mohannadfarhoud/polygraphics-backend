@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from . import try_on_db
 from .interfaces import JobStatus
 from .job_models import JobRecord
 
@@ -50,6 +51,7 @@ def init_and_migrate(db_path: Path, root_dir: Path) -> None:
         conn.executescript(SCHEMA)
         _ensure_columns(conn)
         conn.commit()
+    try_on_db.init_schema(db_path)
 
     json_path = root_dir / "config" / "jobs.json"
     if not json_path.is_file():

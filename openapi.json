@@ -1,0 +1,3960 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "polyGraphics 3D Backend",
+    "description": "API for 2D-to-3D reconstruction. Default path: **Segment Anything first** (smart background removal), then MapAnything / mesh or Gaussian splatting \u2014 reconstructions consume **masked** views only. `skip_sam_segmentation` is only for pre-cut **RGBA** assets with real transparency.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Direct Uvicorn (e.g. http://127.0.0.1:8000)"
+    }
+  ],
+  "paths": {
+    "/models/{job_id}/try-on": {
+      "get": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Get Model Try On",
+        "operationId": "get_model_try_on_models__job_id__try_on_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelTryOnConfig"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Put Model Try On",
+        "operationId": "put_model_try_on_models__job_id__try_on_put",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelTryOnConfigPut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelTryOnConfig"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models/{job_id}/hanger-point": {
+      "get": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Get Hanger Point",
+        "operationId": "get_hanger_point_models__job_id__hanger_point_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPoint3D"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Put Hanger Point",
+        "operationId": "put_hanger_point_models__job_id__hanger_point_put",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HangerPointBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPoint3D"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/me/try-on-calibration": {
+      "get": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Get User Try On Calibration",
+        "operationId": "get_user_try_on_calibration_users_me_try_on_calibration_get",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserTryOnCalibration"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Put User Try On Calibration",
+        "operationId": "put_user_try_on_calibration_users_me_try_on_calibration_put",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserTryOnCalibrationPut"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserTryOnCalibration"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/next": {
+      "get": {
+        "summary": "Internal Worker Next",
+        "description": "GPU worker long-polls (or polls) for the next ``QUEUED`` job. Requires ``APP_REMOTE_WORKERS=true``.",
+        "operationId": "internal_worker_next_internal_worker_next_get",
+        "parameters": [
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/jobs/{job_id}/complete": {
+      "post": {
+        "summary": "Internal Worker Complete",
+        "operationId": "internal_worker_complete_internal_worker_jobs__job_id__complete_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_internal_worker_complete_internal_worker_jobs__job_id__complete_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/jobs/{job_id}/comparison-glb": {
+      "post": {
+        "summary": "Internal Worker Comparison Glb",
+        "description": "Sidecar mesh from ``compare_mesh_preview_with_gs``; call before ``/complete`` while the job is PROCESSING.",
+        "operationId": "internal_worker_comparison_glb_internal_worker_jobs__job_id__comparison_glb_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_internal_worker_comparison_glb_internal_worker_jobs__job_id__comparison_glb_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Internal Worker Comparison Glb Internal Worker Jobs  Job Id  Comparison Glb Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/jobs/{job_id}/masked-views": {
+      "post": {
+        "summary": "Internal Worker Masked Views",
+        "description": "Persist SAM/precut isolated views under ``uploads/{job_id}/masked_views/`` (remote worker split deploy).\n\nMultipart field name ``files`` \u2014 each part filename ``masked_*.png`` (or .jpg/.jpeg/.webp).\nCall after segmentation succeeds on the worker and before ``/complete`` when ``expose_masked_views`` is true.",
+        "operationId": "internal_worker_masked_views_internal_worker_jobs__job_id__masked_views_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_internal_worker_masked_views_internal_worker_jobs__job_id__masked_views_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Internal Worker Masked Views Internal Worker Jobs  Job Id  Masked Views Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/jobs/{job_id}/fail": {
+      "post": {
+        "summary": "Internal Worker Fail",
+        "operationId": "internal_worker_fail_internal_worker_jobs__job_id__fail_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerFailBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/jobs/{job_id}/assignment": {
+      "get": {
+        "summary": "Internal Worker Assignment",
+        "description": "Claim a specific ``QUEUED`` job and return settings + image URLs (same shape as ``/internal/worker/next``).",
+        "operationId": "internal_worker_assignment_internal_worker_jobs__job_id__assignment_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Internal Worker Assignment Internal Worker Jobs  Job Id  Assignment Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/jobs/{job_id}/progress": {
+      "post": {
+        "summary": "Internal Worker Progress",
+        "description": "Pipeline progress updates from the remote worker (typically every few seconds).",
+        "operationId": "internal_worker_progress_internal_worker_jobs__job_id__progress_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerProgressBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/job-stages": {
+      "get": {
+        "summary": "Job Stages",
+        "description": "Canonical JSON mapping of pipeline stage ids to progress bands (same file as ``ui/job-stages-progress.json``).",
+        "operationId": "job_stages_job_stages_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Job Stages Job Stages Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/capture-guide": {
+      "get": {
+        "summary": "Capture Guide",
+        "description": "Capture UX + PUT /settings overlay hints for PolyCam-class quality (same file as ``ui/capture-guide.json``).",
+        "operationId": "capture_guide_capture_guide_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Capture Guide Capture Guide Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/capture-guide/web": {
+      "get": {
+        "summary": "Capture Guide Web",
+        "description": "Web-capture contract with runtime-aligned thresholds for live UI checks and upload gating.",
+        "operationId": "capture_guide_web_capture_guide_web_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Capture Guide Web Capture Guide Web Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings": {
+      "get": {
+        "summary": "Get Settings",
+        "operationId": "get_settings_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Settings",
+        "operationId": "update_settings_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/deployment": {
+      "get": {
+        "summary": "Get Settings Deployment",
+        "description": "Which ``PUT /settings`` fields matter on the API host vs the GPU worker, plus worker-only env vars.",
+        "operationId": "get_settings_deployment_settings_deployment_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Settings Deployment Settings Deployment Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/server/status": {
+      "get": {
+        "summary": "Server Status",
+        "operationId": "server_status_server_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Server Status Server Status Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs": {
+      "get": {
+        "summary": "List Jobs",
+        "operationId": "list_jobs_jobs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JobRecord"
+                  },
+                  "type": "array",
+                  "title": "Response List Jobs Jobs Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Job From Uploads",
+        "description": "Accept multipart images in the body, save them under uploads/{job_id}/, create job as PENDING (does not run pipeline yet).",
+        "operationId": "create_job_from_uploads_jobs_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_job_from_uploads_jobs_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "summary": "Get Job",
+        "operationId": "get_job_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Job",
+        "description": "Delete a gallery/job item (job row + generated/uploaded artifacts).",
+        "operationId": "delete_job_jobs__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteJobResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/capture-metadata": {
+      "get": {
+        "summary": "Get Job Capture Metadata",
+        "operationId": "get_job_capture_metadata_jobs__job_id__capture_metadata_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Job Capture Metadata Jobs  Job Id  Capture Metadata Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Job Capture Metadata",
+        "operationId": "put_job_capture_metadata_jobs__job_id__capture_metadata_put",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true,
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureMetadataUpsertResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/masked-preview": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Job Masked Preview",
+        "description": "Browse SAM-isolated RGB frames (same files as ``masked_view_urls`` on ``GET /jobs/{job_id}``).",
+        "operationId": "job_masked_preview_jobs__job_id__masked_preview_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/stop": {
+      "post": {
+        "summary": "Stop Job",
+        "operationId": "stop_job_jobs__job_id__stop_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/continue": {
+      "post": {
+        "summary": "Continue Job",
+        "operationId": "continue_job_jobs__job_id__continue_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/reprocess": {
+      "post": {
+        "summary": "Reprocess Job",
+        "operationId": "reprocess_job_jobs__job_id__reprocess_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/models": {
+      "get": {
+        "summary": "List Models",
+        "operationId": "list_models_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelListItem"
+                  },
+                  "type": "array",
+                  "title": "Response List Models Models Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/video": {
+      "post": {
+        "summary": "Create Job From Video",
+        "description": "Accept a single video upload. Frames are extracted automatically when the job starts.\n\nRequires `video_input_enabled=true` in PUT /settings and `ai_prior_provider=instantmesh_local`\n(or triposr_local) so the pipeline knows to run frame extraction before reconstruction.",
+        "operationId": "create_job_from_video_jobs_video_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_job_from_video_jobs_video_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/video/reconstruct": {
+      "post": {
+        "summary": "Reconstruct From Video",
+        "description": "Convenience: same as POST /jobs/video then POST /jobs/{id}/start \u2014 upload video and run immediately.",
+        "operationId": "reconstruct_from_video_jobs_video_reconstruct_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_reconstruct_from_video_jobs_video_reconstruct_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/start": {
+      "post": {
+        "summary": "Start Job",
+        "description": "Begin processing for a PENDING job (minimum image count depends on active backend).",
+        "operationId": "start_job_jobs__job_id__start_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/reconstruct": {
+      "post": {
+        "summary": "Reconstruct",
+        "description": "Convenience: same as POST /jobs then POST /jobs/{id}/start \u2014 upload and run immediately.",
+        "operationId": "reconstruct_jobs_reconstruct_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_reconstruct_jobs_reconstruct_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/output/{full_path}": {
+      "head": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Files Output Root",
+        "operationId": "files_output_root_output__full_path__head",
+        "parameters": [
+          {
+            "name": "full_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Full Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Files Output Root",
+        "operationId": "files_output_root_output__full_path__head",
+        "parameters": [
+          {
+            "name": "full_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Full Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/uploads/{full_path}": {
+      "head": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Files Uploads Root",
+        "operationId": "files_uploads_root_uploads__full_path__head",
+        "parameters": [
+          {
+            "name": "full_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Full Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Files Uploads Root",
+        "operationId": "files_uploads_root_uploads__full_path__head",
+        "parameters": [
+          {
+            "name": "full_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Full Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_create_job_from_uploads_jobs_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files",
+            "description": "One or more images; job stays PENDING until you call POST /jobs/{job_id}/start"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "capture_metadata": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Metadata",
+            "description": "Optional JSON text payload from Android capture session with per-frame orientation/depth/quality info. Stored at uploads/{job_id}/capture_metadata.json."
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_create_job_from_uploads_jobs_post"
+      },
+      "Body_create_job_from_video_jobs_video_post": {
+        "properties": {
+          "video": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Video",
+            "description": "Single video file (.mp4, .mov, .webm). Job stays PENDING until POST /jobs/{job_id}/start."
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "video"
+        ],
+        "title": "Body_create_job_from_video_jobs_video_post"
+      },
+      "Body_internal_worker_comparison_glb_internal_worker_jobs__job_id__comparison_glb_post": {
+        "properties": {
+          "variant": {
+            "type": "string",
+            "title": "Variant",
+            "description": "comparison GLB variant: mesh (MapAnything preview)"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "variant",
+          "file"
+        ],
+        "title": "Body_internal_worker_comparison_glb_internal_worker_jobs__job_id__comparison_glb_post"
+      },
+      "Body_internal_worker_complete_internal_worker_jobs__job_id__complete_post": {
+        "properties": {
+          "model_format": {
+            "type": "string",
+            "title": "Model Format"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_format",
+          "file"
+        ],
+        "title": "Body_internal_worker_complete_internal_worker_jobs__job_id__complete_post"
+      },
+      "Body_internal_worker_masked_views_internal_worker_jobs__job_id__masked_views_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_internal_worker_masked_views_internal_worker_jobs__job_id__masked_views_post"
+      },
+      "Body_reconstruct_from_video_jobs_video_reconstruct_post": {
+        "properties": {
+          "video": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Video",
+            "description": "Single video file (.mp4, .mov, .webm). Uploaded and processed immediately."
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "video"
+        ],
+        "title": "Body_reconstruct_from_video_jobs_video_reconstruct_post"
+      },
+      "Body_reconstruct_jobs_reconstruct_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "capture_metadata": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Metadata",
+            "description": "Optional JSON text payload from Android capture session with per-frame orientation/depth/quality info. Stored at uploads/{job_id}/capture_metadata.json."
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_reconstruct_jobs_reconstruct_post"
+      },
+      "CaptureMetadataUpsertResult": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "capture_metadata_url": {
+            "type": "string",
+            "title": "Capture Metadata Url"
+          },
+          "capture_metadata_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Metadata Version"
+          },
+          "capture_total_frames": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Total Frames"
+          },
+          "capture_accepted_frames": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Accepted Frames"
+          },
+          "capture_avg_quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Avg Quality Score"
+          },
+          "capture_orbit_coverage_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Orbit Coverage Deg"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "capture_metadata_url"
+        ],
+        "title": "CaptureMetadataUpsertResult"
+      },
+      "DeleteJobResult": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "DeleteJobResult"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HangerPointBody": {
+        "properties": {
+          "x": {
+            "type": "number",
+            "title": "X"
+          },
+          "y": {
+            "type": "number",
+            "title": "Y"
+          },
+          "z": {
+            "type": "number",
+            "title": "Z"
+          }
+        },
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "HangerPointBody",
+        "description": "Backward-compatible hanger-only body (``{ x, y, z }``)."
+      },
+      "JewelryType": {
+        "type": "string",
+        "enum": [
+          "stud",
+          "drop"
+        ],
+        "title": "JewelryType"
+      },
+      "JobRecord": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage",
+            "description": "Current pipeline stage. UI should switch on the base value (before any space). Lifecycle: starting | exporting | completed. Pipeline protocol: phase_0_input_curation | phase_1_segmentation | phase_2_alignment | phase_3_sanitization | phase_4_colmap_bridge | phase_4_colmap_scene | phase_5_gaussian_splatting | phase_confidence_routing | phase_prior_generation | phase_prior_refinement. Mesh-only: meshing | mesh_cleanup | vertex_color_transfer | photo_vertex_bake | color_autobalance | exporting. Optional GS comparison meshes: compare_mesh_preview. May include a human suffix in parens, e.g. 'phase_1_segmentation (3/27)'."
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress",
+            "description": "Pipeline progress in percent (0-100). Null until processing starts."
+          },
+          "model_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Url"
+          },
+          "model_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Format"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "image_count": {
+            "type": "integer",
+            "title": "Image Count",
+            "default": 0
+          },
+          "created_at": {
+            "type": "number",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "number",
+            "title": "Updated At"
+          },
+          "image_sample_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Sample Url",
+            "description": "URL of the first uploaded image for this job (preview thumbnail). Relative by default; absolute when APP_MODEL_BASE_URL is set to a non-loopback URL. Derived per response; not persisted."
+          },
+          "masked_view_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Masked View Urls",
+            "description": "URLs of SAM-isolated RGB frames (black outside mask) under uploads/{job_id}/masked_views/ when ``expose_masked_views`` mirroring ran or the worker POSTed masked views. Derived per response; not persisted."
+          },
+          "masked_preview_page_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Preview Page Url",
+            "description": "Relative URL of an HTML page that lists masked_view_urls as thumbnails \u2014 open in a browser (same origin as this API). Derived per response; not persisted."
+          },
+          "capture_quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Quality Score",
+            "description": "Capture quality score (0..1) produced by backend pre-filtering; derived per response."
+          },
+          "capture_rejected_images": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capture Rejected Images",
+            "description": "Image basenames rejected by capture quality filtering; derived per response."
+          },
+          "capture_quality_report_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Quality Report Url",
+            "description": "Relative URL to uploads/{job_id}/capture_quality_report.json when available."
+          },
+          "capture_kept_images": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capture Kept Images",
+            "description": "Image basenames kept after capture curation stage; derived per response."
+          },
+          "reconstruction_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconstruction Confidence",
+            "description": "Confidence score used by backend routing (0..1). Derived per response."
+          },
+          "route_taken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Taken",
+            "description": "Effective reconstruction route (hybrid_refine/prior_only/coarse_prior/fail guidance)."
+          },
+          "quality_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Reason",
+            "description": "Human-readable short reason attached to route selection."
+          },
+          "reconstruction_report_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconstruction Report Url",
+            "description": "Relative URL to uploads/{job_id}/reconstruction_report.json when available."
+          },
+          "dominant_surface_regions_detected": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dominant Surface Regions Detected",
+            "description": "How many dominant surface regions were extracted across views."
+          },
+          "per_view_region_confidence": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Per View Region Confidence",
+            "description": "Per-view confidence scores for dominant surface region extraction/projection."
+          },
+          "region_projection_coverage": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Region Projection Coverage",
+            "description": "Projection coverage metrics (for example mesh_area_ratio and regions_projected)."
+          },
+          "texture_route_taken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texture Route Taken",
+            "description": "Texture route used: mapanything | surface_region | surface_region+mapanything_fill."
+          },
+          "texture_quality_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texture Quality Reason",
+            "description": "Reason associated with texture route and quality assessment."
+          },
+          "texture_report_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Texture Report Url",
+            "description": "Relative URL to uploads/{job_id}/texture_report.json when available."
+          },
+          "selected_frame_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Frame Url",
+            "description": "URL of the frame chosen for 3D reconstruction (set for video/InstantMesh jobs). Derived per response; not persisted."
+          },
+          "capture_metadata_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Metadata Url",
+            "description": "Relative URL to uploads/{job_id}/capture_metadata.json when app metadata is uploaded."
+          },
+          "capture_metadata_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Metadata Version",
+            "description": "Capture metadata schema version provided by the client app."
+          },
+          "capture_total_frames": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Total Frames",
+            "description": "Total captured frames reported by client metadata summary."
+          },
+          "capture_accepted_frames": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Accepted Frames",
+            "description": "Accepted frames reported by client metadata summary."
+          },
+          "capture_avg_quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Avg Quality Score",
+            "description": "Average per-frame quality score from app metadata summary (0..1)."
+          },
+          "capture_orbit_coverage_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Orbit Coverage Deg",
+            "description": "Estimated orbit coverage in degrees from app metadata summary."
+          },
+          "created_at_iso": {
+            "type": "string",
+            "title": "Created At Iso",
+            "readOnly": true
+          },
+          "updated_at_iso": {
+            "type": "string",
+            "title": "Updated At Iso",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "created_at_iso",
+          "updated_at_iso"
+        ],
+        "title": "JobRecord"
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "QUEUED",
+          "PROCESSING",
+          "PAUSED",
+          "STOPPED",
+          "COMPLETED",
+          "FAILED"
+        ],
+        "title": "JobStatus",
+        "description": "PENDING = images saved; call POST /jobs/{id}/start to run the pipeline."
+      },
+      "ModelListItem": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "Download URL for this asset (same rules as job.model_url: relative /output/... or APP_MODEL_BASE_URL)."
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "URL of the first uploaded input image for this job (preview). Same construction as job.image_sample_url."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "modified_at": {
+            "type": "number",
+            "title": "Modified At"
+          },
+          "modified_at_iso": {
+            "type": "string",
+            "title": "Modified At Iso",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "filename",
+          "url",
+          "size_bytes",
+          "modified_at",
+          "modified_at_iso"
+        ],
+        "title": "ModelListItem"
+      },
+      "ModelPoint3D": {
+        "properties": {
+          "x": {
+            "type": "number",
+            "title": "X",
+            "description": "X in normalized try-on space, clamped to [-1, 1]."
+          },
+          "y": {
+            "type": "number",
+            "title": "Y",
+            "description": "Y in normalized try-on space, clamped to [-1, 1]."
+          },
+          "z": {
+            "type": "number",
+            "title": "Z",
+            "description": "Z in normalized try-on space, clamped to [-1, 1]."
+          }
+        },
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "title": "ModelPoint3D",
+        "description": "Point in normalized try-on model space (matches frontend ``prepareTryOnModel``).\n\nThe mesh is centered at the origin and the largest axis of its bounding box is 1.0 unit.\nComponents are clamped to [-1, 1] on write."
+      },
+      "ModelTryOnConfig": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "hanger_point": {
+            "$ref": "#/components/schemas/ModelPoint3D"
+          },
+          "profile_point": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelPoint3D"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jewelry_rotation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnJewelryRotation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "api_vertical_flip": {
+            "type": "boolean",
+            "title": "Api Vertical Flip",
+            "default": false
+          },
+          "ear_offsets": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnEarOffsets"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "side_lateral_nudge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnSideLateralNudge"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jewelry_type": {
+            "$ref": "#/components/schemas/JewelryType",
+            "default": "drop"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version",
+            "default": 1
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At",
+            "description": "UTC timestamp ISO-8601 (e.g. 2026-06-02T12:00:00Z)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "hanger_point",
+          "updated_at"
+        ],
+        "title": "ModelTryOnConfig"
+      },
+      "ModelTryOnConfigPut": {
+        "properties": {
+          "hanger_point": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelPoint3D"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile_point": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelPoint3D"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jewelry_rotation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnJewelryRotation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "api_vertical_flip": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Vertical Flip"
+          },
+          "ear_offsets": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnEarOffsets"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "side_lateral_nudge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnSideLateralNudge"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jewelry_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JewelryType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "ModelTryOnConfigPut",
+        "description": "Upsert body. Omitted fields are merged with the existing row on PUT."
+      },
+      "RuntimeSettings": {
+        "properties": {
+          "reconstruction_backend": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "mapanything",
+              "dust3r",
+              "colmap",
+              "gaussian_splatting",
+              "ai_prior",
+              "hybrid_prior_refine"
+            ],
+            "title": "Reconstruction Backend",
+            "default": "auto"
+          },
+          "auto_backend_triposr_max_images": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Auto Backend Triposr Max Images",
+            "default": 3
+          },
+          "auto_backend_dust3r_max_images": {
+            "type": "integer",
+            "maximum": 256.0,
+            "minimum": 0.0,
+            "title": "Auto Backend Dust3R Max Images",
+            "default": 25
+          },
+          "reconstruction_image_source": {
+            "type": "string",
+            "enum": [
+              "original",
+              "masked"
+            ],
+            "title": "Reconstruction Image Source",
+            "default": "original"
+          },
+          "capture_quality_gate_enabled": {
+            "type": "boolean",
+            "title": "Capture Quality Gate Enabled",
+            "default": true
+          },
+          "capture_reject_policy": {
+            "type": "string",
+            "enum": [
+              "soft",
+              "hard"
+            ],
+            "title": "Capture Reject Policy",
+            "default": "soft"
+          },
+          "capture_min_kept_images": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 2.0,
+            "title": "Capture Min Kept Images",
+            "default": 8
+          },
+          "capture_blur_min": {
+            "type": "number",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Capture Blur Min",
+            "default": 35.0
+          },
+          "capture_brightness_min": {
+            "type": "number",
+            "maximum": 255.0,
+            "minimum": 0.0,
+            "title": "Capture Brightness Min",
+            "default": 20.0
+          },
+          "capture_brightness_max": {
+            "type": "number",
+            "maximum": 255.0,
+            "minimum": 0.0,
+            "title": "Capture Brightness Max",
+            "default": 235.0
+          },
+          "capture_min_frame_delta": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Capture Min Frame Delta",
+            "default": 0.01
+          },
+          "capture_max_selected_images": {
+            "type": "integer",
+            "maximum": 256.0,
+            "minimum": 2.0,
+            "title": "Capture Max Selected Images",
+            "default": 20
+          },
+          "capture_duplicate_similarity": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.8,
+            "title": "Capture Duplicate Similarity",
+            "default": 0.995
+          },
+          "capture_diversity_min_distance": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Capture Diversity Min Distance",
+            "default": 0.045
+          },
+          "depth_normalization_enabled": {
+            "type": "boolean",
+            "title": "Depth Normalization Enabled",
+            "default": true
+          },
+          "depth_reference_mode": {
+            "type": "string",
+            "enum": [
+              "median_best",
+              "first"
+            ],
+            "title": "Depth Reference Mode",
+            "default": "median_best"
+          },
+          "depth_consistency_apply_filter": {
+            "type": "boolean",
+            "title": "Depth Consistency Apply Filter",
+            "default": true
+          },
+          "depth_consistency_max_relative": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.05,
+            "title": "Depth Consistency Max Relative",
+            "default": 0.35
+          },
+          "depth_consistency_min_kept_images": {
+            "type": "integer",
+            "maximum": 256.0,
+            "minimum": 2.0,
+            "title": "Depth Consistency Min Kept Images",
+            "default": 3
+          },
+          "depth_consistency_min_score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Depth Consistency Min Score",
+            "default": 0.4
+          },
+          "depth_consistency_fail_on_low_score": {
+            "type": "boolean",
+            "title": "Depth Consistency Fail On Low Score",
+            "default": false
+          },
+          "depth_selection_quality_weight": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Depth Selection Quality Weight",
+            "default": 0.55
+          },
+          "depth_selection_proximity_weight": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Depth Selection Proximity Weight",
+            "default": 0.45
+          },
+          "reconstruction_confidence_high_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Reconstruction Confidence High Threshold",
+            "default": 0.72
+          },
+          "reconstruction_confidence_min_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Reconstruction Confidence Min Threshold",
+            "default": 0.45
+          },
+          "reconstruction_low_confidence_policy": {
+            "type": "string",
+            "enum": [
+              "fail",
+              "prior_only",
+              "coarse_prior"
+            ],
+            "title": "Reconstruction Low Confidence Policy",
+            "default": "prior_only"
+          },
+          "video_input_enabled": {
+            "type": "boolean",
+            "title": "Video Input Enabled",
+            "default": false
+          },
+          "video_input_extraction_fps": {
+            "type": "number",
+            "maximum": 30.0,
+            "minimum": 0.1,
+            "title": "Video Input Extraction Fps",
+            "default": 4.0
+          },
+          "video_input_max_frames": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 5.0,
+            "title": "Video Input Max Frames",
+            "default": 120
+          },
+          "video_input_max_duration_seconds": {
+            "type": "integer",
+            "maximum": 600.0,
+            "minimum": 0.0,
+            "title": "Video Input Max Duration Seconds",
+            "default": 30
+          },
+          "video_input_max_file_mb": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Video Input Max File Mb",
+            "default": 500
+          },
+          "video_frame_min_sharpness": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Video Frame Min Sharpness",
+            "default": 0.04
+          },
+          "video_frame_min_exposure": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Video Frame Min Exposure",
+            "default": 0.1
+          },
+          "video_ffmpeg_binary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Ffmpeg Binary"
+          },
+          "ai_prior_provider": {
+            "type": "string",
+            "enum": [
+              "command",
+              "mock",
+              "triposr_local",
+              "instantmesh_local"
+            ],
+            "title": "Ai Prior Provider",
+            "default": "command"
+          },
+          "ai_prior_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Prior Command"
+          },
+          "ai_prior_command_args_template": {
+            "type": "string",
+            "title": "Ai Prior Command Args Template",
+            "default": "--input-manifest {input_manifest} --output {output_mesh}"
+          },
+          "ai_prior_output_mesh_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Prior Output Mesh Path"
+          },
+          "ai_prior_timeout_seconds": {
+            "type": "integer",
+            "maximum": 7200.0,
+            "minimum": 30.0,
+            "title": "Ai Prior Timeout Seconds",
+            "default": 600
+          },
+          "ai_prior_api_key_env": {
+            "type": "string",
+            "title": "Ai Prior Api Key Env",
+            "default": "AI_PRIOR_API_KEY"
+          },
+          "ai_prior_require_api_key": {
+            "type": "boolean",
+            "title": "Ai Prior Require Api Key",
+            "default": false
+          },
+          "ai_prior_default_confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Ai Prior Default Confidence",
+            "default": 0.62
+          },
+          "ai_prior_force_prior_only": {
+            "type": "boolean",
+            "title": "Ai Prior Force Prior Only",
+            "default": false
+          },
+          "ai_prior_triposr_repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Prior Triposr Repo Path"
+          },
+          "ai_prior_triposr_python_executable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Prior Triposr Python Executable"
+          },
+          "ai_prior_triposr_entry_script": {
+            "type": "string",
+            "title": "Ai Prior Triposr Entry Script",
+            "default": "run.py"
+          },
+          "ai_prior_triposr_args_template": {
+            "type": "string",
+            "title": "Ai Prior Triposr Args Template",
+            "default": "{input_image} --output-dir {output_dir}"
+          },
+          "triposr_bake_texture": {
+            "type": "boolean",
+            "title": "Triposr Bake Texture",
+            "default": true
+          },
+          "triposr_texture_resolution": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 512.0,
+            "title": "Triposr Texture Resolution",
+            "default": 2048
+          },
+          "triposr_mc_resolution": {
+            "type": "integer",
+            "maximum": 512.0,
+            "minimum": 64.0,
+            "title": "Triposr Mc Resolution",
+            "default": 256
+          },
+          "triposr_bake_texture_fallback": {
+            "type": "boolean",
+            "title": "Triposr Bake Texture Fallback",
+            "default": true
+          },
+          "triposr_chunk_size": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "minimum": 0.0,
+            "title": "Triposr Chunk Size",
+            "default": 8192
+          },
+          "ai_prior_instantmesh_repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Prior Instantmesh Repo Path"
+          },
+          "ai_prior_instantmesh_python_executable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Prior Instantmesh Python Executable"
+          },
+          "ai_prior_instantmesh_entry_script": {
+            "type": "string",
+            "title": "Ai Prior Instantmesh Entry Script",
+            "default": "run.py"
+          },
+          "ai_prior_instantmesh_args_template": {
+            "type": "string",
+            "title": "Ai Prior Instantmesh Args Template",
+            "default": "--input {input_image} --output-dir {output_dir}"
+          },
+          "instantmesh_post_process": {
+            "type": "boolean",
+            "title": "Instantmesh Post Process",
+            "default": true
+          },
+          "instantmesh_decimate_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instantmesh Decimate Target"
+          },
+          "hybrid_refine_backend": {
+            "type": "string",
+            "enum": [
+              "mapanything",
+              "dust3r",
+              "colmap",
+              "none"
+            ],
+            "title": "Hybrid Refine Backend",
+            "default": "mapanything"
+          },
+          "hybrid_refine_strength": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Hybrid Refine Strength",
+            "default": 0.2
+          },
+          "hybrid_min_refine_points": {
+            "type": "integer",
+            "maximum": 5000000.0,
+            "minimum": 100.0,
+            "title": "Hybrid Min Refine Points",
+            "default": 5000
+          },
+          "hybrid_enable_photo_bake": {
+            "type": "boolean",
+            "title": "Hybrid Enable Photo Bake",
+            "default": true
+          },
+          "shape_prior_enabled": {
+            "type": "boolean",
+            "title": "Shape Prior Enabled",
+            "default": false
+          },
+          "shape_prior_template_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape Prior Template Root"
+          },
+          "shape_prior_min_confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Shape Prior Min Confidence",
+            "default": 0.34
+          },
+          "shape_prior_force_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shape Prior Force Label"
+          },
+          "shape_prior_deform_strength": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Shape Prior Deform Strength",
+            "default": 0.22
+          },
+          "shape_prior_preserve_detail": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Shape Prior Preserve Detail",
+            "default": 0.78
+          },
+          "shape_prior_max_alignment_rmse": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.001,
+            "title": "Shape Prior Max Alignment Rmse",
+            "default": 0.12
+          },
+          "mapanything_pretrained_id": {
+            "type": "string",
+            "title": "Mapanything Pretrained Id",
+            "default": "facebook/map-anything-apache"
+          },
+          "mapanything_alpha_flatten_gray": {
+            "type": "integer",
+            "maximum": 255.0,
+            "minimum": 0.0,
+            "title": "Mapanything Alpha Flatten Gray",
+            "default": 200
+          },
+          "mapanything_memory_efficient_inference": {
+            "type": "boolean",
+            "title": "Mapanything Memory Efficient Inference",
+            "default": true
+          },
+          "mapanything_minibatch_size": {
+            "type": "integer",
+            "maximum": 128.0,
+            "minimum": 1.0,
+            "title": "Mapanything Minibatch Size",
+            "default": 1
+          },
+          "mapanything_use_amp": {
+            "type": "boolean",
+            "title": "Mapanything Use Amp",
+            "default": true
+          },
+          "mapanything_apply_mask": {
+            "type": "boolean",
+            "title": "Mapanything Apply Mask",
+            "default": true
+          },
+          "mapanything_mask_edges": {
+            "type": "boolean",
+            "title": "Mapanything Mask Edges",
+            "default": true
+          },
+          "mapanything_apply_confidence_mask": {
+            "type": "boolean",
+            "title": "Mapanything Apply Confidence Mask",
+            "default": false
+          },
+          "mapanything_confidence_percentile": {
+            "type": "integer",
+            "maximum": 99.0,
+            "minimum": 0.0,
+            "title": "Mapanything Confidence Percentile",
+            "default": 10
+          },
+          "mapanything_use_multiview_confidence": {
+            "type": "boolean",
+            "title": "Mapanything Use Multiview Confidence",
+            "default": false
+          },
+          "mapanything_max_input_views": {
+            "type": "integer",
+            "maximum": 512.0,
+            "minimum": 2.0,
+            "title": "Mapanything Max Input Views",
+            "default": 48
+          },
+          "mapanything_apply_internal_mask_on_precut": {
+            "type": "boolean",
+            "title": "Mapanything Apply Internal Mask On Precut",
+            "default": false
+          },
+          "dust3r_checkpoint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dust3R Checkpoint Path"
+          },
+          "dust3r_aligner_iters": {
+            "type": "integer",
+            "maximum": 4000.0,
+            "minimum": 10.0,
+            "title": "Dust3R Aligner Iters",
+            "default": 300
+          },
+          "dust3r_aligner_lr": {
+            "type": "number",
+            "maximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Dust3R Aligner Lr",
+            "default": 0.01
+          },
+          "dust3r_confidence_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Dust3R Confidence Threshold",
+            "default": 0.1
+          },
+          "dust3r_use_fp16": {
+            "type": "boolean",
+            "title": "Dust3R Use Fp16",
+            "default": true
+          },
+          "dust3r_inference_batch_size": {
+            "type": "integer",
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Dust3R Inference Batch Size",
+            "default": 1
+          },
+          "dust3r_max_inference_side": {
+            "type": "integer",
+            "maximum": 2048.0,
+            "minimum": 224.0,
+            "title": "Dust3R Max Inference Side",
+            "default": 768
+          },
+          "dust3r_max_input_views": {
+            "type": "integer",
+            "maximum": 256.0,
+            "minimum": 2.0,
+            "title": "Dust3R Max Input Views",
+            "default": 36
+          },
+          "dust3r_scene_graph": {
+            "type": "string",
+            "title": "Dust3R Scene Graph",
+            "default": "auto"
+          },
+          "dust3r_complete_graph_max_views": {
+            "type": "integer",
+            "maximum": 256.0,
+            "minimum": 2.0,
+            "title": "Dust3R Complete Graph Max Views",
+            "default": 24
+          },
+          "colmap_binary_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Colmap Binary Path"
+          },
+          "colmap_sift_gpu": {
+            "type": "boolean",
+            "title": "Colmap Sift Gpu",
+            "default": true
+          },
+          "device": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "cpu",
+              "cuda"
+            ],
+            "title": "Device",
+            "default": "auto"
+          },
+          "gpu_isolate_phases": {
+            "type": "boolean",
+            "title": "Gpu Isolate Phases",
+            "default": true
+          },
+          "skip_sam_segmentation": {
+            "type": "boolean",
+            "title": "Skip Sam Segmentation",
+            "default": false
+          },
+          "isolation_backend": {
+            "type": "string",
+            "enum": [
+              "sam",
+              "rembg"
+            ],
+            "title": "Isolation Backend",
+            "default": "sam"
+          },
+          "isolation_smart_select": {
+            "type": "boolean",
+            "title": "Isolation Smart Select",
+            "default": true
+          },
+          "isolation_try_alternate_backend": {
+            "type": "boolean",
+            "title": "Isolation Try Alternate Backend",
+            "default": true
+          },
+          "isolation_min_score": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": -10.0,
+            "title": "Isolation Min Score",
+            "default": 0.95
+          },
+          "rembg_model_name": {
+            "type": "string",
+            "title": "Rembg Model Name",
+            "default": "isnet-general-use"
+          },
+          "rembg_alpha_threshold": {
+            "type": "integer",
+            "maximum": 255.0,
+            "minimum": 0.0,
+            "title": "Rembg Alpha Threshold",
+            "default": 16
+          },
+          "recenter_isolated_subject": {
+            "type": "boolean",
+            "title": "Recenter Isolated Subject",
+            "default": true
+          },
+          "recenter_target_subject_fill": {
+            "type": "number",
+            "maximum": 0.98,
+            "exclusiveMinimum": 0.05,
+            "title": "Recenter Target Subject Fill",
+            "default": 0.62
+          },
+          "recenter_max_scale": {
+            "type": "number",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Recenter Max Scale",
+            "default": 1.85
+          },
+          "recenter_allow_per_image_scaling": {
+            "type": "boolean",
+            "title": "Recenter Allow Per Image Scaling",
+            "default": false
+          },
+          "isolation_filter_outlier_views": {
+            "type": "boolean",
+            "title": "Isolation Filter Outlier Views",
+            "default": true
+          },
+          "isolation_outlier_area_mad_scale": {
+            "type": "number",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Isolation Outlier Area Mad Scale",
+            "default": 3.2
+          },
+          "isolation_outlier_center_distance": {
+            "type": "number",
+            "maximum": 0.7,
+            "minimum": 0.05,
+            "title": "Isolation Outlier Center Distance",
+            "default": 0.22
+          },
+          "segmentation_fail_fast": {
+            "type": "boolean",
+            "title": "Segmentation Fail Fast",
+            "default": true
+          },
+          "sam_checkpoint_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sam Checkpoint Path"
+          },
+          "sam_model_type": {
+            "type": "string",
+            "enum": [
+              "vit_h",
+              "vit_l",
+              "vit_b"
+            ],
+            "title": "Sam Model Type",
+            "default": "vit_b"
+          },
+          "sam_segmentation_mode": {
+            "type": "string",
+            "enum": [
+              "center_subject",
+              "center_subject_table",
+              "center_point",
+              "auto_masks_center_bias",
+              "auto_masks_largest_area"
+            ],
+            "title": "Sam Segmentation Mode",
+            "default": "center_subject_table"
+          },
+          "sam_use_fp16": {
+            "type": "boolean",
+            "title": "Sam Use Fp16",
+            "default": true
+          },
+          "sam_table_edge_negative_points": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Sam Table Edge Negative Points",
+            "default": 11
+          },
+          "sam_prompt_min_mask_area_ratio": {
+            "type": "number",
+            "maximum": 0.2,
+            "minimum": 0.0,
+            "title": "Sam Prompt Min Mask Area Ratio",
+            "default": 0.0005
+          },
+          "sam_prompt_max_mask_area_ratio": {
+            "type": "number",
+            "maximum": 0.98,
+            "minimum": 0.05,
+            "title": "Sam Prompt Max Mask Area Ratio",
+            "default": 0.3
+          },
+          "sam_prompt_require_center_hit": {
+            "type": "boolean",
+            "title": "Sam Prompt Require Center Hit",
+            "default": true
+          },
+          "sam_recover_with_auto_if_prompt_bad": {
+            "type": "boolean",
+            "title": "Sam Recover With Auto If Prompt Bad",
+            "default": true
+          },
+          "expose_masked_views": {
+            "type": "boolean",
+            "title": "Expose Masked Views",
+            "default": false
+          },
+          "compare_mesh_preview_with_gs": {
+            "type": "boolean",
+            "title": "Compare Mesh Preview With Gs",
+            "default": false
+          },
+          "gs_repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gs Repo Path"
+          },
+          "gs_python_executable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gs Python Executable"
+          },
+          "gs_iterations": {
+            "type": "integer",
+            "maximum": 60000.0,
+            "minimum": 100.0,
+            "title": "Gs Iterations",
+            "default": 10000
+          },
+          "gs_sh_degree": {
+            "type": "integer",
+            "maximum": 4.0,
+            "minimum": 0.0,
+            "title": "Gs Sh Degree",
+            "default": 2
+          },
+          "gs_densify_until_iter": {
+            "type": "integer",
+            "maximum": 60000.0,
+            "minimum": 0.0,
+            "title": "Gs Densify Until Iter",
+            "default": 7000
+          },
+          "gs_resolution": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": -1.0,
+            "title": "Gs Resolution",
+            "default": -1
+          },
+          "gs_opacity_reset_interval": {
+            "type": "integer",
+            "maximum": 60000.0,
+            "minimum": 100.0,
+            "title": "Gs Opacity Reset Interval",
+            "default": 3000
+          },
+          "gs_allow_cpu_fallback": {
+            "type": "boolean",
+            "title": "Gs Allow Cpu Fallback",
+            "default": true
+          },
+          "gs_cpu_max_points": {
+            "type": "integer",
+            "maximum": 2000000.0,
+            "minimum": 1000.0,
+            "title": "Gs Cpu Max Points",
+            "default": 250000
+          },
+          "gs_train_with_original_images": {
+            "type": "boolean",
+            "title": "Gs Train With Original Images",
+            "default": true
+          },
+          "meshing_method": {
+            "type": "string",
+            "enum": [
+              "poisson",
+              "bpa"
+            ],
+            "title": "Meshing Method",
+            "default": "poisson"
+          },
+          "output_dir_name": {
+            "type": "string",
+            "title": "Output Dir Name",
+            "default": "output"
+          },
+          "masked_dir_name": {
+            "type": "string",
+            "title": "Masked Dir Name",
+            "default": "masked"
+          },
+          "masks_dir_name": {
+            "type": "string",
+            "title": "Masks Dir Name",
+            "default": "masks"
+          },
+          "save_raw_masks": {
+            "type": "boolean",
+            "title": "Save Raw Masks",
+            "default": true
+          },
+          "nb_neighbors": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Nb Neighbors",
+            "default": 26
+          },
+          "std_ratio": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Std Ratio",
+            "default": 2.0
+          },
+          "poisson_depth": {
+            "type": "integer",
+            "maximum": 14.0,
+            "minimum": 4.0,
+            "title": "Poisson Depth",
+            "default": 10
+          },
+          "poisson_density_quantile": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Poisson Density Quantile",
+            "default": 0.02
+          },
+          "decimation_target_triangles": {
+            "type": "integer",
+            "minimum": 1000.0,
+            "title": "Decimation Target Triangles",
+            "default": 520000
+          },
+          "mesh_photo_vertex_bake": {
+            "type": "boolean",
+            "title": "Mesh Photo Vertex Bake",
+            "default": true
+          },
+          "mesh_photo_vertex_bake_sample_source": {
+            "type": "string",
+            "enum": [
+              "masked",
+              "original"
+            ],
+            "title": "Mesh Photo Vertex Bake Sample Source",
+            "default": "original"
+          },
+          "texture_surface_abstraction_enabled": {
+            "type": "boolean",
+            "title": "Texture Surface Abstraction Enabled",
+            "default": false
+          },
+          "texture_surface_abstraction_strength": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Texture Surface Abstraction Strength",
+            "default": 0.42
+          },
+          "texture_surface_detail_preserve": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Texture Surface Detail Preserve",
+            "default": 0.7
+          },
+          "texture_surface_illumination_blur": {
+            "type": "integer",
+            "maximum": 301.0,
+            "minimum": 9.0,
+            "title": "Texture Surface Illumination Blur",
+            "default": 41
+          },
+          "surface_region_texture_enabled": {
+            "type": "boolean",
+            "title": "Surface Region Texture Enabled",
+            "default": false
+          },
+          "surface_region_smooth_percentile": {
+            "type": "number",
+            "maximum": 98.0,
+            "minimum": 50.0,
+            "title": "Surface Region Smooth Percentile",
+            "default": 85.0
+          },
+          "surface_region_min_area_ratio": {
+            "type": "number",
+            "maximum": 0.25,
+            "minimum": 0.02,
+            "title": "Surface Region Min Area Ratio",
+            "default": 0.08
+          },
+          "surface_region_expand_px": {
+            "type": "integer",
+            "maximum": 32.0,
+            "minimum": 0.0,
+            "title": "Surface Region Expand Px",
+            "default": 8
+          },
+          "region_projection_blend_weight": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.2,
+            "title": "Region Projection Blend Weight",
+            "default": 0.65
+          },
+          "region_projection_min_confidence": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.3,
+            "title": "Region Projection Min Confidence",
+            "default": 0.6
+          },
+          "region_projection_seam_smoothing": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Region Projection Seam Smoothing",
+            "default": 0.55
+          },
+          "mesh_glb_draco_compression": {
+            "type": "boolean",
+            "title": "Mesh Glb Draco Compression",
+            "default": true
+          },
+          "cdn_base_url": {
+            "type": "string",
+            "title": "Cdn Base Url",
+            "default": "http://127.0.0.1:8000/output"
+          },
+          "max_images": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 2.0,
+            "title": "Max Images",
+            "default": 100
+          },
+          "max_input_image_side": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 256.0,
+            "title": "Max Input Image Side",
+            "default": 1920
+          },
+          "max_image_side": {
+            "type": "integer",
+            "maximum": 8192.0,
+            "minimum": 128.0,
+            "title": "Max Image Side",
+            "default": 1024
+          },
+          "allow_placeholder_pipeline": {
+            "type": "boolean",
+            "title": "Allow Placeholder Pipeline",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "RuntimeSettings"
+      },
+      "TryOnEarOffsets": {
+        "properties": {
+          "vertical": {
+            "type": "number",
+            "title": "Vertical",
+            "description": "Fine-tune vertical placement on face.",
+            "default": 0.0
+          },
+          "depth": {
+            "type": "number",
+            "title": "Depth",
+            "description": "Fine-tune depth placement on face.",
+            "default": 0.0
+          },
+          "lateral": {
+            "type": "number",
+            "title": "Lateral",
+            "description": "Fine-tune lateral placement on face.",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "TryOnEarOffsets"
+      },
+      "TryOnJewelryRotation": {
+        "properties": {
+          "spin_deg": {
+            "type": "number",
+            "title": "Spin Deg",
+            "description": "Yaw around hanger, degrees [-180, 180].",
+            "default": 0.0
+          },
+          "pitch_deg": {
+            "type": "number",
+            "title": "Pitch Deg",
+            "description": "Pitch, degrees [-75, 75].",
+            "default": 0.0
+          },
+          "roll_deg": {
+            "type": "number",
+            "title": "Roll Deg",
+            "description": "Roll, degrees [-180, 180].",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "TryOnJewelryRotation"
+      },
+      "TryOnSideLateralNudge": {
+        "properties": {
+          "left": {
+            "type": "number",
+            "title": "Left",
+            "description": "Per-ear lateral nudge (left ear).",
+            "default": 0.0
+          },
+          "right": {
+            "type": "number",
+            "title": "Right",
+            "description": "Per-ear lateral nudge (right ear).",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "TryOnSideLateralNudge"
+      },
+      "UserTryOnCalibration": {
+        "properties": {
+          "left_offset": {
+            "$ref": "#/components/schemas/TryOnEarOffsets"
+          },
+          "right_offset": {
+            "$ref": "#/components/schemas/TryOnEarOffsets"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "left_offset",
+          "right_offset",
+          "updated_at"
+        ],
+        "title": "UserTryOnCalibration"
+      },
+      "UserTryOnCalibrationPut": {
+        "properties": {
+          "left_offset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnEarOffsets"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "right_offset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TryOnEarOffsets"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "UserTryOnCalibrationPut"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WorkerFailBody": {
+        "properties": {
+          "error": {
+            "type": "string",
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "WorkerFailBody"
+      },
+      "WorkerProgressBody": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "default": "processing"
+          },
+          "progress": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "WorkerProgressBody"
+      }
+    }
+  }
+}

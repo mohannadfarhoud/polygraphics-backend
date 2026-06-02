@@ -42,6 +42,7 @@ from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_imag
 from .settings_guide import settings_deployment_guide
 from .server_status import collect_server_status
 from .web_capture_contract import build_web_capture_contract
+from .try_on_api import init_try_on_api, router as try_on_router
 from .worker_hub import WorkerHub, init_hub
 
 # Resolve project root reliably when running as a Windows service (CWD may be
@@ -492,6 +493,9 @@ job_manager = JobManager(
     build_pipeline=_build_pipeline_for_job,
     notifier=None,
 )
+
+init_try_on_api(job_manager=job_manager, settings_store=settings_store, root_dir=ROOT_DIR)
+app.include_router(try_on_router)
 
 
 def _assert_upload_allowed(job_id: str) -> None:
