@@ -366,6 +366,113 @@
         }
       }
     },
+    "/try-on/photo-compose": {
+      "post": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Post Photo Compose",
+        "operationId": "post_photo_compose_try_on_photo_compose_post",
+        "parameters": [
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_photo_compose_try_on_photo_compose_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Compose job accepted; poll GET by compose_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoComposeResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Synchronous completion (rare)"
+          },
+          "503": {
+            "description": "AI provider not configured"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/try-on/photo-compose/{compose_id}": {
+      "get": {
+        "tags": [
+          "try-on"
+        ],
+        "summary": "Get Photo Compose",
+        "operationId": "get_photo_compose_try_on_photo_compose__compose_id__get",
+        "parameters": [
+          {
+            "name": "compose_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Compose Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoComposeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -1830,6 +1937,71 @@
         ],
         "title": "Body_internal_worker_masked_views_internal_worker_jobs__job_id__masked_views_post"
       },
+      "Body_post_photo_compose_try_on_photo_compose_post": {
+        "properties": {
+          "face_image": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Face Image",
+            "description": "Side/profile face photo (JPEG or PNG)"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id",
+            "description": "Gallery earring model id"
+          },
+          "placement_x": {
+            "type": "number",
+            "title": "Placement X",
+            "description": "Normalized X in native image (0=left, 1=right)"
+          },
+          "placement_y": {
+            "type": "number",
+            "title": "Placement Y",
+            "description": "Normalized Y in native image (0=top, 1=bottom)"
+          },
+          "image_width": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Image Width",
+            "description": "Native pixel width of face_image"
+          },
+          "image_height": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Image Height",
+            "description": "Native pixel height of face_image"
+          },
+          "placement_side": {
+            "type": "string",
+            "title": "Placement Side",
+            "description": "left | right | auto",
+            "default": "auto"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt",
+            "description": "Optional extra instruction (max 2000 chars)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "face_image",
+          "job_id",
+          "placement_x",
+          "placement_y",
+          "image_width",
+          "image_height"
+        ],
+        "title": "Body_post_photo_compose_try_on_photo_compose_post"
+      },
       "Body_reconstruct_from_video_jobs_video_reconstruct_post": {
         "properties": {
           "video": {
@@ -2656,6 +2828,77 @@
         "type": "object",
         "title": "ModelTryOnConfigPut",
         "description": "Upsert body. Omitted fields are merged with the existing row on PUT."
+      },
+      "PhotoComposeResponse": {
+        "properties": {
+          "compose_id": {
+            "type": "string",
+            "title": "Compose Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PhotoComposeStatus"
+          },
+          "result_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Url"
+          },
+          "result_image_base64": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Image Base64"
+          },
+          "revised_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revised Prompt"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "compose_id",
+          "status"
+        ],
+        "title": "PhotoComposeResponse"
+      },
+      "PhotoComposeStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "processing",
+          "completed",
+          "failed"
+        ],
+        "title": "PhotoComposeStatus"
       },
       "RuntimeSettings": {
         "properties": {

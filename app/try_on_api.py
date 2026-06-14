@@ -1,4 +1,4 @@
-"""REST routes for per-model virtual try-on configuration."""
+"""REST routes for per-model virtual try-on configuration and photo compose."""
 
 from __future__ import annotations
 
@@ -6,9 +6,12 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 
 from .job_manager import JobManager
+from .photo_compose_models import PhotoComposeResponse
+from .photo_compose_service import PhotoComposeService
 from .runtime_settings import RuntimeSettings, SettingsStore
 from .try_on_config import (
     HangerPointBody,
@@ -23,9 +26,11 @@ from .try_on_config import (
 router = APIRouter(tags=["try-on"])
 
 _store: TryOnConfigStore | None = None
+_compose_service: PhotoComposeService | None = None
 _job_manager: JobManager | None = None
 _settings_store: SettingsStore | None = None
 _root_dir: Path | None = None
+_uploads_dir: Path | None = None
 
 
 def init_try_on_api(
@@ -33,18 +38,36 @@ def init_try_on_api(
     job_manager: JobManager,
     settings_store: SettingsStore,
     root_dir: Path,
+    uploads_dir: Path,
 ) -> None:
-    global _store, _job_manager, _settings_store, _root_dir
+    global _store, _compose_service, _job_manager, _settings_store, _root_dir, _uploads_dir
     _job_manager = job_manager
     _settings_store = settings_store
     _root_dir = root_dir
+    _uploads_dir = uploads_dir
     _store = TryOnConfigStore(job_manager.db_path)
+    _compose_service = PhotoComposeService(
+        db_path=job_manager.db_path,
+        root_dir=root_dir,
+        job_manager=job_manager,
+        settings_store=settings_store,
+        uploads_dir=uploads_dir,
+    )
 
 
 def get_try_on_store() -> TryOnConfigStore:
     if _store is None:
         raise RuntimeError("try_on_api not initialized")
     return _store
+
+
+def get_photo_compose_service() -> PhotoComposeService:
+    if _compose_service is None:
+        raise RuntimeError("try_on_api not initialized")
+    return _compose_service
+
+
+_FACE_MIME = frozenset({"image/jpeg", "image/jpg", "image/png"})
 
 
 def _output_dir() -> Path:
@@ -181,3 +204,91 @@ def put_user_try_on_calibration(
             detail="X-User-Id header is required for user try-on calibration.",
         )
     return get_try_on_store().upsert_user_calibration(user_id, body)
+
+
+@router.post(
+    "/try-on/photo-compose",
+    response_model=PhotoComposeResponse,
+    status_code=202,
+    responses={
+        200: {"description": "Synchronous completion (rare)"},
+        202: {"description": "Compose job accepted; poll GET by compose_id"},
+        503: {"description": "AI provider not configured"},
+    },
+)
+async def post_photo_compose(
+    face_image: UploadFile = File(..., description="Side/profile face photo (JPEG or PNG)"),
+    job_id: str = Form(..., description="Gallery earring model id"),
+    placement_x: float = Form(..., description="Normalized X in native image (0=left, 1=right)"),
+    placement_y: float = Form(..., description="Normalized Y in native image (0=top, 1=bottom)"),
+    image_width: int = Form(..., gt=0, description="Native pixel width of face_image"),
+    image_height: int = Form(..., gt=0, description="Native pixel height of face_image"),
+    placement_side: str = Form(default="auto", description="left | right | auto"),
+    prompt: str | None = Form(default=None, description="Optional extra instruction (max 2000 chars)"),
+    user_id: str | None = Depends(_optional_user_id),
+) -> JSONResponse:
+    if not (0.0 <= placement_x <= 1.0):
+        raise HTTPException(status_code=400, detail="placement_x must be between 0 and 1")
+    if not (0.0 <= placement_y <= 1.0):
+        raise HTTPException(status_code=400, detail="placement_y must be between 0 and 1")
+    side = (placement_side or "auto").strip().lower()
+    if side not in ("left", "right", "auto"):
+        raise HTTPException(status_code=400, detail="placement_side must be left, right, or auto")
+    if prompt is not None and len(prompt) > 2000:
+        raise HTTPException(status_code=400, detail="prompt must be at most 2000 characters")
+
+    mime = (face_image.content_type or "").split(";")[0].strip().lower()
+    if mime and mime not in _FACE_MIME:
+        raise HTTPException(status_code=400, detail="face_image must be JPEG or PNG")
+
+    svc = get_photo_compose_service()
+    max_bytes = svc.max_upload_bytes()
+    raw = await face_image.read()
+    if len(raw) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"face_image exceeds {max_bytes // (1024 * 1024)} MB limit")
+    if not raw:
+        raise HTTPException(status_code=400, detail="face_image is empty")
+
+    gemini_ok = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    dev_mock = os.getenv("PHOTO_COMPOSE_DEV_MOCK", "").strip().lower() in ("1", "true", "yes")
+    if not gemini_ok and not dev_mock:
+        raise HTTPException(
+            status_code=503,
+            detail="Photo compose AI is not configured (set GEMINI_API_KEY on the API server)",
+        )
+
+    try:
+        svc.assert_model_exists(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+
+    try:
+        svc.resolve_model_image_url(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    try:
+        resp = svc.create_compose_job(
+            job_id=job_id,
+            face_bytes=raw,
+            face_filename=face_image.filename or "face.jpg",
+            placement_x=placement_x,
+            placement_y=placement_y,
+            image_width=image_width,
+            image_height=image_height,
+            placement_side=side,
+            user_prompt=prompt,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from None
+
+    return JSONResponse(status_code=202, content=resp.model_dump(mode="json"))
+
+
+@router.get("/try-on/photo-compose/{compose_id}", response_model=PhotoComposeResponse)
+def get_photo_compose(compose_id: str) -> PhotoComposeResponse:
+    resp = get_photo_compose_service().get_compose(compose_id)
+    if resp is None:
+        raise HTTPException(status_code=404, detail="Compose job not found")
+    return resp

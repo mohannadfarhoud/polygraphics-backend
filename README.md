@@ -578,6 +578,25 @@ Optional access control: send **`X-User-Id`** on writes; the first writer become
 
 OpenAPI: live at **`GET /openapi.json`** (and under `APP_ROOT_PATH` if set). Regenerate committed copy: `python scripts/export_openapi.py` → `openapi.json`.
 
+### Photo try-on compose (AI)
+
+Static **photorealistic** earring placement on a user-uploaded face photo (frontend `/photo-try-on`). Uses an image-editing model (default **Gemini 2.5 Flash Image**).
+
+| Method | Path | Notes |
+|--------|------|--------|
+| `POST` | `/try-on/photo-compose` | Multipart: `face_image`, `job_id`, `placement_x/y`, `image_width/height`; returns **202** + `compose_id` |
+| `GET` | `/try-on/photo-compose/{compose_id}` | Poll until `status` is `completed` or `failed` |
+
+**Setup (API host):**
+
+```bash
+pip install -r requirements-photo-compose.txt
+```
+
+Env: `GEMINI_API_KEY`, optional `PHOTO_COMPOSE_MODEL`, `PHOTO_COMPOSE_MAX_MB`, `PHOTO_COMPOSE_UPLOAD_DIR`. For local dev without Gemini: `PHOTO_COMPOSE_DEV_MOCK=1` (copies marked face as result).
+
+Model `job_id` must have a product thumbnail (`image_url` from `GET /models` — first `input_*` under `uploads/{job_id}/`). Result: `result_url` under `/uploads/photo-compose/{compose_id}/result.jpg`.
+
 ## Integration points
 
 - To use PostgreSQL/MySQL later, replace the `jobs_db` module (same `JobManager` API) or add a SQLAlchemy layer.

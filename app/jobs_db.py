@@ -52,6 +52,9 @@ def init_and_migrate(db_path: Path, root_dir: Path) -> None:
         _ensure_columns(conn)
         conn.commit()
     try_on_db.init_schema(db_path)
+    from . import photo_compose_db
+
+    photo_compose_db.init_schema(db_path)
 
     json_path = root_dir / "config" / "jobs.json"
     if not json_path.is_file():

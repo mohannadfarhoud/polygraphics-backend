@@ -494,7 +494,12 @@ job_manager = JobManager(
     notifier=None,
 )
 
-init_try_on_api(job_manager=job_manager, settings_store=settings_store, root_dir=ROOT_DIR)
+init_try_on_api(
+    job_manager=job_manager,
+    settings_store=settings_store,
+    root_dir=ROOT_DIR,
+    uploads_dir=UPLOAD_DIR,
+)
 app.include_router(try_on_router)
 
 
