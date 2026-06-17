@@ -14,20 +14,9 @@ def settings_deployment_guide() -> dict[str, Any]:
             "worker_env": None,
             "notes": (
                 "`auto` (recommended default): selects backend by image count automatically — "
-                "TripoSR for 1–auto_backend_triposr_max_images images, DUSt3R for a few more, MapAnything for many. "
+                "InstantMesh for 1 image (when configured), DUSt3R for a few views, MapAnything for many. "
                 "Manual options: mapanything (.glb), dust3r (.glb), colmap (.glb), ai_prior (.glb), "
                 "hybrid_prior_refine (.glb); gaussian_splatting (.ply) for splats."
-            ),
-        },
-        {
-            "key": "auto_backend_triposr_max_images",
-            "scope": "both",
-            "worker_env": None,
-            "notes": (
-                "Only when reconstruction_backend=auto: use TripoSR (single-image AI) when "
-                "image count is at most this value (default 3). One image always routes to "
-                "TripoSR/InstantMesh regardless of this threshold. Set 0 to skip TripoSR for "
-                "2+ image jobs (those fall through to DUSt3R/MapAnything)."
             ),
         },
         {
@@ -35,8 +24,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": (
-                "Only when reconstruction_backend=auto: use DUSt3R when image count is above "
-                "auto_backend_triposr_max_images and at most this value. Default 15. "
+                "Only when reconstruction_backend=auto: use DUSt3R when image count is at least 2 and at most this value. Default 15. "
                 "Above this threshold MapAnything is used. Set 0 to skip DUSt3R."
             ),
         },
@@ -184,8 +172,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "worker_env": None,
             "notes": (
                 "When true: jobs that include a video file (POST /jobs/video or video in uploads) "
-                "extract frames with FFmpeg before reconstruction. Image-only jobs are unaffected — "
-                "a single photo still routes to TripoSR without requiring a video."
+                "extract frames with FFmpeg before reconstruction. Image-only jobs are unaffected."
             ),
         },
         {
@@ -234,7 +221,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "ai_prior_provider",
             "scope": "both",
             "worker_env": None,
-            "notes": "AI prior provider adapter (`command`, `triposr_local`, `instantmesh_local`, or `mock`). `command` runs external executable/script; `triposr_local` runs local TripoSR; `instantmesh_local` runs local InstantMesh.",
+            "notes": "AI prior provider adapter (`command`, `instantmesh_local`, or `mock`). `command` runs external executable/script; `instantmesh_local` runs local InstantMesh for single-image jobs.",
         },
         {
             "key": "ai_prior_command",
@@ -282,73 +269,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "ai_prior_force_prior_only",
             "scope": "both",
             "worker_env": None,
-            "notes": "When true: skip confidence-based fail/hybrid routing and keep prior-only route (simple Tripo-first flow). Also enables 1-image minimum when ai_prior_provider=command (for single-image cloud generators like Tripo API).",
-        },
-        {
-            "key": "ai_prior_triposr_repo_path",
-            "scope": "stored_on_api",
-            "worker_env": "POLYGRAPH_OVERRIDE_TRIPOSR_REPO",
-            "notes": (
-                "Required when ai_prior_provider=triposr_local: local path to TripoSR repository on the worker. "
-                "TripoSR mode skips SAM/background removal — the original photo is passed directly to TripoSR."
-            ),
-        },
-        {
-            "key": "ai_prior_triposr_python_executable",
-            "scope": "stored_on_api",
-            "worker_env": "POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON",
-            "notes": "Optional Python executable for TripoSR local provider. Defaults to current worker Python.",
-        },
-        {
-            "key": "ai_prior_triposr_entry_script",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "Entry script relative to ai_prior_triposr_repo_path (default run.py).",
-        },
-        {
-            "key": "ai_prior_triposr_args_template",
-            "scope": "both",
-            "worker_env": None,
-            "notes": (
-                "CLI argument template for TripoSR local provider. Tokens: {job_id}, {input_image}, "
-                "{output_dir}, {output_mesh}, {repo_path}. "
-                "Texture flags (--bake-texture, --texture-resolution, --mc-resolution) are appended "
-                "automatically from triposr_bake_texture / triposr_texture_resolution / triposr_mc_resolution "
-                "unless already present in the template."
-            ),
-        },
-        {
-            "key": "triposr_bake_texture",
-            "scope": "both",
-            "worker_env": None,
-            "notes": (
-                "When true (default): TripoSR runs with --bake-texture to produce a UV texture atlas "
-                "instead of blurry vertex colors. Much better realism in GLB viewers."
-            ),
-        },
-        {
-            "key": "triposr_texture_resolution",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "UV atlas size in pixels when triposr_bake_texture=true. Default 2048; use 4096 for sharper detail (more VRAM/time).",
-        },
-        {
-            "key": "triposr_mc_resolution",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "TripoSR marching-cubes grid resolution (--mc-resolution). Default 256. Higher = denser mesh, more VRAM.",
-        },
-        {
-            "key": "triposr_bake_texture_fallback",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "When true (default): if --bake-texture fails, retry once with vertex colors so the job still completes.",
-        },
-        {
-            "key": "triposr_chunk_size",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "TripoSR --chunk-size (default 8192). Lower (e.g. 4096) if texture bake runs out of VRAM on 8GB GPUs.",
+            "notes": "When true: skip confidence-based fail/hybrid routing and keep prior-only route.",
         },
         {
             "key": "ai_prior_instantmesh_repo_path",
@@ -820,8 +741,6 @@ def settings_deployment_guide() -> dict[str, Any]:
             {"name": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL", "purpose": "Optional override for mapanything_pretrained_id (HF id)."},
             {"name": "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT", "purpose": "Optional worker-local override for dust3r_checkpoint_path."},
             {"name": "POLYGRAPH_OVERRIDE_AI_PRIOR_COMMAND", "purpose": "Optional worker-local override for ai_prior_command."},
-            {"name": "POLYGRAPH_OVERRIDE_TRIPOSR_REPO", "purpose": "Optional worker-local override for ai_prior_triposr_repo_path."},
-            {"name": "POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON", "purpose": "Optional worker-local override for ai_prior_triposr_python_executable."},
             {"name": "POLYGRAPH_OVERRIDE_INSTANTMESH_REPO", "purpose": "Optional worker-local override for ai_prior_instantmesh_repo_path."},
             {"name": "POLYGRAPH_OVERRIDE_INSTANTMESH_PYTHON", "purpose": "Optional worker-local override for ai_prior_instantmesh_python_executable."},
             {"name": "POLYGRAPH_OVERRIDE_FFMPEG_BINARY", "purpose": "Optional worker-local override for video_ffmpeg_binary path."},

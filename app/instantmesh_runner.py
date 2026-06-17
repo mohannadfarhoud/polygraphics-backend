@@ -1,7 +1,6 @@
 """InstantMesh local provider for single-image 3D reconstruction.
 
-Works the same way as the TripoSR provider in ai_prior_runner.py:
-runs the InstantMesh repo's entry script as a subprocess so it operates
+Runs the InstantMesh repo's entry script as a subprocess so it operates
 in its own Python environment with its own dependencies.
 """
 
@@ -108,7 +107,7 @@ def _prepare_clean_input(
 ) -> Path:
     """Background-remove, bbox-crop, center on square canvas, resize to target_size.
 
-    Reuses the same logic as the TripoSR input preparer.
+    Reuses the same logic as the single-image AI input preparer.
     """
     try:
         import cv2

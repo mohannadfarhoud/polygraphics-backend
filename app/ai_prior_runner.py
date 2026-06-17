@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import open3d as o3d
 
-from .meshing import export_glb, find_triposr_textured_assets
+from .meshing import export_glb
 from .runtime_settings import RuntimeSettings
 
 
@@ -63,133 +63,12 @@ def _ensure_python_executable(raw_path: str | None) -> Path:
         found = shutil.which(raw)
         if found:
             return Path(found)
-        raise RuntimeError(f"TripoSR python executable not found: {raw}")
+        raise RuntimeError(f"Python executable not found: {raw}")
     return Path(sys.executable)
 
 
-def _triposr_extra_cli_args(
-    settings: RuntimeSettings,
-    args_joined: str,
-    *,
-    bake_texture: bool | None = None,
-) -> list[str]:
-    """Append TripoSR texture/quality flags unless already present in the template."""
-    extra: list[str] = []
-    joined = args_joined.lower()
-    use_bake = (
-        bool(getattr(settings, "triposr_bake_texture", True))
-        if bake_texture is None
-        else bake_texture
-    )
-    if use_bake and "--bake-texture" not in joined:
-        extra.append("--bake-texture")
-        if "--texture-resolution" not in joined:
-            res = int(getattr(settings, "triposr_texture_resolution", 2048))
-            extra.extend(["--texture-resolution", str(res)])
-        if "--model-save-format" not in joined:
-            extra.extend(["--model-save-format", "obj"])
-    if "--mc-resolution" not in joined:
-        mc = int(getattr(settings, "triposr_mc_resolution", 256))
-        extra.extend(["--mc-resolution", str(mc)])
-    if "--chunk-size" not in joined:
-        chunk = int(getattr(settings, "triposr_chunk_size", 8192))
-        extra.extend(["--chunk-size", str(chunk)])
-    if "--device" not in joined:
-        extra.extend(["--device", "cuda:0"])
-    return extra
-
-
-def _resolve_triposr_entry_script(settings: RuntimeSettings, repo: Path) -> Path:
-    """TripoSR entry script; use bake-fix wrapper when texture atlas is enabled."""
-    entry_raw = str(getattr(settings, "ai_prior_triposr_entry_script", "run.py")).strip() or "run.py"
-    use_wrapper = bool(getattr(settings, "triposr_bake_texture", True)) and entry_raw.replace("\\", "/").endswith(
-        ("run.py", "triposr_run_wrapper.py")
-    )
-    if use_wrapper:
-        wrapper = Path(__file__).resolve().parent.parent / "scripts" / "triposr_run_wrapper.py"
-        if wrapper.is_file():
-            return wrapper
-    entry = Path(entry_raw)
-    if not entry.is_absolute():
-        entry = repo / entry
-    return entry
-
-
-def _run_triposr_subprocess(
-    *,
-    cmd: list[str],
-    repo: Path,
-    env: dict[str, str],
-    timeout_s: int,
-) -> subprocess.CompletedProcess[str]:
-    env = dict(env)
-    env["TRIPOSR_REPO"] = str(repo)
-    env["PYTHONPATH"] = str(repo) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=max(30, timeout_s),
-        check=False,
-        cwd=str(repo),
-        env=env,
-    )
-
-
-def _score_triposr_original(original_path: Path) -> float:
-    """Quality score for selecting the best TripoSR input without a segmentation mask.
-
-    Weights: 0.5 sharpness + 0.3 center saliency + 0.2 exposure.
-    TripoSR expects the main object near the image center — no SAM mask required.
-    """
-    try:
-        import cv2
-    except Exception:
-        return 0.0
-
-    src = cv2.imread(str(original_path), cv2.IMREAD_COLOR)
-    if src is None or src.size == 0:
-        return 0.0
-
-    h, w = src.shape[:2]
-    gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY)
-
-    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
-    sharpness = min(1.0, lap_var / 500.0)
-
-    mean_luma = float(gray.mean())
-    exposure_score = max(0.0, 1.0 - abs(mean_luma - 128.0) / 128.0)
-
-    # Center-weighted edge energy as a proxy for "object in the middle".
-    margin_x = int(w * 0.2)
-    margin_y = int(h * 0.2)
-    center = gray[margin_y : h - margin_y, margin_x : w - margin_x]
-    if center.size == 0:
-        center_alignment = 0.5
-    else:
-        center_lap = float(cv2.Laplacian(center, cv2.CV_64F).var())
-        full_lap = max(lap_var, 1.0)
-        center_alignment = min(1.0, center_lap / full_lap)
-
-    return 0.5 * sharpness + 0.3 * center_alignment + 0.2 * exposure_score
-
-
-def _pick_best_triposr_original(original_images: list[Path]) -> Path:
-    """Return the best original frame for TripoSR (no mask / isolation step)."""
-    if not original_images:
-        raise RuntimeError("TripoSR local provider needs at least one input image.")
-    best = original_images[0]
-    best_score = -1.0
-    for path in original_images:
-        score = _score_triposr_original(path)
-        if score > best_score:
-            best_score = score
-            best = path
-    return best
-
-
-def _score_triposr_candidate(masked_path: Path, original_path: Path) -> float:
-    """Combined quality score for selecting the best TripoSR input frame.
+def _score_single_image_candidate(masked_path: Path, original_path: Path) -> float:
+    """Combined quality score for selecting the best single-image AI input frame.
 
     Weights: 0.4 sharpness + 0.3 object_size + 0.2 center_alignment + 0.1 exposure.
     """
@@ -239,13 +118,13 @@ def _score_triposr_candidate(masked_path: Path, original_path: Path) -> float:
     )
 
 
-def _pick_best_triposr_pair(
+def pick_best_single_image_pair(
     masked_images: list[Path],
     original_images: list[Path] | None,
 ) -> tuple[Path, Path]:
     """Return (best_masked, best_original) using combined quality score."""
     if not masked_images:
-        raise RuntimeError("TripoSR local provider needs at least one masked image.")
+        raise RuntimeError("Single-image AI provider needs at least one masked image.")
     originals: list[Path] = (
         original_images
         if (original_images and len(original_images) == len(masked_images))
@@ -255,144 +134,12 @@ def _pick_best_triposr_pair(
     best_original = originals[0]
     best_score = -1.0
     for masked, original in zip(masked_images, originals):
-        score = _score_triposr_candidate(masked, original)
+        score = _score_single_image_candidate(masked, original)
         if score > best_score:
             best_score = score
             best_masked = masked
             best_original = original
     return best_masked, best_original
-
-
-def _prepare_clean_triposr_input(
-    *,
-    original_path: Path,
-    masked_path: Path,
-    output_dir: Path,
-    debug_dir: Path | None = None,
-    target_size: int = 512,
-    margin_ratio: float = 0.15,
-) -> Path:
-    """Produce a clean TripoSR input image from the original + segmentation mask.
-
-    Pipeline:
-      1. Remove background (replace with white using mask).
-      2. Compute foreground bounding box + add margin_ratio padding.
-      3. Center cropped region on a square white canvas.
-      4. Resize to target_size × target_size.
-      5. Save debug artifacts (selected_image.jpg, segmented_image.png, triposr_input.png).
-    """
-    try:
-        import cv2
-    except Exception:
-        return masked_path
-
-    src = cv2.imread(str(original_path), cv2.IMREAD_COLOR)
-    msk = cv2.imread(str(masked_path), cv2.IMREAD_COLOR)
-    if src is None or src.size == 0 or msk is None or msk.size == 0:
-        return masked_path
-
-    # Align mask resolution to source
-    if src.shape[:2] != msk.shape[:2]:
-        msk = cv2.resize(msk, (src.shape[1], src.shape[0]), interpolation=cv2.INTER_NEAREST)
-
-    h, w = src.shape[:2]
-    fg_mask = np.any(msk > 8, axis=2)  # True = foreground
-
-    # Save debug: selected_image.jpg, segmented_image.png
-    if debug_dir is not None:
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            cv2.imwrite(str(debug_dir / "selected_image.jpg"), src, [cv2.IMWRITE_JPEG_QUALITY, 90])
-        except Exception:
-            pass
-        try:
-            cv2.imwrite(str(debug_dir / "segmented_image.png"), msk)
-        except Exception:
-            pass
-
-    # --- Background removal: white fill ---
-    clean = src.copy()
-    clean[~fg_mask] = [255, 255, 255]
-
-    # --- Bounding box from mask ---
-    ys, xs = np.where(fg_mask)
-    if len(ys) == 0:
-        return masked_path
-
-    x0, y0 = int(xs.min()), int(ys.min())
-    x1, y1 = int(xs.max()), int(ys.max())
-    obj_w = x1 - x0 + 1
-    obj_h = y1 - y0 + 1
-
-    # Add margin (10–20% each side)
-    mx = max(4, int(obj_w * margin_ratio))
-    my = max(4, int(obj_h * margin_ratio))
-    x0 = max(0, x0 - mx)
-    y0 = max(0, y0 - my)
-    x1 = min(w - 1, x1 + mx)
-    y1 = min(h - 1, y1 + my)
-
-    crop = clean[y0:y1 + 1, x0:x1 + 1]
-    if crop.size == 0 or crop.shape[0] < 8 or crop.shape[1] < 8:
-        return masked_path
-
-    # --- Center on square white canvas ---
-    ch, cw = crop.shape[:2]
-    canvas_side = max(ch, cw)
-    canvas = np.full((canvas_side, canvas_side, 3), 255, dtype=np.uint8)
-    off_y = (canvas_side - ch) // 2
-    off_x = (canvas_side - cw) // 2
-    canvas[off_y:off_y + ch, off_x:off_x + cw] = crop
-
-    # --- Resize to target_size ---
-    result = cv2.resize(canvas, (target_size, target_size), interpolation=cv2.INTER_AREA)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / "triposr_input.png"
-    ok = cv2.imwrite(str(out_path), result)
-
-    if not ok:
-        return masked_path
-
-    # Save debug: triposr_input.png
-    if debug_dir is not None:
-        try:
-            cv2.imwrite(str(debug_dir / "triposr_input.png"), result)
-        except Exception:
-            pass
-
-    return out_path
-
-
-def _prepare_passthrough_triposr_input(
-    *,
-    original_path: Path,
-    output_dir: Path,
-    debug_dir: Path | None = None,
-) -> Path:
-    """Pass the original photo to TripoSR unchanged — TripoSR handles object isolation."""
-    import shutil
-
-    if not original_path.is_file():
-        raise RuntimeError(f"TripoSR input image not found: {original_path}")
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    suffix = original_path.suffix.lower() if original_path.suffix else ".jpg"
-    out_path = output_dir / f"triposr_input{suffix}"
-    shutil.copy2(original_path, out_path)
-
-    if debug_dir is not None:
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            shutil.copy2(original_path, debug_dir / "selected_image.jpg")
-        except Exception:
-            pass
-        try:
-            shutil.copy2(out_path, debug_dir / "triposr_input.png")
-        except Exception:
-            pass
-
-    return out_path
 
 
 def _write_manifest(masked_images: list[Path], manifest_path: Path) -> None:
@@ -559,124 +306,10 @@ def run_ai_prior_mesh(
             },
         )
 
-    if provider == "triposr_local":
-        repo_raw = str(getattr(settings, "ai_prior_triposr_repo_path", "")).strip()
-        if not repo_raw:
-            raise RuntimeError(
-                "ai_prior_provider='triposr_local' requires ai_prior_triposr_repo_path "
-                "to point to a local TripoSR repository on the worker."
-            )
-        repo = Path(repo_raw)
-        if not repo.is_dir():
-            raise RuntimeError(f"TripoSR repo path does not exist: {repo}")
-
-        entry_raw = str(getattr(settings, "ai_prior_triposr_entry_script", "run.py")).strip() or "run.py"
-        entry = _resolve_triposr_entry_script(settings, repo)
-        if not entry.is_file():
-            raise RuntimeError(f"TripoSR entry script not found: {entry}")
-
-        py = _ensure_python_executable(getattr(settings, "ai_prior_triposr_python_executable", None))
-
-        originals = original_images if original_images else masked_images
-        best_original = _pick_best_triposr_original(originals)
-
-        output_dir = work_dir / "triposr_output"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        triposr_inputs_dir = work_dir / "triposr_inputs"
-        debug_dir = work_dir / "triposr_debug"
-
-        # Full original photo — TripoSR isolates the central object internally.
-        command_input_image = _prepare_passthrough_triposr_input(
-            original_path=best_original,
-            output_dir=triposr_inputs_dir,
-            debug_dir=debug_dir,
-        )
-        args_template = (
-            str(getattr(settings, "ai_prior_triposr_args_template", "")).strip()
-            or "{input_image} --output-dir {output_dir}"
-        )
-        args = args_template.format(
-            job_id=job_id,
-            input_image=str(command_input_image),
-            output_dir=str(output_dir),
-            output_mesh=str(out_mesh),
-            repo_path=str(repo),
-        )
-        env = os.environ.copy()
-        texture_fallback = False
-        bake_attempt = bool(getattr(settings, "triposr_bake_texture", True))
-        extra_args = _triposr_extra_cli_args(settings, args, bake_texture=bake_attempt)
-        cmd = [str(py), str(entry)] + shlex.split(args, posix=False) + extra_args
-        try:
-            proc = _run_triposr_subprocess(cmd=cmd, repo=repo, env=env, timeout_s=timeout_s)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"TripoSR local command timed out after {max(30, timeout_s)}s. "
-                f"Command: {' '.join(cmd)}"
-            ) from exc
-        if proc.returncode != 0 and bake_attempt and bool(getattr(settings, "triposr_bake_texture_fallback", True)):
-            tail_text = (proc.stderr or proc.stdout or "").lower()
-            if "--bake-texture" in " ".join(cmd).lower() or "baking texture" in tail_text or "grid_sample" in tail_text:
-                import logging as _logging
-
-                _logging.getLogger(__name__).warning(
-                    "TripoSR --bake-texture failed; retrying with vertex colors only."
-                )
-                shutil.rmtree(output_dir, ignore_errors=True)
-                output_dir.mkdir(parents=True, exist_ok=True)
-                texture_fallback = True
-                extra_args = _triposr_extra_cli_args(settings, args, bake_texture=False)
-                retry_entry = repo / entry_raw if not Path(entry_raw).is_absolute() else Path(entry_raw)
-                if not retry_entry.is_file():
-                    retry_entry = repo / "run.py"
-                cmd = [str(py), str(retry_entry)] + shlex.split(args, posix=False) + extra_args
-                try:
-                    proc = _run_triposr_subprocess(cmd=cmd, repo=repo, env=env, timeout_s=timeout_s)
-                except subprocess.TimeoutExpired as exc:
-                    raise RuntimeError(
-                        f"TripoSR local command timed out after {max(30, timeout_s)}s. "
-                        f"Command: {' '.join(cmd)}"
-                    ) from exc
-        if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-40:]
-            raise RuntimeError(
-                "TripoSR local command failed.\n"
-                f"Command: {' '.join(cmd)}\n"
-                + "\n".join(tail)
-            )
-        out_mesh_path, texture_path = find_triposr_textured_assets(output_dir)
-        if out_mesh_path is None:
-            out_mesh_path = _resolve_output_mesh(
-                configured_output=out_mesh,
-                settings=settings,
-                work_dir=work_dir,
-                extra_search_dirs=[output_dir],
-            )
-        else:
-            out_mesh = out_mesh_path
-        texture_mode = "atlas" if texture_path is not None else "vertex_colors"
-        mesh = _load_mesh(out_mesh_path)
-        return AiPriorResult(
-            mesh=mesh,
-            confidence=confidence,
-            provider=provider,
-            details={
-                "output_mesh": str(out_mesh_path),
-                "triposr_mesh_path": str(out_mesh_path),
-                "triposr_texture_path": str(texture_path) if texture_path else None,
-                "triposr_texture_mode": texture_mode,
-                "triposr_texture_fallback": texture_fallback,
-                "triposr_repo_path": str(repo),
-                "triposr_entry_script": entry_raw,
-                "triposr_python": str(py),
-                "triposr_input_image": str(command_input_image),
-                "selected_original_image": str(best_original),
-                "triposr_isolation": "passthrough_original",
-                "debug_dir": str(debug_dir),
-                "output_dir": str(output_dir),
-                "command_args": " ".join(cmd),
-                "timeout_seconds": max(30, timeout_s),
-            },
+    if provider in ("triposr", "triposr_local"):
+        raise RuntimeError(
+            "ai_prior_provider=triposr_local is no longer supported. "
+            "Use instantmesh_local for single-image jobs, or MapAnything/DUSt3R for 2+ images."
         )
 
     if provider == "mock":
@@ -720,6 +353,6 @@ def run_ai_prior_mesh(
 
     raise RuntimeError(
         f"Unsupported ai_prior_provider={provider!r}. "
-        "Supported providers: command, triposr_local, mock."
+        "Supported providers: command, instantmesh_local, mock."
     )
 

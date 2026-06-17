@@ -1004,7 +1004,7 @@ async def create_job_from_video(
     """Accept a single video upload. Frames are extracted automatically when the job starts.
 
     Requires `video_input_enabled=true` in PUT /settings and `ai_prior_provider=instantmesh_local`
-    (or triposr_local) so the pipeline knows to run frame extraction before reconstruction.
+    so the pipeline knows to run frame extraction before reconstruction.
     """
     current_settings = settings_store.load()
     raw_name = video.filename or ""

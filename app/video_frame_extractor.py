@@ -144,7 +144,7 @@ def extract_frames(
 
 
 # ---------------------------------------------------------------------------
-# Per-frame quality scoring (same formula as TripoSR image selection)
+# Per-frame quality scoring (same formula as single-image AI input selection)
 # ---------------------------------------------------------------------------
 
 def _score_frame(frame_path: Path, masked_path: Path | None = None) -> FrameScore:

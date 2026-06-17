@@ -16,9 +16,13 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
     backend = effective_reconstruction_backend(settings)
     provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
-    triposr_only = backend == "ai_prior" and provider == "triposr_local"
+    if provider in ("triposr", "triposr_local"):
+        raise RuntimeError(
+            "ai_prior_provider=triposr_local is no longer supported. "
+            "Use instantmesh_local or set reconstruction_backend to mapanything/dust3r."
+        )
 
-    if not settings.skip_sam_segmentation and not triposr_only:
+    if not settings.skip_sam_segmentation:
         isolation = str(getattr(settings, "isolation_backend", "sam")).strip().lower()
         if isolation == "sam":
             if not settings.sam_checkpoint_path or not Path(settings.sam_checkpoint_path).is_file():
@@ -88,6 +92,11 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
     def _need_ai_prior() -> None:
         provider = str(getattr(settings, "ai_prior_provider", "command")).strip().lower()
+        if provider in ("triposr", "triposr_local"):
+            raise RuntimeError(
+                "ai_prior_provider=triposr_local is no longer supported. "
+                "Use instantmesh_local for single-image jobs."
+            )
         if provider == "command":
             raw = (getattr(settings, "ai_prior_command", None) or "").strip()
             if not raw:
@@ -107,30 +116,6 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 raise RuntimeError(
                     f"AI prior provider requires API key env {key_env!r}, but it is not set on this machine."
                 )
-        elif provider == "triposr_local":
-            repo_raw = str(getattr(settings, "ai_prior_triposr_repo_path", "")).strip()
-            if not repo_raw:
-                raise RuntimeError(
-                    "ai_prior_provider=triposr_local requires ai_prior_triposr_repo_path "
-                    "(local TripoSR repo path on the worker)."
-                )
-            repo = Path(repo_raw)
-            if not repo.is_dir():
-                raise RuntimeError(f"TripoSR repo path not found: {repo_raw}")
-            entry_raw = str(getattr(settings, "ai_prior_triposr_entry_script", "run.py")).strip() or "run.py"
-            entry = Path(entry_raw)
-            if not entry.is_absolute():
-                entry = repo / entry
-            if not entry.is_file():
-                raise RuntimeError(f"TripoSR entry script not found: {entry}")
-            py_raw = str(getattr(settings, "ai_prior_triposr_python_executable", "")).strip()
-            if py_raw:
-                py_path = Path(py_raw)
-                if not py_path.is_file():
-                    import shutil
-
-                    if shutil.which(py_raw) is None:
-                        raise RuntimeError(f"TripoSR python executable not found: {py_raw}")
         elif provider == "instantmesh_local":
             repo_raw = str(getattr(settings, "ai_prior_instantmesh_repo_path", "")).strip()
             if not repo_raw:
@@ -158,22 +143,11 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
             pass
         else:
             raise RuntimeError(
-                f"Unsupported ai_prior_provider={provider!r}; expected 'command', 'triposr_local', 'instantmesh_local', or 'mock'."
+                f"Unsupported ai_prior_provider={provider!r}; expected 'command', 'instantmesh_local', or 'mock'."
             )
 
     if backend == "auto":
-        # Concrete backend is resolved at runtime based on image count.
-        # SAM is required for multi-view auto paths; TripoSR (1-few images) skips SAM at runtime.
-        triposr_repo_raw = str(getattr(settings, "ai_prior_triposr_repo_path", "") or "").strip()
-        triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
-        if triposr_max > 0 and triposr_repo_raw:
-            triposr_repo = Path(triposr_repo_raw)
-            if not triposr_repo.is_dir():
-                raise RuntimeError(
-                    f"auto backend: ai_prior_triposr_repo_path does not exist: {triposr_repo_raw}. "
-                    "Fix the path or set auto_backend_triposr_max_images=0 to skip TripoSR auto-routing."
-                )
-        return  # Other backends validated lazily at runtime
+        return
 
     if backend == "mapanything":
         _need_mapanything()

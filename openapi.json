@@ -1501,7 +1501,7 @@
     "/jobs/video": {
       "post": {
         "summary": "Create Job From Video",
-        "description": "Accept a single video upload. Frames are extracted automatically when the job starts.\n\nRequires `video_input_enabled=true` in PUT /settings and `ai_prior_provider=instantmesh_local`\n(or triposr_local) so the pipeline knows to run frame extraction before reconstruction.",
+        "description": "Accept a single video upload. Frames are extracted automatically when the job starts.\n\nRequires `video_input_enabled=true` in PUT /settings and `ai_prior_provider=instantmesh_local`\nso the pipeline knows to run frame extraction before reconstruction.",
         "operationId": "create_job_from_video_jobs_video_post",
         "requestBody": {
           "content": {
@@ -1656,12 +1656,12 @@
       }
     },
     "/output/{full_path}": {
-      "head": {
+      "get": {
         "tags": [
           "files"
         ],
         "summary": "Files Output Root",
-        "operationId": "files_output_root_output__full_path__head",
+        "operationId": "files_output_root_output__full_path__get",
         "parameters": [
           {
             "name": "full_path",
@@ -1694,12 +1694,12 @@
           }
         }
       },
-      "get": {
+      "head": {
         "tags": [
           "files"
         ],
         "summary": "Files Output Root",
-        "operationId": "files_output_root_output__full_path__head",
+        "operationId": "files_output_root_output__full_path__get",
         "parameters": [
           {
             "name": "full_path",
@@ -1734,12 +1734,12 @@
       }
     },
     "/uploads/{full_path}": {
-      "head": {
+      "get": {
         "tags": [
           "files"
         ],
         "summary": "Files Uploads Root",
-        "operationId": "files_uploads_root_uploads__full_path__head",
+        "operationId": "files_uploads_root_uploads__full_path__get",
         "parameters": [
           {
             "name": "full_path",
@@ -1772,12 +1772,12 @@
           }
         }
       },
-      "get": {
+      "head": {
         "tags": [
           "files"
         ],
         "summary": "Files Uploads Root",
-        "operationId": "files_uploads_root_uploads__full_path__head",
+        "operationId": "files_uploads_root_uploads__full_path__get",
         "parameters": [
           {
             "name": "full_path",
@@ -2916,13 +2916,6 @@
             "title": "Reconstruction Backend",
             "default": "auto"
           },
-          "auto_backend_triposr_max_images": {
-            "type": "integer",
-            "maximum": 100.0,
-            "minimum": 0.0,
-            "title": "Auto Backend Triposr Max Images",
-            "default": 3
-          },
           "auto_backend_dust3r_max_images": {
             "type": "integer",
             "maximum": 256.0,
@@ -3155,7 +3148,6 @@
             "enum": [
               "command",
               "mock",
-              "triposr_local",
               "instantmesh_local"
             ],
             "title": "Ai Prior Provider",
@@ -3216,69 +3208,6 @@
             "type": "boolean",
             "title": "Ai Prior Force Prior Only",
             "default": false
-          },
-          "ai_prior_triposr_repo_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ai Prior Triposr Repo Path"
-          },
-          "ai_prior_triposr_python_executable": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ai Prior Triposr Python Executable"
-          },
-          "ai_prior_triposr_entry_script": {
-            "type": "string",
-            "title": "Ai Prior Triposr Entry Script",
-            "default": "run.py"
-          },
-          "ai_prior_triposr_args_template": {
-            "type": "string",
-            "title": "Ai Prior Triposr Args Template",
-            "default": "{input_image} --output-dir {output_dir}"
-          },
-          "triposr_bake_texture": {
-            "type": "boolean",
-            "title": "Triposr Bake Texture",
-            "default": true
-          },
-          "triposr_texture_resolution": {
-            "type": "integer",
-            "maximum": 8192.0,
-            "minimum": 512.0,
-            "title": "Triposr Texture Resolution",
-            "default": 2048
-          },
-          "triposr_mc_resolution": {
-            "type": "integer",
-            "maximum": 512.0,
-            "minimum": 64.0,
-            "title": "Triposr Mc Resolution",
-            "default": 256
-          },
-          "triposr_bake_texture_fallback": {
-            "type": "boolean",
-            "title": "Triposr Bake Texture Fallback",
-            "default": true
-          },
-          "triposr_chunk_size": {
-            "type": "integer",
-            "maximum": 65536.0,
-            "minimum": 0.0,
-            "title": "Triposr Chunk Size",
-            "default": 8192
           },
           "ai_prior_instantmesh_repo_path": {
             "anyOf": [

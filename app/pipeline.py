@@ -224,22 +224,11 @@ class ReconstructionPipeline:
                 len(image_paths),
             )
 
-            # TripoSR: pass full original photos — TripoSR isolates the central object.
-            # InstantMesh still uses SAM masks for frame selection / clean input prep.
-            triposr_local_mode = backend == "ai_prior" and ai_provider == "triposr_local"
+            # InstantMesh uses SAM masks for frame selection; multi-view paths run full segmentation.
             instantmesh_local_mode = backend == "ai_prior" and ai_provider == "instantmesh_local"
-            single_image_ai_mode = triposr_local_mode or instantmesh_local_mode
+            single_image_ai_mode = instantmesh_local_mode
 
-            if triposr_local_mode:
-                self._publish(
-                    job_id,
-                    JobStatus.PROCESSING,
-                    stage="triposr_direct_input",
-                    progress=28,
-                )
-                masked_paths = list(image_paths)
-                originals_for_mesh = image_paths
-            elif self.runtime_settings.skip_sam_segmentation:
+            if self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(
                     job_id,
@@ -574,82 +563,7 @@ class ReconstructionPipeline:
             preferred_input_image=preferred_prior_input,
             provider_override=provider_override,
         )
-        # TripoSR-local passthrough: export textured GLB when TripoSR baked a UV atlas.
-        if prior.provider == "triposr_local":
-            from .meshing import export_textured_mesh_to_glb
-
-            self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
-            glb_path = self.config.output_dir / f"{job_id}.glb"
-            mesh_src_raw = prior.details.get("triposr_mesh_path") or prior.details.get("output_mesh")
-            texture_src_raw = prior.details.get("triposr_texture_path")
-            texture_mode = str(prior.details.get("triposr_texture_mode") or "vertex_colors")
-            mesh_src = Path(str(mesh_src_raw)).resolve() if mesh_src_raw else None
-            texture_src = (
-                Path(str(texture_src_raw)).resolve()
-                if isinstance(texture_src_raw, str) and texture_src_raw
-                else None
-            )
-            try:
-                if mesh_src and mesh_src.is_file() and texture_src and texture_src.is_file():
-                    export_textured_mesh_to_glb(mesh_src, texture_src, glb_path)
-                    texture_route = "triposr_uv_atlas"
-                    texture_reason = f"baked_atlas_{int(getattr(self.runtime_settings, 'triposr_texture_resolution', 2048))}"
-                elif mesh_src and mesh_src.suffix.lower() == ".glb" and mesh_src.is_file():
-                    if mesh_src != glb_path.resolve():
-                        glb_path.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(mesh_src, glb_path)
-                    texture_route = "triposr_glb_passthrough"
-                    texture_reason = "provider_glb"
-                else:
-                    balanced = autobalance_vertex_colors(prior.mesh)
-                    export_glb(
-                        balanced,
-                        glb_path,
-                        compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
-                    )
-                    texture_route = "triposr_vertex_colors"
-                    texture_reason = "vertex_colors_autobalanced"
-            except Exception:
-                balanced = autobalance_vertex_colors(prior.mesh)
-                export_glb(
-                    balanced,
-                    glb_path,
-                    compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
-                )
-                texture_route = "triposr_vertex_colors"
-                texture_reason = "export_exception_fallback"
-            self._write_texture_report(
-                job_id,
-                {
-                    "job_id": job_id,
-                    "texture_route_taken": texture_route,
-                    "texture_quality_reason": texture_reason,
-                    "triposr_texture_mode": texture_mode,
-                    "triposr_texture_path": str(texture_src) if texture_src else None,
-                },
-            )
-            model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
-            self._write_reconstruction_report(
-                job_id,
-                {
-                    "job_id": job_id,
-                    "reconstruction_confidence": round(float(quality_score), 4),
-                    "route_taken": "prior_only",
-                    "quality_reason": "triposr_local_passthrough",
-                    "ai_prior_provider": prior.provider,
-                    "ai_prior_confidence": round(float(prior.confidence), 4),
-                    "details": prior.details,
-                },
-            )
-            self._publish(
-                job_id,
-                JobStatus.COMPLETED,
-                stage="completed",
-                progress=100,
-                model_url=model_url,
-                model_format="glb",
-            )
-            return model_url
+        # TripoSR removed — all ai_prior paths use standard mesh export below.
         mesh = keep_largest_mesh_component(prior.mesh)
         if route == "coarse_prior":
             mesh = decimate(mesh, max(10_000, int(self.config.decimation_target_triangles * 0.25)))
@@ -701,10 +615,10 @@ class ReconstructionPipeline:
         3. Passthrough export — no extra post-processing.
         """
         from .instantmesh_runner import run_instantmesh
-        from .ai_prior_runner import _pick_best_triposr_pair  # shared selection logic
+        from .ai_prior_runner import pick_best_single_image_pair
 
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_prior_generation", progress=52)
-        best_masked, best_original = _pick_best_triposr_pair(masked_paths, original_paths)
+        best_masked, best_original = pick_best_single_image_pair(masked_paths, original_paths)
 
         result = run_instantmesh(
             job_id=job_id,
@@ -895,7 +809,7 @@ class ReconstructionPipeline:
             raise RuntimeError(
                 f"Not enough reconstruction inputs ({len(reconstruction_inputs)}) for source={geometry_source!r}. "
                 "MapAnything/DUSt3R/COLMAP need at least 2 images. For a single photo, use "
-                "reconstruction_backend=auto (routes to TripoSR) or ai_prior with triposr_local."
+                "reconstruction_backend=auto, ai_prior with instantmesh_local, or upload 2+ images for MapAnything/DUSt3R."
             )
         # Phase 2 of the protocol: MapAnything metric reconstruction (+ optional confidence masking there).
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)

@@ -19,10 +19,7 @@ class RuntimeSettings(BaseModel):
     # ---------------------------------------------------------------------------
     # Auto-selection thresholds (used when reconstruction_backend == "auto").
     # ---------------------------------------------------------------------------
-    # Use TripoSR (single-image AI) when image count is at most this value.
-    # Set 0 to never auto-select TripoSR.
-    auto_backend_triposr_max_images: int = Field(default=3, ge=0, le=100)
-    # Use DUSt3R when image count is above triposr threshold and at most this value.
+    # Use DUSt3R when image count is at most this value (needs >= 2 images).
     # Set 0 to skip DUSt3R and go straight to MapAnything.
     # Default 25: video at 4fps typically produces 20-40 good frames after filtering
     # which routes to DUSt3R (4–25) or MapAnything (26+).
@@ -78,7 +75,7 @@ class RuntimeSettings(BaseModel):
     # ---------------------------------------------------------------------------
     # AI-prior backend options (pluggable provider adapter).
     # ---------------------------------------------------------------------------
-    ai_prior_provider: Literal["command", "mock", "triposr_local", "instantmesh_local"] = "command"
+    ai_prior_provider: Literal["command", "mock", "instantmesh_local"] = "command"
     ai_prior_command: str | None = None
     ai_prior_command_args_template: str = "--input-manifest {input_manifest} --output {output_mesh}"
     ai_prior_output_mesh_path: str | None = None
@@ -86,20 +83,8 @@ class RuntimeSettings(BaseModel):
     ai_prior_api_key_env: str = "AI_PRIOR_API_KEY"
     ai_prior_require_api_key: bool = False
     ai_prior_default_confidence: float = Field(default=0.62, ge=0.0, le=1.0)
-    # When true: bypass confidence routing and keep prior-only route (useful for simple TripoSR-local flow).
+    # When true: bypass confidence routing and keep prior-only route.
     ai_prior_force_prior_only: bool = False
-    # TripoSR local provider options (no cloud API credits; runs model on worker machine).
-    ai_prior_triposr_repo_path: str | None = None
-    ai_prior_triposr_python_executable: str | None = None
-    ai_prior_triposr_entry_script: str = "run.py"
-    ai_prior_triposr_args_template: str = "{input_image} --output-dir {output_dir}"
-    # TripoSR texture: bake UV atlas (much sharper than default vertex colors).
-    triposr_bake_texture: bool = True
-    triposr_texture_resolution: int = Field(default=2048, ge=512, le=8192)
-    triposr_mc_resolution: int = Field(default=256, ge=64, le=512)
-    # When bake-texture fails (OOM/device), retry once without --bake-texture (vertex colors).
-    triposr_bake_texture_fallback: bool = True
-    triposr_chunk_size: int = Field(default=8192, ge=0, le=65536)
     # InstantMesh local provider (Tencent InstantMesh single-image-to-3D).
     ai_prior_instantmesh_repo_path: str | None = None
     ai_prior_instantmesh_python_executable: str | None = None
@@ -285,8 +270,8 @@ class RuntimeSettings(BaseModel):
         )
         d["compare_mesh_preview_with_gs"] = preview
         provider = str(d.get("ai_prior_provider", "")).strip().lower()
-        if provider == "triposr":
-            d["ai_prior_provider"] = "triposr_local"
+        if provider in ("triposr", "triposr_local"):
+            d["ai_prior_provider"] = "instantmesh_local"
         high = d.get("reconstruction_confidence_high_threshold")
         low = d.get("reconstruction_confidence_min_threshold")
         try:
@@ -302,12 +287,20 @@ class RuntimeSettings(BaseModel):
                 d["depth_selection_proximity_weight"] = 0.45
         except Exception:
             pass
-
-        # Drop obsolete keys silently (were ignored via extra="ignore" but tidy common ones).
         for dead in (
             "mesh_colmap_failure_fallback_dust3r",
             "auto_dust3r_max_images",
+            "auto_backend_triposr_max_images",
             "gs_init_source",
+            "ai_prior_triposr_repo_path",
+            "ai_prior_triposr_python_executable",
+            "ai_prior_triposr_entry_script",
+            "ai_prior_triposr_args_template",
+            "triposr_bake_texture",
+            "triposr_texture_resolution",
+            "triposr_mc_resolution",
+            "triposr_bake_texture_fallback",
+            "triposr_chunk_size",
         ):
             d.pop(dead, None)
         return d
@@ -331,11 +324,14 @@ def effective_reconstruction_backend(
 
 
 def pick_single_image_ai_provider(settings: RuntimeSettings) -> str:
-    """AI provider for single-image reconstruction (TripoSR preferred, InstantMesh fallback)."""
+    """AI provider for single-image reconstruction (InstantMesh only; TripoSR removed)."""
     instantmesh_repo = str(getattr(settings, "ai_prior_instantmesh_repo_path", "") or "").strip()
     if instantmesh_repo:
         return "instantmesh_local"
-    return "triposr_local"
+    raise RuntimeError(
+        "Single-image reconstruction requires ai_prior_instantmesh_repo_path on the worker, "
+        "or upload at least 2 images for MapAnything/DUSt3R. TripoSR is no longer supported."
+    )
 
 
 _MULTI_VIEW_BACKENDS = frozenset(
@@ -352,7 +348,7 @@ def coerce_backend_for_image_count(
     """Ensure the chosen backend can run with ``image_count`` inputs.
 
     Multi-view mesh backends need at least two images. A single image or video
-    that yields one good frame must use TripoSR / InstantMesh instead.
+    that yields one good frame must use InstantMesh (ai_prior) instead.
     """
     backend = str(backend).strip().lower()
     ai_provider = str(ai_provider or "").strip().lower()
@@ -370,23 +366,14 @@ def resolve_auto_backend(
 ) -> tuple[str, str | None]:
     """Resolve ``"auto"`` backend to a concrete backend + optional ai_prior_provider.
 
-    Selection logic (thresholds configurable via settings):
-
-    * 1 image → TripoSR / InstantMesh (single-image AI; never multi-view)
-    * 2 .. auto_backend_triposr_max_images → TripoSR when triposr_max > 0
-    * (triposr_max+1) .. auto_backend_dust3r_max_images → dust3r
+    * 1 image → InstantMesh (ai_prior) when configured
+    * 2 .. auto_backend_dust3r_max_images → dust3r
     * above dust3r_max → mapanything
-
-    Returns (backend, ai_provider_override_or_none).
     """
     if image_count < 2:
         return "ai_prior", pick_single_image_ai_provider(settings)
 
-    triposr_max = int(getattr(settings, "auto_backend_triposr_max_images", 3))
     dust3r_max = int(getattr(settings, "auto_backend_dust3r_max_images", 15))
-
-    if triposr_max > 0 and image_count <= triposr_max:
-        return "ai_prior", "triposr_local"
 
     if dust3r_max > 0 and image_count <= dust3r_max:
         return "dust3r", None

@@ -175,7 +175,7 @@ def run_depth_normalization_gate(
                 "selection_score": round(float(selection_scores[i]), 6),
                 "is_reference": bool(i == ref_idx),
                 "kept": bool(i in kept_set),
-                "is_selected_for_triposr": bool(i == selected_idx),
+                "is_selected_input": bool(i == selected_idx),
             }
         )
 

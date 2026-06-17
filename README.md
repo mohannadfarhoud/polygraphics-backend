@@ -359,45 +359,6 @@ Notes:
 - In `command` mode with `ai_prior_force_prior_only=true`, backend minimum input becomes 1 image (useful for quick trials).
 - The AI-prior route keeps Tripo output as the final mesh path unless you intentionally switch to hybrid refinement.
 
-## TripoSR local provider (no API credits)
-
-Use this when you want local worker inference (no hosted Tripo API billing) and a simpler prior-only route.
-
-### 1) Install TripoSR on worker
-
-- Clone TripoSR on the worker machine (example: `C:\polyGraphics\third_party\TripoSR`)
-- Install TripoSR dependencies in the worker Python environment.
-- Verify local run command works (from TripoSR docs): `python run.py <image> --output-dir <dir>`
-
-### 2) Worker environment
-
-In `.env.worker`:
-
-```env
-POLYGRAPH_OVERRIDE_TRIPOSR_REPO=C:\polyGraphics\third_party\TripoSR
-# optional:
-# POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON=C:\Users\mohannad\polygraph_worker\.venv\Scripts\python.exe
-```
-
-### 3) Runtime settings (simple TripoSR-first profile)
-
-```json
-{
-  "reconstruction_backend": "ai_prior",
-  "ai_prior_provider": "triposr_local",
-  "ai_prior_force_prior_only": true,
-  "ai_prior_triposr_repo_path": "C:\\polyGraphics\\third_party\\TripoSR",
-  "ai_prior_triposr_entry_script": "run.py",
-  "ai_prior_triposr_args_template": "{input_image} --output-dir {output_dir}",
-  "capture_quality_gate_enabled": true,
-  "capture_reject_policy": "soft"
-}
-```
-
-Notes:
-- `triposr_local` currently feeds the best masked view to TripoSR (selected by largest foreground area).
-- Output can be `.glb`, `.obj`, or `.ply`; backend normalizes to `.glb`.
-
 ## Run
 
 ```bash
@@ -463,7 +424,7 @@ Stop-Service polyGraphicsBackend
 ## API
 
 - **`POST /jobs`** — multipart **`files`** in the body, optional **`job_id`**, optional **`capture_metadata`** (JSON text). Saves images under `uploads/{job_id}/`, writes metadata to `uploads/{job_id}/capture_metadata.json` when provided, and creates the job as **`PENDING`** (nothing runs until you start). Use this when the UI uploads first and starts processing later.
-- **`POST /jobs/{job_id}/start`** — begins the pipeline (**`PENDING` → `QUEUED` → …**). Minimum images depend on backend (for example, `ai_prior` + `triposr_local` accepts 1, and `ai_prior` + `command` with `ai_prior_force_prior_only=true` accepts 1; classic multi-view backends require 2+).
+- **`POST /jobs/{job_id}/start`** — begins the pipeline (**`PENDING` → `QUEUED` → …**). Minimum images depend on backend (for example, `ai_prior` + `instantmesh_local` accepts 1, and `ai_prior` + `command` with `ai_prior_force_prior_only=true` accepts 1; classic multi-view backends require 2+).
 - **`POST /jobs/reconstruct`** — convenience: **upload + start in one call** (same multipart fields; supports optional `capture_metadata` JSON text). Minimum images depend on active backend.
 - **`PUT /jobs/{job_id}/capture-metadata`** — upsert structured capture metadata as JSON body after a job exists (useful when mobile upload and metadata upload are separate operations).
 - **`GET /jobs/{job_id}/capture-metadata`** — fetch the stored capture metadata payload for debugging/analytics.
