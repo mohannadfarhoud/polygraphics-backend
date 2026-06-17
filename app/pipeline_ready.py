@@ -16,10 +16,10 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
     backend = effective_reconstruction_backend(settings)
     provider = str(getattr(settings, "ai_prior_provider", "")).strip().lower()
-    if provider in ("triposr", "triposr_local"):
+    if provider in ("triposr", "triposr_local", "instantmesh_local"):
         raise RuntimeError(
-            "ai_prior_provider=triposr_local is no longer supported. "
-            "Use instantmesh_local or set reconstruction_backend to mapanything/dust3r."
+            f"ai_prior_provider={provider!r} is no longer supported. "
+            "Use mapanything, dust3r, or reconstruction_backend=auto for multi-view reconstruction."
         )
 
     if not settings.skip_sam_segmentation:
@@ -92,10 +92,10 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
 
     def _need_ai_prior() -> None:
         provider = str(getattr(settings, "ai_prior_provider", "command")).strip().lower()
-        if provider in ("triposr", "triposr_local"):
+        if provider in ("triposr", "triposr_local", "instantmesh_local"):
             raise RuntimeError(
-                "ai_prior_provider=triposr_local is no longer supported. "
-                "Use instantmesh_local for single-image jobs."
+                f"ai_prior_provider={provider!r} is no longer supported. "
+                "Use mapanything, dust3r, or reconstruction_backend=auto for multi-view reconstruction."
             )
         if provider == "command":
             raw = (getattr(settings, "ai_prior_command", None) or "").strip()
@@ -116,34 +116,11 @@ def assert_pipeline_ready(settings: RuntimeSettings) -> None:
                 raise RuntimeError(
                     f"AI prior provider requires API key env {key_env!r}, but it is not set on this machine."
                 )
-        elif provider == "instantmesh_local":
-            repo_raw = str(getattr(settings, "ai_prior_instantmesh_repo_path", "")).strip()
-            if not repo_raw:
-                raise RuntimeError(
-                    "ai_prior_provider=instantmesh_local requires ai_prior_instantmesh_repo_path "
-                    "(local InstantMesh repo path on the worker)."
-                )
-            repo = Path(repo_raw)
-            if not repo.is_dir():
-                raise RuntimeError(f"InstantMesh repo path not found: {repo_raw}")
-            entry_raw = str(getattr(settings, "ai_prior_instantmesh_entry_script", "run.py")).strip() or "run.py"
-            entry = Path(entry_raw)
-            if not entry.is_absolute():
-                entry = repo / entry
-            if not entry.is_file():
-                raise RuntimeError(f"InstantMesh entry script not found: {entry}")
-            py_raw = str(getattr(settings, "ai_prior_instantmesh_python_executable", "")).strip()
-            if py_raw:
-                py_path = Path(py_raw)
-                if not py_path.is_file():
-                    import shutil as _shutil
-                    if _shutil.which(py_raw) is None:
-                        raise RuntimeError(f"InstantMesh python executable not found: {py_raw}")
         elif provider == "mock":
             pass
         else:
             raise RuntimeError(
-                f"Unsupported ai_prior_provider={provider!r}; expected 'command', 'instantmesh_local', or 'mock'."
+                f"Unsupported ai_prior_provider={provider!r}; expected 'command' or 'mock'."
             )
 
     if backend == "auto":

@@ -32,10 +32,10 @@ from .point_cloud import build_point_cloud, remove_statistical_outliers
 from .reconstruction import Dust3RReconstructor
 from .runtime_settings import (
     RuntimeSettings,
+    assert_minimum_reconstruction_views,
+    coerce_backend_for_image_count,
     effective_reconstruction_backend,
     gaussian_splatting_skipped_via_env,
-    minimum_input_images,
-    coerce_backend_for_image_count,
     resolve_auto_backend,
 )
 from .segmentation import SamSegmenter
@@ -178,6 +178,7 @@ class ReconstructionPipeline:
                     "No usable images left after quality filtering. "
                     "Please retake with better lighting and a steadier hand."
                 )
+            assert_minimum_reconstruction_views(len(image_paths))
             raw_backend = str(effective_reconstruction_backend(self.runtime_settings)).strip().lower()
             ai_provider = str(getattr(self.runtime_settings, "ai_prior_provider", "")).strip().lower()
 
@@ -224,10 +225,7 @@ class ReconstructionPipeline:
                 len(image_paths),
             )
 
-            # InstantMesh uses SAM masks for frame selection; multi-view paths run full segmentation.
-            instantmesh_local_mode = backend == "ai_prior" and ai_provider == "instantmesh_local"
-            single_image_ai_mode = instantmesh_local_mode
-
+            # Multi-view photogrammetry path: SAM/rembg isolation + depth normalization.
             if self.runtime_settings.skip_sam_segmentation:
                 # Pre-cut uploads only (RGBA + alpha matte); see prepare_precut_opaque_views_for_mapanything.
                 self._publish(
@@ -249,34 +247,33 @@ class ReconstructionPipeline:
                 originals_for_mesh = image_paths
             depth_fail_hard = bool(getattr(self.runtime_settings, "depth_consistency_fail_on_low_score", False))
             depth_score = 1.0
-            if not single_image_ai_mode:
-                try:
-                    from .depth_normalization import run_depth_normalization_gate
+            try:
+                from .depth_normalization import run_depth_normalization_gate
 
-                    self._publish(job_id, JobStatus.PROCESSING, stage="phase_depth_normalization", progress=40)
-                    depth_norm = run_depth_normalization_gate(
-                        job_id=job_id,
-                        masked_paths=masked_paths,
-                        original_paths=originals_for_mesh,
-                        settings=self.runtime_settings,
-                        upload_dir=self.config.root_dir / "uploads",
+                self._publish(job_id, JobStatus.PROCESSING, stage="phase_depth_normalization", progress=40)
+                depth_norm = run_depth_normalization_gate(
+                    job_id=job_id,
+                    masked_paths=masked_paths,
+                    original_paths=originals_for_mesh,
+                    settings=self.runtime_settings,
+                    upload_dir=self.config.root_dir / "uploads",
+                )
+                masked_paths = depth_norm.masked_paths
+                originals_for_mesh = depth_norm.original_paths
+                preferred_prior_input = depth_norm.selected_masked_path
+                depth_score = float(depth_norm.consistency_score)
+                # Blend capture + depth consistency so route confidence reflects both.
+                quality_score = float(max(0.0, min(1.0, (0.75 * quality_score) + (0.25 * depth_score))))
+                min_depth_score = float(getattr(self.runtime_settings, "depth_consistency_min_score", 0.40))
+                if depth_norm.applied and depth_fail_hard and depth_score < min_depth_score:
+                    raise RuntimeError(
+                        f"Depth consistency too low ({depth_score:.3f} < {min_depth_score:.3f}). "
+                        "Retake with more stable camera distance around the object."
                     )
-                    masked_paths = depth_norm.masked_paths
-                    originals_for_mesh = depth_norm.original_paths
-                    preferred_prior_input = depth_norm.selected_masked_path
-                    depth_score = float(depth_norm.consistency_score)
-                    # Blend capture + depth consistency so route confidence reflects both.
-                    quality_score = float(max(0.0, min(1.0, (0.75 * quality_score) + (0.25 * depth_score))))
-                    min_depth_score = float(getattr(self.runtime_settings, "depth_consistency_min_score", 0.40))
-                    if depth_norm.applied and depth_fail_hard and depth_score < min_depth_score:
-                        raise RuntimeError(
-                            f"Depth consistency too low ({depth_score:.3f} < {min_depth_score:.3f}). "
-                            "Retake with more stable camera distance around the object."
-                        )
-                except Exception as exc:
-                    if depth_fail_hard:
-                        raise
-                    _log.warning("depth normalization stage failed job=%s: %s", job_id, exc)
+            except Exception as exc:
+                if depth_fail_hard:
+                    raise
+                _log.warning("depth normalization stage failed job=%s: %s", job_id, exc)
             try:
                 self.segmenter.release_gpu_memory()
             except Exception:
@@ -306,13 +303,6 @@ class ReconstructionPipeline:
                 )
                 return model_url
 
-            if backend == "ai_prior" and instantmesh_local_mode:
-                return self._run_instantmesh_pipeline(
-                    job_id=job_id,
-                    masked_paths=masked_paths,
-                    original_paths=originals_for_mesh,
-                    cancel_event=cancel_event,
-                )
             if backend == "ai_prior":
                 # Use pipeline-resolved provider (auto-select / single-image coerce).
                 _provider_override = ai_provider or None
@@ -600,76 +590,6 @@ class ReconstructionPipeline:
         )
         return model_url
 
-    def _run_instantmesh_pipeline(
-        self,
-        *,
-        job_id: str,
-        masked_paths: list[Path],
-        original_paths: list[Path],
-        cancel_event: threading.Event | None = None,
-    ) -> str:
-        """InstantMesh single-image reconstruction pipeline.
-
-        1. Select best (masked, original) pair using multi-factor quality score.
-        2. Run InstantMesh to produce a mesh.
-        3. Passthrough export — no extra post-processing.
-        """
-        from .instantmesh_runner import run_instantmesh
-        from .ai_prior_runner import pick_best_single_image_pair
-
-        self._publish(job_id, JobStatus.PROCESSING, stage="phase_prior_generation", progress=52)
-        best_masked, best_original = pick_best_single_image_pair(masked_paths, original_paths)
-
-        result = run_instantmesh(
-            job_id=job_id,
-            selected_frame=best_original,
-            masked_frame=best_masked,
-            settings=self.runtime_settings,
-            work_dir=self.config.root_dir / "data" / "ai_prior_workspace" / job_id,
-        )
-        self._raise_if_cancelled(cancel_event)
-
-        self._publish(job_id, JobStatus.PROCESSING, stage="exporting", progress=94)
-        glb_path = self.config.output_dir / f"{job_id}.glb"
-        src = result.output_mesh.resolve()
-        try:
-            if src != glb_path.resolve():
-                glb_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, glb_path)
-        except Exception:
-            export_glb(
-                result.mesh,
-                glb_path,
-                compressed=bool(self.runtime_settings.mesh_glb_draco_compression),
-            )
-
-        model_url = f"{self.config.cdn_base_url.rstrip('/')}/{job_id}.glb"
-
-        # Expose selected_frame URL via reconstruction report
-        frame_rel = str(result.selected_frame.relative_to(self.config.root_dir))
-        self._write_reconstruction_report(
-            job_id,
-            {
-                "job_id": job_id,
-                "reconstruction_backend": "ai_prior",
-                "ai_prior_provider": "instantmesh_local",
-                "route_taken": "instantmesh_passthrough",
-                "selected_frame": str(result.selected_frame),
-                "selected_frame_rel": frame_rel,
-                "debug_dir": str(result.debug_dir) if result.debug_dir else None,
-                "details": result.details,
-            },
-        )
-        self._publish(
-            job_id,
-            JobStatus.COMPLETED,
-            stage="completed",
-            progress=100,
-            model_url=model_url,
-            model_format="glb",
-        )
-        return model_url
-
     def _run_hybrid_prior_pipeline(
         self,
         *,
@@ -808,8 +728,7 @@ class ReconstructionPipeline:
         if len(reconstruction_inputs) < 2:
             raise RuntimeError(
                 f"Not enough reconstruction inputs ({len(reconstruction_inputs)}) for source={geometry_source!r}. "
-                "MapAnything/DUSt3R/COLMAP need at least 2 images. For a single photo, use "
-                "reconstruction_backend=auto, ai_prior with instantmesh_local, or upload 2+ images for MapAnything/DUSt3R."
+                "MapAnything/DUSt3R/COLMAP need at least 2 distinct views."
             )
         # Phase 2 of the protocol: MapAnything metric reconstruction (+ optional confidence masking there).
         self._publish(job_id, JobStatus.PROCESSING, stage="phase_2_alignment", progress=45)

@@ -370,7 +370,7 @@ def _should_rewrite_model_url(url: str | None) -> bool:
 
 
 def _selected_frame_url(job_id: str) -> str | None:
-    """URL for the frame chosen for reconstruction (InstantMesh/video jobs)."""
+    """URL for a reference frame from reconstruction report (e.g. video jobs)."""
     report = UPLOAD_DIR / job_id / "reconstruction_report.json"
     if not report.is_file():
         return None
@@ -381,16 +381,11 @@ def _selected_frame_url(job_id: str) -> str | None:
             return f"{_uploads_base_url().rstrip('/')}/{rel.replace(chr(92), '/').lstrip('/')}"
     except Exception:
         pass
-    # Fallback: look for debug artifact directly
-    debug_dir = UPLOAD_DIR / job_id / "instantmesh_debug"
-    if not debug_dir.is_dir():
-        ai_ws = UPLOAD_DIR.parent / "data" / "ai_prior_workspace" / job_id / "instantmesh_debug"
-        if ai_ws.is_dir():
-            debug_dir = ai_ws
+    # Fallback: look for debug artifact directly under uploads
     for name in ("selected_frame.jpg", "selected_image.jpg"):
-        p = debug_dir / name
+        p = UPLOAD_DIR / job_id / name
         if p.is_file():
-            return f"{_uploads_base_url().rstrip('/')}/{job_id}/instantmesh_debug/{name}"
+            return f"{_uploads_base_url().rstrip('/')}/{job_id}/{name}"
     return None
 
 
@@ -1003,8 +998,8 @@ async def create_job_from_video(
 ) -> JobRecord:
     """Accept a single video upload. Frames are extracted automatically when the job starts.
 
-    Requires `video_input_enabled=true` in PUT /settings and `ai_prior_provider=instantmesh_local`
-    so the pipeline knows to run frame extraction before reconstruction.
+    Requires `video_input_enabled=true` in PUT /settings. Frames are extracted at job start;
+    reconstruction runs when at least 2 good frames remain after quality filtering.
     """
     current_settings = settings_store.load()
     raw_name = video.filename or ""

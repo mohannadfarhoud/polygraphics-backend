@@ -115,8 +115,7 @@ class JobRecord(BaseModel):
     selected_frame_url: str | None = Field(
         default=None,
         description=(
-            "URL of the frame chosen for 3D reconstruction (set for video/InstantMesh jobs). "
-            "Derived per response; not persisted."
+            "URL of a reference frame from reconstruction (e.g. video jobs). Derived per response; not persisted."
         ),
     )
     capture_metadata_url: str | None = Field(

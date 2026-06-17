@@ -306,10 +306,10 @@ def run_ai_prior_mesh(
             },
         )
 
-    if provider in ("triposr", "triposr_local"):
+    if provider in ("triposr", "triposr_local", "instantmesh_local"):
         raise RuntimeError(
-            "ai_prior_provider=triposr_local is no longer supported. "
-            "Use instantmesh_local for single-image jobs, or MapAnything/DUSt3R for 2+ images."
+            f"ai_prior_provider={provider!r} is no longer supported. "
+            "Use mapanything, dust3r, or reconstruction_backend=auto for multi-view reconstruction."
         )
 
     if provider == "mock":
@@ -353,6 +353,6 @@ def run_ai_prior_mesh(
 
     raise RuntimeError(
         f"Unsupported ai_prior_provider={provider!r}. "
-        "Supported providers: command, instantmesh_local, mock."
+        "Supported providers: command, mock."
     )
 

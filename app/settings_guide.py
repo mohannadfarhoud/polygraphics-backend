@@ -14,7 +14,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "worker_env": None,
             "notes": (
                 "`auto` (recommended default): selects backend by image count automatically — "
-                "InstantMesh for 1 image (when configured), DUSt3R for a few views, MapAnything for many. "
+                "DUSt3R for a few views, MapAnything for many. Requires at least 2 distinct views. "
                 "Manual options: mapanything (.glb), dust3r (.glb), colmap (.glb), ai_prior (.glb), "
                 "hybrid_prior_refine (.glb); gaussian_splatting (.ply) for splats."
             ),
@@ -221,7 +221,7 @@ def settings_deployment_guide() -> dict[str, Any]:
             "key": "ai_prior_provider",
             "scope": "both",
             "worker_env": None,
-            "notes": "AI prior provider adapter (`command`, `instantmesh_local`, or `mock`). `command` runs external executable/script; `instantmesh_local` runs local InstantMesh for single-image jobs.",
+            "notes": "AI prior provider adapter (`command` or `mock`). `command` runs external executable/script for optional hybrid/ai_prior routes.",
         },
         {
             "key": "ai_prior_command",
@@ -270,42 +270,6 @@ def settings_deployment_guide() -> dict[str, Any]:
             "scope": "both",
             "worker_env": None,
             "notes": "When true: skip confidence-based fail/hybrid routing and keep prior-only route.",
-        },
-        {
-            "key": "ai_prior_instantmesh_repo_path",
-            "scope": "stored_on_api",
-            "worker_env": "POLYGRAPH_OVERRIDE_INSTANTMESH_REPO",
-            "notes": "Required when ai_prior_provider=instantmesh_local: local path to InstantMesh repository on the worker.",
-        },
-        {
-            "key": "ai_prior_instantmesh_python_executable",
-            "scope": "stored_on_api",
-            "worker_env": "POLYGRAPH_OVERRIDE_INSTANTMESH_PYTHON",
-            "notes": "Optional Python executable for InstantMesh local provider. Defaults to current worker Python.",
-        },
-        {
-            "key": "ai_prior_instantmesh_entry_script",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "Entry script relative to ai_prior_instantmesh_repo_path (default run.py).",
-        },
-        {
-            "key": "ai_prior_instantmesh_args_template",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "CLI argument template for InstantMesh local provider. Tokens: {job_id}, {input_image}, {output_dir}, {repo_path}.",
-        },
-        {
-            "key": "instantmesh_post_process",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "When true (default): remove floating artifacts and re-export mesh after InstantMesh generation.",
-        },
-        {
-            "key": "instantmesh_decimate_target",
-            "scope": "both",
-            "worker_env": None,
-            "notes": "Optional triangle target for decimation during InstantMesh post-processing. Null = no decimation.",
         },
         {
             "key": "hybrid_refine_backend",
@@ -741,8 +705,6 @@ def settings_deployment_guide() -> dict[str, Any]:
             {"name": "POLYGRAPH_OVERRIDE_MAPANYTHING_MODEL", "purpose": "Optional override for mapanything_pretrained_id (HF id)."},
             {"name": "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT", "purpose": "Optional worker-local override for dust3r_checkpoint_path."},
             {"name": "POLYGRAPH_OVERRIDE_AI_PRIOR_COMMAND", "purpose": "Optional worker-local override for ai_prior_command."},
-            {"name": "POLYGRAPH_OVERRIDE_INSTANTMESH_REPO", "purpose": "Optional worker-local override for ai_prior_instantmesh_repo_path."},
-            {"name": "POLYGRAPH_OVERRIDE_INSTANTMESH_PYTHON", "purpose": "Optional worker-local override for ai_prior_instantmesh_python_executable."},
             {"name": "POLYGRAPH_OVERRIDE_FFMPEG_BINARY", "purpose": "Optional worker-local override for video_ffmpeg_binary path."},
             {"name": "POLYGRAPH_AI_PRIOR_UPSTREAM_CMD", "purpose": "Real provider command used by scripts/ai_prior_command_adapter.py."},
             {"name": "POLYGRAPH_AI_PRIOR_UPSTREAM_ARGS_TEMPLATE", "purpose": "Optional args template for upstream provider command."},

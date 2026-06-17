@@ -204,17 +204,21 @@
         { "id": "completed", "progress": 100 }
       ]
     },
-    "instantmesh_local_glb": {
-      "reconstruction_backend": "ai_prior",
-      "ai_prior_provider": "instantmesh_local",
-      "note": "Video input: phase_video_extraction and phase_video_frame_selection emitted before SAM when video_input_enabled=true.",
+    "video_multiview_glb": {
+      "reconstruction_backend": "auto",
+      "note": "Video input: phase_video_extraction and phase_video_frame_selection run before SAM when video_input_enabled=true. Requires at least 2 kept frames.",
       "order": [
         { "id": "starting", "progress": 5 },
         { "id": "phase_video_extraction", "progress": 6 },
         { "id": "phase_video_frame_selection", "progress": 9 },
         { "id": "phase_0_input_curation", "progress": 8 },
         { "id": "phase_1_segmentation", "progress_range": [10, 40] },
-        { "id": "phase_prior_generation", "progress": 52 },
+        { "id": "phase_depth_normalization", "progress": 40 },
+        { "id": "phase_2_alignment", "progress": 45 },
+        { "id": "phase_3_sanitization", "progress": 65 },
+        { "id": "meshing", "progress": 75 },
+        { "id": "mesh_cleanup", "progress": 79 },
+        { "id": "photo_vertex_bake", "progress": 86 },
         { "id": "exporting", "progress": 94 },
         { "id": "completed", "progress": 100 }
       ]

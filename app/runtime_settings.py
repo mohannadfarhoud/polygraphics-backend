@@ -75,7 +75,7 @@ class RuntimeSettings(BaseModel):
     # ---------------------------------------------------------------------------
     # AI-prior backend options (pluggable provider adapter).
     # ---------------------------------------------------------------------------
-    ai_prior_provider: Literal["command", "mock", "instantmesh_local"] = "command"
+    ai_prior_provider: Literal["command", "mock"] = "command"
     ai_prior_command: str | None = None
     ai_prior_command_args_template: str = "--input-manifest {input_manifest} --output {output_mesh}"
     ai_prior_output_mesh_path: str | None = None
@@ -85,14 +85,6 @@ class RuntimeSettings(BaseModel):
     ai_prior_default_confidence: float = Field(default=0.62, ge=0.0, le=1.0)
     # When true: bypass confidence routing and keep prior-only route.
     ai_prior_force_prior_only: bool = False
-    # InstantMesh local provider (Tencent InstantMesh single-image-to-3D).
-    ai_prior_instantmesh_repo_path: str | None = None
-    ai_prior_instantmesh_python_executable: str | None = None
-    ai_prior_instantmesh_entry_script: str = "run.py"
-    ai_prior_instantmesh_args_template: str = "--input {input_image} --output-dir {output_dir}"
-    # InstantMesh post-processing options.
-    instantmesh_post_process: bool = True
-    instantmesh_decimate_target: int | None = None
     # Hybrid prior-refinement route settings.
     hybrid_refine_backend: Literal["mapanything", "dust3r", "colmap", "none"] = "mapanything"
     hybrid_refine_strength: float = Field(default=0.20, ge=0.0, le=1.0)
@@ -270,8 +262,10 @@ class RuntimeSettings(BaseModel):
         )
         d["compare_mesh_preview_with_gs"] = preview
         provider = str(d.get("ai_prior_provider", "")).strip().lower()
-        if provider in ("triposr", "triposr_local"):
-            d["ai_prior_provider"] = "instantmesh_local"
+        if provider in ("triposr", "triposr_local", "instantmesh_local"):
+            d["ai_prior_provider"] = "command"
+            if str(d.get("reconstruction_backend", "")).strip().lower() == "ai_prior":
+                d["reconstruction_backend"] = "auto"
         high = d.get("reconstruction_confidence_high_threshold")
         low = d.get("reconstruction_confidence_min_threshold")
         try:
@@ -301,6 +295,12 @@ class RuntimeSettings(BaseModel):
             "triposr_mc_resolution",
             "triposr_bake_texture_fallback",
             "triposr_chunk_size",
+            "ai_prior_instantmesh_repo_path",
+            "ai_prior_instantmesh_python_executable",
+            "ai_prior_instantmesh_entry_script",
+            "ai_prior_instantmesh_args_template",
+            "instantmesh_post_process",
+            "instantmesh_decimate_target",
         ):
             d.pop(dead, None)
         return d
@@ -323,20 +323,44 @@ def effective_reconstruction_backend(
     return settings.reconstruction_backend
 
 
-def pick_single_image_ai_provider(settings: RuntimeSettings) -> str:
-    """AI provider for single-image reconstruction (InstantMesh only; TripoSR removed)."""
-    instantmesh_repo = str(getattr(settings, "ai_prior_instantmesh_repo_path", "") or "").strip()
-    if instantmesh_repo:
-        return "instantmesh_local"
-    raise RuntimeError(
-        "Single-image reconstruction requires ai_prior_instantmesh_repo_path on the worker, "
-        "or upload at least 2 images for MapAnything/DUSt3R. TripoSR is no longer supported."
-    )
+_MULTI_VIEW_MIN_IMAGES = 2
 
 
-_MULTI_VIEW_BACKENDS = frozenset(
-    {"mapanything", "dust3r", "colmap", "gaussian_splatting", "hybrid_prior_refine"}
-)
+def assert_minimum_reconstruction_views(view_count: int) -> None:
+    """Photogrammetry backends need at least two distinct views."""
+    if view_count < _MULTI_VIEW_MIN_IMAGES:
+        raise RuntimeError(
+            f"Photogrammetric reconstruction requires at least {_MULTI_VIEW_MIN_IMAGES} distinct views "
+            f"(got {view_count}). Upload multiple photos from different angles around the object, "
+            "or provide a video long enough to extract at least 2 sharp, well-exposed frames."
+        )
+
+
+def job_has_video_upload(upload_root: Path, job_id: str) -> bool:
+    from .video_frame_extractor import find_video_in_upload_dir
+
+    return find_video_in_upload_dir(upload_root, job_id) is not None
+
+
+def satisfies_minimum_job_uploads(settings: RuntimeSettings, upload_root: Path, job_id: str, file_count: int) -> bool:
+    """True when enough files are present before the pipeline runs (video counts as 1 upload)."""
+    if file_count >= _MULTI_VIEW_MIN_IMAGES:
+        return True
+    return bool(getattr(settings, "video_input_enabled", False)) and job_has_video_upload(upload_root, job_id) and file_count >= 1
+
+
+def assignment_satisfies_minimum_uploads(settings: RuntimeSettings, input_urls: list[str]) -> bool:
+    """Worker-side check before downloads (video jobs may list a single video URL)."""
+    if len(input_urls) >= _MULTI_VIEW_MIN_IMAGES:
+        return True
+    if not bool(getattr(settings, "video_input_enabled", False)) or len(input_urls) < 1:
+        return False
+    video_suffixes = (".mp4", ".mov", ".webm", ".avi", ".mkv")
+    for url in input_urls:
+        path = str(url).lower().split("?", 1)[0]
+        if any(path.endswith(ext) for ext in video_suffixes):
+            return True
+    return False
 
 
 def coerce_backend_for_image_count(
@@ -345,33 +369,23 @@ def coerce_backend_for_image_count(
     settings: RuntimeSettings,
     image_count: int,
 ) -> tuple[str, str | None]:
-    """Ensure the chosen backend can run with ``image_count`` inputs.
-
-    Multi-view mesh backends need at least two images. A single image or video
-    that yields one good frame must use InstantMesh (ai_prior) instead.
-    """
+    """Ensure the chosen backend can run with ``image_count`` inputs."""
+    assert_minimum_reconstruction_views(image_count)
     backend = str(backend).strip().lower()
     ai_provider = str(ai_provider or "").strip().lower()
-    if image_count >= 2 or backend not in _MULTI_VIEW_BACKENDS:
-        if backend == "ai_prior" and not ai_provider:
-            return backend, pick_single_image_ai_provider(settings)
-        return backend, ai_provider or None
-
-    return "ai_prior", pick_single_image_ai_provider(settings)
+    return backend, ai_provider or None
 
 
 def resolve_auto_backend(
     settings: RuntimeSettings,
     image_count: int,
 ) -> tuple[str, str | None]:
-    """Resolve ``"auto"`` backend to a concrete backend + optional ai_prior_provider.
+    """Resolve ``"auto"`` backend to a concrete backend.
 
-    * 1 image → InstantMesh (ai_prior) when configured
     * 2 .. auto_backend_dust3r_max_images → dust3r
     * above dust3r_max → mapanything
     """
-    if image_count < 2:
-        return "ai_prior", pick_single_image_ai_provider(settings)
+    assert_minimum_reconstruction_views(image_count)
 
     dust3r_max = int(getattr(settings, "auto_backend_dust3r_max_images", 15))
 
@@ -382,16 +396,13 @@ def resolve_auto_backend(
 
 
 def minimum_input_images(settings: RuntimeSettings) -> int:
-    """Minimum input count expected by the active backend path.
+    """Minimum upload count at job start (before frame extraction).
 
-    Always returns 1: the pipeline accepts a single image, a single video,
-    or a collection of images. Multi-view backends (mapanything, dust3r) need
-    at least 2 *frames* to reconstruct, but those frames may come from a video
-    that is counted as 1 upload. Validation against the real frame count happens
-    inside the pipeline after extraction.
+    Image jobs need at least two photos. A single video upload is allowed when
+    ``video_input_enabled`` — the pipeline validates view count after extraction.
     """
-    _ = settings  # reserved for future per-backend overrides
-    return 1
+    _ = settings
+    return _MULTI_VIEW_MIN_IMAGES
 
 
 class SettingsStore:

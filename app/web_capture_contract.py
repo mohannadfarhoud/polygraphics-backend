@@ -7,7 +7,7 @@ from .runtime_settings import RuntimeSettings, effective_reconstruction_backend,
 
 def _recommended_capture_counts(settings: RuntimeSettings) -> dict[str, int]:
     max_images = max(2, int(getattr(settings, "max_images", 100)))
-    hard_min = max(1, int(minimum_input_images(settings)))
+    hard_min = max(2, int(minimum_input_images(settings)))
     # Even with single-image backends, web capture quality is better when users provide
     # enough views for filtering and best-view selection before prior generation.
     warn_below = min(max_images, max(12, hard_min))

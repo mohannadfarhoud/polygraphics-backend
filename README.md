@@ -424,7 +424,7 @@ Stop-Service polyGraphicsBackend
 ## API
 
 - **`POST /jobs`** — multipart **`files`** in the body, optional **`job_id`**, optional **`capture_metadata`** (JSON text). Saves images under `uploads/{job_id}/`, writes metadata to `uploads/{job_id}/capture_metadata.json` when provided, and creates the job as **`PENDING`** (nothing runs until you start). Use this when the UI uploads first and starts processing later.
-- **`POST /jobs/{job_id}/start`** — begins the pipeline (**`PENDING` → `QUEUED` → …**). Minimum images depend on backend (for example, `ai_prior` + `instantmesh_local` accepts 1, and `ai_prior` + `command` with `ai_prior_force_prior_only=true` accepts 1; classic multi-view backends require 2+).
+- **`POST /jobs/{job_id}/start`** — begins the pipeline (**`PENDING` → `QUEUED` → …**). Requires at least **2 photos** from different angles (or a video that yields ≥2 good frames). Optional `ai_prior` + `command` with `ai_prior_force_prior_only=true` still accepts 1 image for external AI adapters only.
 - **`POST /jobs/reconstruct`** — convenience: **upload + start in one call** (same multipart fields; supports optional `capture_metadata` JSON text). Minimum images depend on active backend.
 - **`PUT /jobs/{job_id}/capture-metadata`** — upsert structured capture metadata as JSON body after a job exists (useful when mobile upload and metadata upload are separate operations).
 - **`GET /jobs/{job_id}/capture-metadata`** — fetch the stored capture metadata payload for debugging/analytics.

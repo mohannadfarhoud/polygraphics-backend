@@ -14,7 +14,7 @@ from .interfaces import JobRepository, JobStatus, WebSocketNotifier
 from .job_models import JobRecord, ModelListItem
 from . import jobs_db, try_on_db
 from .pipeline import JobCancelled, ReconstructionPipeline
-from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_images
+from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_images, satisfies_minimum_job_uploads
 
 
 def _mirror_masked_views_to_uploads(root_dir: Path, upload_dir: Path, masked_dir_name: str, job_id: str) -> None:
@@ -301,11 +301,12 @@ class JobManager:
         if job.status != JobStatus.PENDING:
             raise RuntimeError(f"Can only start a PENDING job; current status is {job.status.value}")
         settings = self.settings_store.load()
-        min_images = int(minimum_input_images(settings))
         paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < min_images:
+        if not satisfies_minimum_job_uploads(settings, self.upload_dir, job_id, len(paths)):
+            min_images = int(minimum_input_images(settings))
             raise RuntimeError(
-                f"Need at least {min_images} image(s) under uploads/{{job_id}}/ before starting"
+                f"Need at least {min_images} image(s) under uploads/{{job_id}}/ before starting "
+                "(or one video when video_input_enabled=true)"
             )
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
@@ -381,11 +382,12 @@ class JobManager:
                 f"Use reprocess for completed jobs. Cannot continue from status {job.status.value}"
             )
         settings = self.settings_store.load()
-        min_images = int(minimum_input_images(settings))
         paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < min_images:
+        if not satisfies_minimum_job_uploads(settings, self.upload_dir, job_id, len(paths)):
+            min_images = int(minimum_input_images(settings))
             raise RuntimeError(
-                f"Not enough input images to continue; need at least {min_images} image(s) under uploads/{{job_id}}/"
+                f"Not enough input images to continue; need at least {min_images} image(s) under uploads/{{job_id}}/ "
+                "(or one video when video_input_enabled=true)"
             )
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
@@ -412,11 +414,12 @@ class JobManager:
         if job.status == JobStatus.PENDING:
             raise RuntimeError("Job has not started yet; use POST /jobs/{job_id}/start")
         settings = self.settings_store.load()
-        min_images = int(minimum_input_images(settings))
         paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < min_images:
+        if not satisfies_minimum_job_uploads(settings, self.upload_dir, job_id, len(paths)):
+            min_images = int(minimum_input_images(settings))
             raise RuntimeError(
-                f"Not enough input images; need at least {min_images} image(s) under uploads/{{job_id}}/"
+                f"Not enough input images; need at least {min_images} image(s) under uploads/{{job_id}}/ "
+                "(or one video when video_input_enabled=true)"
             )
         self._cancel_events[job_id] = threading.Event()
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
@@ -579,13 +582,13 @@ class JobManager:
         if job.status != JobStatus.QUEUED:
             return
         settings = self.settings_store.load()
-        min_images = int(minimum_input_images(settings))
         paths = _sorted_input_images(self.upload_dir / job_id)
-        if len(paths) < min_images:
+        if not satisfies_minimum_job_uploads(settings, self.upload_dir, job_id, len(paths)):
+            min_images = int(minimum_input_images(settings))
             self.update_job(
                 job_id,
                 JobStatus.FAILED,
-                error=f"Not enough input images (need at least {min_images})",
+                error=f"Not enough input images (need at least {min_images}, or one video when video_input_enabled=true)",
             )
             return
         cancel_ev = self._cancel_events.setdefault(job_id, threading.Event())

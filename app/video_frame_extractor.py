@@ -1,8 +1,7 @@
-"""Video frame extraction and quality scoring for the InstantMesh pipeline.
+"""Video frame extraction and quality scoring for multi-view reconstruction.
 
 Uses FFmpeg (subprocess) to extract frames at a configurable rate, then scores
-each frame with a combined quality metric so the reconstruction stage receives
-the best possible single input image.
+each frame so the pipeline can keep diverse, sharp views for DUSt3R/MapAnything.
 """
 
 from __future__ import annotations

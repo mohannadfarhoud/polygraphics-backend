@@ -56,8 +56,6 @@ def _apply_local_overrides(settings_dict: dict) -> dict:
         ("dust3r_checkpoint_path", "POLYGRAPH_OVERRIDE_DUST3R_CHECKPOINT"),
         ("gs_repo_path", "POLYGRAPH_OVERRIDE_GS_REPO"),
         ("ai_prior_command", "POLYGRAPH_OVERRIDE_AI_PRIOR_COMMAND"),
-        ("ai_prior_instantmesh_repo_path", "POLYGRAPH_OVERRIDE_INSTANTMESH_REPO"),
-        ("ai_prior_instantmesh_python_executable", "POLYGRAPH_OVERRIDE_INSTANTMESH_PYTHON"),
         ("video_ffmpeg_binary", "POLYGRAPH_OVERRIDE_FFMPEG_BINARY"),
     )
     out = dict(settings_dict)
@@ -245,7 +243,12 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         from app.pipeline import ReconstructionPipeline
         from app.pipeline_ready import assert_pipeline_ready
         from app.reconstruction import Dust3RReconstructor
-        from app.runtime_settings import RuntimeSettings, effective_reconstruction_backend, minimum_input_images
+        from app.runtime_settings import (
+            RuntimeSettings,
+            assignment_satisfies_minimum_uploads,
+            effective_reconstruction_backend,
+            minimum_input_images,
+        )
         from app.segmentation import SamSegmenter
 
         from app.cuda_memory import bootstrap_worker_cuda
@@ -272,9 +275,10 @@ def _run_one_job(base: str, token: str, payload: dict, client: httpx.Client | No
         assert_pipeline_ready(settings)
 
         min_images = int(minimum_input_images(settings))
-        if len(image_urls) < min_images:
+        if not assignment_satisfies_minimum_uploads(settings, image_urls):
             raise RuntimeError(
-                f"Assignment lists {len(image_urls)} image URL(s); need at least {min_images}. "
+                f"Assignment lists {len(image_urls)} input URL(s); need at least {min_images} image(s), "
+                "or one video when video_input_enabled=true. "
                 "Confirm uploads finished and POST /jobs/{job_id}/start ran on the API."
             )
 

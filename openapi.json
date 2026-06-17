@@ -1501,7 +1501,7 @@
     "/jobs/video": {
       "post": {
         "summary": "Create Job From Video",
-        "description": "Accept a single video upload. Frames are extracted automatically when the job starts.\n\nRequires `video_input_enabled=true` in PUT /settings and `ai_prior_provider=instantmesh_local`\nso the pipeline knows to run frame extraction before reconstruction.",
+        "description": "Accept a single video upload. Frames are extracted automatically when the job starts.\n\nRequires `video_input_enabled=true` in PUT /settings. Frames are extracted at job start;\nreconstruction runs when at least 2 good frames remain after quality filtering.",
         "operationId": "create_job_from_video_jobs_video_post",
         "requestBody": {
           "content": {
@@ -1656,12 +1656,12 @@
       }
     },
     "/output/{full_path}": {
-      "get": {
+      "head": {
         "tags": [
           "files"
         ],
         "summary": "Files Output Root",
-        "operationId": "files_output_root_output__full_path__get",
+        "operationId": "files_output_root_output__full_path__head",
         "parameters": [
           {
             "name": "full_path",
@@ -1694,12 +1694,12 @@
           }
         }
       },
-      "head": {
+      "get": {
         "tags": [
           "files"
         ],
         "summary": "Files Output Root",
-        "operationId": "files_output_root_output__full_path__get",
+        "operationId": "files_output_root_output__full_path__head",
         "parameters": [
           {
             "name": "full_path",
@@ -1734,12 +1734,12 @@
       }
     },
     "/uploads/{full_path}": {
-      "get": {
+      "head": {
         "tags": [
           "files"
         ],
         "summary": "Files Uploads Root",
-        "operationId": "files_uploads_root_uploads__full_path__get",
+        "operationId": "files_uploads_root_uploads__full_path__head",
         "parameters": [
           {
             "name": "full_path",
@@ -1772,12 +1772,12 @@
           }
         }
       },
-      "head": {
+      "get": {
         "tags": [
           "files"
         ],
         "summary": "Files Uploads Root",
-        "operationId": "files_uploads_root_uploads__full_path__get",
+        "operationId": "files_uploads_root_uploads__full_path__head",
         "parameters": [
           {
             "name": "full_path",
@@ -2486,7 +2486,7 @@
               }
             ],
             "title": "Selected Frame Url",
-            "description": "URL of the frame chosen for 3D reconstruction (set for video/InstantMesh jobs). Derived per response; not persisted."
+            "description": "URL of a reference frame from reconstruction (e.g. video jobs). Derived per response; not persisted."
           },
           "capture_metadata_url": {
             "anyOf": [
@@ -3147,8 +3147,7 @@
             "type": "string",
             "enum": [
               "command",
-              "mock",
-              "instantmesh_local"
+              "mock"
             ],
             "title": "Ai Prior Provider",
             "default": "command"
@@ -3208,54 +3207,6 @@
             "type": "boolean",
             "title": "Ai Prior Force Prior Only",
             "default": false
-          },
-          "ai_prior_instantmesh_repo_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ai Prior Instantmesh Repo Path"
-          },
-          "ai_prior_instantmesh_python_executable": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ai Prior Instantmesh Python Executable"
-          },
-          "ai_prior_instantmesh_entry_script": {
-            "type": "string",
-            "title": "Ai Prior Instantmesh Entry Script",
-            "default": "run.py"
-          },
-          "ai_prior_instantmesh_args_template": {
-            "type": "string",
-            "title": "Ai Prior Instantmesh Args Template",
-            "default": "--input {input_image} --output-dir {output_dir}"
-          },
-          "instantmesh_post_process": {
-            "type": "boolean",
-            "title": "Instantmesh Post Process",
-            "default": true
-          },
-          "instantmesh_decimate_target": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Instantmesh Decimate Target"
           },
           "hybrid_refine_backend": {
             "type": "string",
