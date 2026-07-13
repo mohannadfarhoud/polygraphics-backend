@@ -75,7 +75,6 @@ class IsolationApiTests(unittest.TestCase):
         ds = self.client.post(
             "/isolation/datasets",
             json={"name": "picpolish-v1"},
-            headers=self.headers,
         )
         self.assertEqual(ds.status_code, 201, ds.text)
         dataset_id = ds.json()["dataset_id"]
@@ -87,12 +86,11 @@ class IsolationApiTests(unittest.TestCase):
         data = {"indices": "0"}
         up = self.client.post(
             f"/isolation/datasets/{dataset_id}/pairs",
-            headers=self.headers,
             data=data,
             files=files,
         )
         self.assertEqual(up.status_code, 200, up.text)
-        detail = self.client.get(f"/isolation/datasets/{dataset_id}", headers=self.headers)
+        detail = self.client.get(f"/isolation/datasets/{dataset_id}")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["pair_count"], 1)
         mask_path = self._root / "datasets" / "isolation" / dataset_id / "pairs" / "0" / "mask.png"
@@ -106,12 +104,11 @@ class IsolationApiTests(unittest.TestCase):
 
         mock_export.side_effect = _fake_export
 
-        ds = self.client.post("/isolation/datasets", json={"name": "train-set"}, headers=self.headers)
+        ds = self.client.post("/isolation/datasets", json={"name": "train-set"})
         dataset_id = ds.json()["dataset_id"]
         b, a = self._before_after_pair()
         self.client.post(
             f"/isolation/datasets/{dataset_id}/pairs",
-            headers=self.headers,
             data={"indices": "0,1"},
             files=[
                 ("before", ("b0.png", b, "image/png")),
@@ -122,7 +119,6 @@ class IsolationApiTests(unittest.TestCase):
         )
         train = self.client.post(
             "/isolation/train",
-            headers=self.headers,
             json={
                 "dataset_id": dataset_id,
                 "epochs": 2,
@@ -135,7 +131,7 @@ class IsolationApiTests(unittest.TestCase):
 
         final = None
         for _ in range(80):
-            got = self.client.get(f"/isolation/train/{job_id}", headers=self.headers)
+            got = self.client.get(f"/isolation/train/{job_id}")
             final = got.json()
             if final["status"] in ("completed", "failed"):
                 break
@@ -144,7 +140,7 @@ class IsolationApiTests(unittest.TestCase):
         model_id = final["model_id"]
         self.assertTrue(model_id)
 
-        act = self.client.post(f"/isolation/models/{model_id}/activate", headers=self.headers)
+        act = self.client.post(f"/isolation/models/{model_id}/activate")
         self.assertEqual(act.status_code, 200)
 
         fake_rgba = _png_bytes(
@@ -164,8 +160,14 @@ class IsolationApiTests(unittest.TestCase):
     def test_health_and_auth(self) -> None:
         h = self.client.get("/isolation/health")
         self.assertEqual(h.status_code, 200)
+        # Training endpoints are public; predict still requires auth.
         r = self.client.post("/isolation/datasets", json={"name": "x"})
-        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.status_code, 201, r.text)
+        pred = self.client.post(
+            "/isolation/predict",
+            files={"file": ("t.png", b"\x89PNG\r\n\x1a\n", "image/png")},
+        )
+        self.assertEqual(pred.status_code, 401)
 
 
 if __name__ == "__main__":

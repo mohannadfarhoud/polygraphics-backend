@@ -61,20 +61,17 @@ def isolation_quota(user: UserPublic = Depends(_current_user)) -> IsolationQuota
 
 
 @router.post("/isolation/datasets", response_model=IsolationDatasetSummary, status_code=201)
-def create_dataset(
-    body: IsolationDatasetCreate,
-    user: UserPublic = Depends(_current_user),
-) -> IsolationDatasetSummary:
-    return get_isolation_service().create_dataset(name=body.name, owner_user_id=user.user_id)
+def create_dataset(body: IsolationDatasetCreate) -> IsolationDatasetSummary:
+    return get_isolation_service().create_dataset(name=body.name, owner_user_id=None)
 
 
 @router.get("/isolation/datasets", response_model=list[IsolationDatasetSummary])
-def list_datasets(user: UserPublic = Depends(_current_user)) -> list[IsolationDatasetSummary]:
+def list_datasets() -> list[IsolationDatasetSummary]:
     return get_isolation_service().list_datasets()
 
 
 @router.get("/isolation/datasets/{dataset_id}", response_model=IsolationDatasetDetail)
-def get_dataset(dataset_id: str, user: UserPublic = Depends(_current_user)) -> IsolationDatasetDetail:
+def get_dataset(dataset_id: str) -> IsolationDatasetDetail:
     resp = get_isolation_service().get_dataset(dataset_id)
     if resp is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -82,7 +79,7 @@ def get_dataset(dataset_id: str, user: UserPublic = Depends(_current_user)) -> I
 
 
 @router.delete("/isolation/datasets/{dataset_id}", status_code=204)
-def delete_dataset(dataset_id: str, user: UserPublic = Depends(_current_user)) -> Response:
+def delete_dataset(dataset_id: str) -> Response:
     if not get_isolation_service().delete_dataset(dataset_id):
         raise HTTPException(status_code=404, detail="Dataset not found")
     return Response(status_code=204)
@@ -95,7 +92,6 @@ async def upload_pairs(
     before: list[UploadFile] = File(..., description="Before images (same order as indices)"),
     after: list[UploadFile] = File(..., description="After studio cutout images"),
     mask: list[UploadFile] | None = File(default=None, description="Optional explicit masks"),
-    user: UserPublic = Depends(_current_user),
 ) -> IsolationPairUploadResult:
     try:
         index_list = [int(x.strip()) for x in indices.split(",") if x.strip() != ""]
@@ -137,10 +133,7 @@ async def upload_pairs(
 
 
 @router.post("/isolation/train", response_model=IsolationTrainResponse, status_code=202)
-def start_train(
-    body: IsolationTrainRequest,
-    user: UserPublic = Depends(_current_user),
-) -> JSONResponse:
+def start_train(body: IsolationTrainRequest) -> JSONResponse:
     try:
         resp = get_isolation_service().start_train(
             dataset_id=body.dataset_id,
@@ -148,7 +141,7 @@ def start_train(
             epochs=body.epochs,
             val_split=body.val_split,
             force_min_pairs=body.force_min_pairs,
-            owner_user_id=user.user_id,
+            owner_user_id=None,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Dataset not found") from None
@@ -158,7 +151,7 @@ def start_train(
 
 
 @router.get("/isolation/train/{job_id}", response_model=IsolationTrainResponse)
-def get_train(job_id: str, user: UserPublic = Depends(_current_user)) -> IsolationTrainResponse:
+def get_train(job_id: str) -> IsolationTrainResponse:
     resp = get_isolation_service().get_train(job_id)
     if resp is None:
         raise HTTPException(status_code=404, detail="Train job not found")
@@ -166,12 +159,12 @@ def get_train(job_id: str, user: UserPublic = Depends(_current_user)) -> Isolati
 
 
 @router.get("/isolation/models", response_model=list[IsolationModelSummary])
-def list_models(user: UserPublic = Depends(_current_user)) -> list[IsolationModelSummary]:
+def list_models() -> list[IsolationModelSummary]:
     return get_isolation_service().list_models()
 
 
 @router.get("/isolation/models/active", response_model=IsolationModelSummary)
-def get_active_model(user: UserPublic = Depends(_current_user)) -> IsolationModelSummary:
+def get_active_model() -> IsolationModelSummary:
     resp = get_isolation_service().get_active_model()
     if resp is None:
         raise HTTPException(status_code=404, detail="No active isolation model")
@@ -179,7 +172,7 @@ def get_active_model(user: UserPublic = Depends(_current_user)) -> IsolationMode
 
 
 @router.post("/isolation/models/{model_id}/activate", response_model=IsolationModelSummary)
-def activate_model(model_id: str, user: UserPublic = Depends(_current_user)) -> IsolationModelSummary:
+def activate_model(model_id: str) -> IsolationModelSummary:
     try:
         return get_isolation_service().activate_model(model_id)
     except KeyError:
@@ -192,7 +185,6 @@ async def import_model(
     file: UploadFile = File(..., description="model.onnx"),
     dataset_id: str | None = Form(default=None),
     activate: bool = Form(default=False),
-    user: UserPublic = Depends(_current_user),
 ) -> IsolationModelSummary:
     raw = await file.read()
     if len(raw) < 1024:
@@ -202,7 +194,7 @@ async def import_model(
         onnx_bytes=raw,
         dataset_id=dataset_id,
         metrics={"imported": True},
-        owner_user_id=user.user_id,
+        owner_user_id=None,
         activate=activate,
     )
 

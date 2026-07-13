@@ -365,11 +365,11 @@ PicPolish uploads **before/after** image pairs; the API learns foreground masks 
 
 ### Flow
 
-1. **Create dataset** — `POST /isolation/datasets` with `{ "name": "..." }` (Bearer auth).
+1. **Create dataset** — `POST /isolation/datasets` with `{ "name": "..." }` (no auth).
 2. **Upload pairs** — `POST /isolation/datasets/{dataset_id}/pairs` (multipart: `indices`, `before[]`, `after[]`, optional `mask[]`). If no mask is sent, a binary mask is derived from the after image (non–near-white pixels).
 3. **Train** — `POST /isolation/train` with `{ "dataset_id", "base_model?", "epochs?", "val_split?" }`. Returns `{ job_id, status }`. Poll `GET /isolation/train/{job_id}` for metrics (IoU / precision / recall) and `model_id`.
 4. **Activate** — `POST /isolation/models/{model_id}/activate` sets the default model for predict.
-5. **Predict** — `POST /isolation/predict` with multipart `file` (and optional `model_id`). Returns `image/png` RGBA cutout (or `format=json` for URLs). Quota: `GET /isolation/quota`.
+5. **Predict** — `POST /isolation/predict` with multipart `file` (and optional `model_id`). Requires Bearer auth. Returns `image/png` RGBA cutout (or `format=json` for URLs). Quota: `GET /isolation/quota`.
 
 Health: `GET /isolation/health` (ONNX Runtime, active model).
 
@@ -399,8 +399,8 @@ python scripts/isolation_train_worker.py \
   --base-model isnet-general-use --epochs 20
 
 # Import ONNX without training (CPU smoke test):
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -F "file=@model.onnx" \
+curl -X POST \
+  -F "file=@model.onnx" -F "name=imported" -F "activate=true" \
   https://host/polygraph/isolation/models/import
 ```
 

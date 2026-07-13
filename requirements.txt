@@ -12,7 +12,7 @@ psutil
 python-dotenv
 httpx
 websockets
-rembg
+rembg[cpu]
 onnxruntime
 PyJWT
 google-auth

@@ -60,7 +60,38 @@ def invalidate_session() -> None:
         _SESSION_MODEL_PATH = None
 
 
-def _preprocess(image_bgr: np.ndarray, size: int = 320) -> tuple[np.ndarray, tuple[int, int]]:
+def _session_input_size(session) -> int:
+    """Infer spatial input size from ONNX graph (rembg ISNet uses 1024)."""
+    try:
+        shape = session.get_inputs()[0].shape
+        # typical: [1, 3, H, W] or [batch, 3, H, W]
+        if len(shape) >= 4:
+            h, w = shape[-2], shape[-1]
+            if isinstance(h, int) and isinstance(w, int) and h > 0 and w > 0:
+                return int(max(h, w))
+    except Exception:
+        pass
+    env = os.getenv("ISOLATION_INPUT_SIZE", "").strip()
+    if env.isdigit():
+        return int(env)
+    return 1024
+
+
+def _preprocess_isnet(image_bgr: np.ndarray, size: int) -> tuple[np.ndarray, tuple[int, int]]:
+    """Match rembg DisSession / isnet-general-use normalization."""
+    h, w = image_bgr.shape[:2]
+    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(rgb, (size, size), interpolation=cv2.INTER_LINEAR)
+    im_ary = resized.astype(np.float32)
+    im_ary = im_ary / max(float(np.max(im_ary)), 1e-6)
+    mean = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+    std = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+    tmp = (im_ary - mean) / std
+    arr = np.transpose(tmp, (2, 0, 1))[None, ...].astype(np.float32)
+    return arr, (h, w)
+
+
+def _preprocess_simple(image_bgr: np.ndarray, size: int = 320) -> tuple[np.ndarray, tuple[int, int]]:
     h, w = image_bgr.shape[:2]
     rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
     resized = cv2.resize(rgb, (size, size), interpolation=cv2.INTER_AREA)
@@ -69,7 +100,7 @@ def _preprocess(image_bgr: np.ndarray, size: int = 320) -> tuple[np.ndarray, tup
     return arr, (h, w)
 
 
-def _postprocess_mask(output: np.ndarray, original_hw: tuple[int, int]) -> np.ndarray:
+def _postprocess_mask(output: np.ndarray, original_hw: tuple[int, int], *, minmax: bool) -> np.ndarray:
     h, w = original_hw
     if output.ndim == 4:
         matte = output[0, 0]
@@ -77,7 +108,13 @@ def _postprocess_mask(output: np.ndarray, original_hw: tuple[int, int]) -> np.nd
         matte = output[0]
     else:
         matte = output
-    matte = np.clip(matte, 0.0, 1.0)
+    matte = matte.astype(np.float32)
+    if minmax:
+        ma = float(np.max(matte))
+        mi = float(np.min(matte))
+        matte = (matte - mi) / (ma - mi + 1e-8)
+    else:
+        matte = np.clip(matte, 0.0, 1.0)
     mask = (matte * 255.0).astype(np.uint8)
     mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
     _, binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
@@ -86,12 +123,22 @@ def _postprocess_mask(output: np.ndarray, original_hw: tuple[int, int]) -> np.nd
 
 def predict_mask(image_bgr: np.ndarray, *, model_path: Path) -> np.ndarray:
     session = get_or_load_session(model_path)
-    inp, hw = _preprocess(image_bgr)
+    size = _session_input_size(session)
+    # rembg isnet / DIS models use 1024 + min-max postprocess
+    use_isnet = size >= 512 or os.getenv("ISOLATION_PREPROCESS", "").strip().lower() in (
+        "isnet",
+        "rembg",
+        "dis",
+    )
+    if use_isnet:
+        inp, hw = _preprocess_isnet(image_bgr, size=size)
+    else:
+        inp, hw = _preprocess_simple(image_bgr, size=size)
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: inp})
     if not outputs:
         raise RuntimeError("ONNX session returned no outputs")
-    mask = _postprocess_mask(outputs[0], hw)
+    mask = _postprocess_mask(outputs[0], hw, minmax=use_isnet)
     if os.getenv("ISOLATION_MORPH_CLEANUP", "1").strip().lower() not in ("0", "false", "no"):
         mask = refine_mask(mask)
     return mask

@@ -90,29 +90,78 @@ def _evaluate_pairs(
     return mean_iou, float(precision), float(recall)
 
 
-def _export_rembg_onnx(base_model: str, dest: Path) -> None:
-    """Copy rembg cached ONNX weights to dest (v1 export for CPU inference)."""
-    from rembg import new_session
+def _rembg_session_class(base_model: str):
+    from rembg.sessions import sessions_class
 
-    session = new_session(base_model)
-    candidates: list[Path] = []
-    for obj in (session, getattr(session, "inner_session", None)):
-        if obj is None:
+    for sc in sessions_class:
+        try:
+            if sc.name() == base_model:
+                return sc
+        except Exception:
             continue
-        for attr in ("model_path", "path"):
-            val = getattr(obj, attr, None)
-            if val:
-                candidates.append(Path(str(val)))
+    raise ValueError(f"Unknown rembg base model {base_model!r}")
+
+
+def _u2net_home_candidates() -> list[Path]:
+    homes: list[Path] = []
+    env_home = os.getenv("U2NET_HOME", "").strip()
+    if env_home:
+        homes.append(Path(env_home).expanduser())
+    xdg = os.getenv("XDG_DATA_HOME", "").strip()
+    if xdg:
+        homes.append(Path(xdg).expanduser() / ".u2net")
+    homes.append(Path.home() / ".u2net")
+    # de-dupe while preserving order
+    out: list[Path] = []
+    seen: set[str] = set()
+    for h in homes:
+        key = str(h.resolve()) if h.exists() else str(h)
+        if key not in seen:
+            seen.add(key)
+            out.append(h)
+    return out
+
+
+def _export_rembg_onnx(base_model: str, dest: Path) -> None:
+    """Download/copy rembg ONNX weights to dest (v1 export for CPU inference)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    candidates: list[Path] = []
+
     env_path = os.getenv("ISOLATION_BASE_ONNX_PATH", "").strip()
     if env_path:
-        candidates.insert(0, Path(env_path))
+        candidates.append(Path(env_path).expanduser())
+
+    # rembg stores models as ~/.u2net/<model-name>.onnx (via pooch)
+    for home in _u2net_home_candidates():
+        candidates.append(home / f"{base_model}.onnx")
+
+    try:
+        sc = _rembg_session_class(base_model)
+        # Forces download into U2NET_HOME and returns absolute path.
+        downloaded = Path(sc.download_models())
+        candidates.insert(0, downloaded)
+        # Warm ORT session so subsequent eval/export paths are consistent.
+        from rembg import new_session
+
+        new_session(base_model)
+    except Exception as exc:
+        log.warning("rembg download/warm for %s failed: %s", base_model, exc)
+
     for path in candidates:
-        if path.is_file():
-            shutil.copyfile(path, dest)
-            return
+        try:
+            if path.is_file() and path.stat().st_size > 1024:
+                shutil.copyfile(path, dest)
+                log.info("exported rembg ONNX %s -> %s (%d bytes)", path, dest, dest.stat().st_size)
+                return
+        except OSError:
+            continue
+
+    searched = ", ".join(str(p) for p in candidates[:8])
     raise RuntimeError(
         f"Could not locate ONNX weights for rembg model {base_model!r}. "
-        "Warm rembg once or set ISOLATION_BASE_ONNX_PATH to a .onnx file."
+        f"Searched: {searched}. "
+        "Install rembg with ONNX Runtime (`pip install \"rembg[cpu]\" onnxruntime`), "
+        "or set ISOLATION_BASE_ONNX_PATH to a .onnx file."
     )
 
 
