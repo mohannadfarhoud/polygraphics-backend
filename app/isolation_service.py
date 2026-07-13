@@ -468,7 +468,7 @@ class IsolationService:
     def predict(
         self,
         *,
-        user_id: str,
+        user_id: str | None,
         image_bytes: bytes,
         model_id: str | None,
         return_json: bool,
@@ -479,7 +479,7 @@ class IsolationService:
         rgba_png, mask_png, latency_ms = predict_isolated_png(image_bytes, model_path=model_path)
         log.info(
             "isolation predict user=%s model=%s predict_id=%s latency_ms=%d",
-            user_id,
+            user_id or "anonymous",
             model_id or "active",
             predict_id,
             latency_ms,

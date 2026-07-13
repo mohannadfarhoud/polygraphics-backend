@@ -369,8 +369,10 @@ PicPolish uploads **before/after** image pairs; the API learns foreground masks 
 2. **Upload pairs** — `POST /isolation/datasets/{dataset_id}/pairs` (multipart: `indices`, `before[]`, `after[]`, optional `mask[]`). Append more pairs to the **same** dataset over time.
 3. **Train (incremental)** — `POST /isolation/train` with `{ "dataset_id", "grow_active": true }`.  
    Defaults: resume from the active model checkpoint, reuse the same `model_id`, auto-activate. Each successful train bumps `generation` (1 → 2 → 3…).
-4. **Predict** — `POST /isolation/predict` with multipart `file` (Bearer auth). Uses the active growing model. Returns RGBA PNG (or `format=json`).
+4. **Predict** — `POST /isolation/predict` with multipart `file` (**no auth**). Uses the active growing model. Returns RGBA PNG (or `format=json`).
 5. **See active model** — `GET /isolation/models/active` → `model_id`, `metrics.generation`, IoU.
+
+All `/isolation/*` public routes are **open** (no Bearer token) for now.
 
 
 Health: `GET /isolation/health` (ONNX Runtime, active model).

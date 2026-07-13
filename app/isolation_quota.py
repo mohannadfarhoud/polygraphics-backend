@@ -48,15 +48,27 @@ def init_schema(db_path: Path) -> None:
 
 
 def free_isolation_per_month() -> int:
-    raw = os.getenv("APP_FREE_ISOLATION_PER_MONTH", os.getenv("APP_FREE_MODELS_PER_MONTH", "100")).strip()
+    # 0 or negative = unlimited (public / no-auth mode).
+    raw = os.getenv("APP_FREE_ISOLATION_PER_MONTH", "0").strip()
     try:
-        return max(1, int(raw))
+        return int(raw)
     except ValueError:
-        return 100
+        return 0
 
 
 def get_isolation_quota(db_path: Path, user_id: str) -> IsolationQuotaStatus:
     year, month, start_ts, end_ts = current_month_bounds_utc()
+    limit = free_isolation_per_month()
+    if limit <= 0:
+        period_start = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        period_end = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        return IsolationQuotaStatus(
+            used=0,
+            limit=0,
+            remaining=999999,
+            period_start=period_start,
+            period_end=period_end,
+        )
     with _connect(db_path) as conn:
         row = conn.execute(
             """
@@ -66,7 +78,6 @@ def get_isolation_quota(db_path: Path, user_id: str) -> IsolationQuotaStatus:
             (user_id, start_ts, end_ts),
         ).fetchone()
     used = int(row[0] if row else 0)
-    limit = free_isolation_per_month()
     period_start = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
     period_end = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
     return IsolationQuotaStatus(
@@ -82,7 +93,13 @@ class IsolationQuotaExceededError(RuntimeError):
     pass
 
 
-def charge_isolation_predict(db_path: Path, *, user_id: str, predict_id: str) -> None:
+def charge_isolation_predict(db_path: Path, *, user_id: str | None, predict_id: str) -> None:
+    """No-op when auth/quota disabled (limit<=0) or user_id is None."""
+    if not user_id:
+        return
+    limit = free_isolation_per_month()
+    if limit <= 0:
+        return
     quota = get_isolation_quota(db_path, user_id)
     if quota.used >= quota.limit:
         raise IsolationQuotaExceededError(

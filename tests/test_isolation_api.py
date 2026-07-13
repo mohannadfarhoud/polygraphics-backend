@@ -150,24 +150,25 @@ class IsolationApiTests(unittest.TestCase):
         with patch("app.isolation_service.predict_isolated_png", return_value=(fake_rgba, fake_rgba, 12)):
             pred = self.client.post(
                 "/isolation/predict",
-                headers=self.headers,
                 files={"file": ("test.png", b, "image/png")},
             )
         self.assertEqual(pred.status_code, 200, pred.text)
         self.assertEqual(pred.headers.get("content-type"), "image/png")
         self.assertTrue(pred.content.startswith(b"\x89PNG"))
 
-    def test_health_and_auth(self) -> None:
+    def test_health_and_public_predict(self) -> None:
         h = self.client.get("/isolation/health")
         self.assertEqual(h.status_code, 200)
-        # Training endpoints are public; predict still requires auth.
+        # All isolation endpoints are public (no Bearer required).
         r = self.client.post("/isolation/datasets", json={"name": "x"})
         self.assertEqual(r.status_code, 201, r.text)
         pred = self.client.post(
             "/isolation/predict",
             files={"file": ("t.png", b"\x89PNG\r\n\x1a\n", "image/png")},
         )
-        self.assertEqual(pred.status_code, 401)
+        # 503 = no active model yet (auth is not required)
+        self.assertIn(pred.status_code, (503, 400))
+        self.assertNotEqual(pred.status_code, 401)
 
 
 if __name__ == "__main__":

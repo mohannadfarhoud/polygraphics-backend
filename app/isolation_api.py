@@ -1,15 +1,16 @@
-"""REST routes for PicPolish isolation dataset, training, and inference."""
+"""REST routes for PicPolish isolation dataset, training, and inference.
+
+All isolation endpoints are public (no authentication) for now.
+"""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
-from .auth_deps import get_current_user
-from .auth_models import UserPublic
 from .isolation_models import (
     IsolationDatasetCreate,
     IsolationDatasetDetail,
@@ -46,18 +47,15 @@ def get_isolation_service() -> IsolationService:
     return _service
 
 
-def _current_user(user: UserPublic = Depends(get_current_user)) -> UserPublic:
-    return user
-
-
 @router.get("/isolation/health", response_model=IsolationHealthResponse)
 def isolation_health() -> IsolationHealthResponse:
     return get_isolation_service().health()
 
 
 @router.get("/isolation/quota", response_model=IsolationQuotaStatus)
-def isolation_quota(user: UserPublic = Depends(_current_user)) -> IsolationQuotaStatus:
-    return get_isolation_service().get_quota(user.user_id)
+def isolation_quota() -> IsolationQuotaStatus:
+    # Public: report unlimited / anonymous quota status (no auth).
+    return get_isolation_service().get_quota("anonymous")
 
 
 @router.post("/isolation/datasets", response_model=IsolationDatasetSummary, status_code=201)
@@ -207,7 +205,6 @@ async def predict_isolation(
     file: UploadFile = File(...),
     model_id: str | None = Form(default=None),
     response_format: str = Query(default="png", alias="format", description="png or json"),
-    user: UserPublic = Depends(_current_user),
 ):
     raw = await file.read()
     if not raw:
@@ -215,7 +212,7 @@ async def predict_isolation(
     return_json = response_format.strip().lower() == "json"
     try:
         png, body, _latency = get_isolation_service().predict(
-            user_id=user.user_id,
+            user_id=None,
             image_bytes=raw,
             model_id=model_id,
             return_json=return_json,
