@@ -171,7 +171,7 @@ class TryOnApiTests(unittest.TestCase):
 
     def test_user_calibration_requires_header(self) -> None:
         r = self.client.get("/users/me/try-on-calibration")
-        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.status_code, 401)
         put = self.client.put(
             "/users/me/try-on-calibration",
             json={"left_offset": {"vertical": 0.01, "depth": 0, "lateral": 0}},

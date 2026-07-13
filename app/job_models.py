@@ -142,6 +142,14 @@ class JobRecord(BaseModel):
         default=None,
         description="Estimated orbit coverage in degrees from app metadata summary.",
     )
+    owner_user_id: str | None = Field(
+        default=None,
+        description="Authenticated user who owns this job and its 3D model.",
+    )
+    download_url: str | None = Field(
+        default=None,
+        description="Authenticated download URL for the generated model (derived per response).",
+    )
 
     @computed_field  # type: ignore[misc]
     @property
@@ -163,6 +171,10 @@ class ModelListItem(BaseModel):
     image_url: str | None = Field(
         default=None,
         description="URL of the first uploaded input image for this job (preview). Same construction as job.image_sample_url.",
+    )
+    download_url: str | None = Field(
+        default=None,
+        description="Authenticated download URL for this model file.",
     )
     size_bytes: int
     modified_at: float

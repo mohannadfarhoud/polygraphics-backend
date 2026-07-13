@@ -12,6 +12,280 @@
     }
   ],
   "paths": {
+    "/auth/google/login": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Google Login Redirect",
+        "description": "Start Google OAuth (browser redirect).",
+        "operationId": "google_login_redirect_auth_google_login_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/google/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Google Oauth Callback",
+        "description": "Complete Google OAuth redirect flow and issue an API access token.",
+        "operationId": "google_oauth_callback_auth_google_callback_get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "redirect",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "When true, redirect to frontend with token",
+              "default": true,
+              "title": "Redirect"
+            },
+            "description": "When true, redirect to frontend with token"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/google": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Google Sign In",
+        "description": "Register or log in with a Google Sign-In ID token from the frontend.",
+        "operationId": "google_sign_in_auth_google_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoogleIdTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Email Register",
+        "description": "Create an account with email and password (no email verification).",
+        "operationId": "email_register_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Email Login",
+        "description": "Sign in with email and password.",
+        "operationId": "email_login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailLoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthTokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Auth Me",
+        "operationId": "auth_me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPublic"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Auth Logout",
+        "operationId": "auth_logout_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthMessageResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/models/{job_id}/try-on": {
       "get": {
         "tags": [
@@ -19,6 +293,11 @@
         ],
         "summary": "Get Model Try On",
         "operationId": "get_model_try_on_models__job_id__try_on_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -75,6 +354,11 @@
         ],
         "summary": "Put Model Try On",
         "operationId": "put_model_try_on_models__job_id__try_on_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -143,6 +427,11 @@
         ],
         "summary": "Get Hanger Point",
         "operationId": "get_hanger_point_models__job_id__hanger_point_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -199,6 +488,11 @@
         ],
         "summary": "Put Hanger Point",
         "operationId": "put_hanger_point_models__job_id__hanger_point_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -267,6 +561,11 @@
         ],
         "summary": "Get User Try On Calibration",
         "operationId": "get_user_try_on_calibration_users_me_try_on_calibration_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "X-User-Id",
@@ -314,6 +613,11 @@
         ],
         "summary": "Put User Try On Calibration",
         "operationId": "put_user_try_on_calibration_users_me_try_on_calibration_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "X-User-Id",
@@ -373,6 +677,11 @@
         ],
         "summary": "Post Photo Compose",
         "operationId": "post_photo_compose_try_on_photo_compose_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "X-User-Id",
@@ -457,6 +766,692 @@
                 "schema": {
                   "$ref": "#/components/schemas/PhotoComposeResponse"
                 }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tripo/image-to-model": {
+      "post": {
+        "tags": [
+          "tripo"
+        ],
+        "summary": "Post Tripo Image To Model",
+        "operationId": "post_tripo_image_to_model_tripo_image_to_model_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_tripo_image_to_model_tripo_image_to_model_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Tripo job accepted; poll GET until completed, then download. Uses Tripo SDK when TRIPO_API_KEY is set; otherwise returns a placeholder GLB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripoImageToModelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tripo/image-to-model/{tripo_job_id}": {
+      "get": {
+        "tags": [
+          "tripo"
+        ],
+        "summary": "Get Tripo Image To Model",
+        "operationId": "get_tripo_image_to_model_tripo_image_to_model__tripo_job_id__get",
+        "parameters": [
+          {
+            "name": "tripo_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tripo Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripoImageToModelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tripo/image-to-model/{tripo_job_id}/download": {
+      "get": {
+        "tags": [
+          "tripo"
+        ],
+        "summary": "Download Tripo Model",
+        "operationId": "download_tripo_model_tripo_image_to_model__tripo_job_id__download_get",
+        "parameters": [
+          {
+            "name": "tripo_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tripo Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/health": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Isolation Health",
+        "operationId": "isolation_health_isolation_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationHealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/quota": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Isolation Quota",
+        "operationId": "isolation_quota_isolation_quota_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationQuotaStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/isolation/datasets": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "List Datasets",
+        "operationId": "list_datasets_isolation_datasets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IsolationDatasetSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Datasets Isolation Datasets Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Create Dataset",
+        "operationId": "create_dataset_isolation_datasets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IsolationDatasetCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationDatasetSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/isolation/datasets/{dataset_id}": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Get Dataset",
+        "operationId": "get_dataset_isolation_datasets__dataset_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationDatasetDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Delete Dataset",
+        "operationId": "delete_dataset_isolation_datasets__dataset_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/datasets/{dataset_id}/pairs": {
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Upload Pairs",
+        "operationId": "upload_pairs_isolation_datasets__dataset_id__pairs_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_pairs_isolation_datasets__dataset_id__pairs_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationPairUploadResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/train": {
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Start Train",
+        "operationId": "start_train_isolation_train_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IsolationTrainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationTrainResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/isolation/train/{job_id}": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Get Train",
+        "operationId": "get_train_isolation_train__job_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationTrainResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/models": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "List Models",
+        "operationId": "list_models_isolation_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IsolationModelSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Models Isolation Models Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/isolation/models/active": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Get Active Model",
+        "operationId": "get_active_model_isolation_models_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationModelSummary"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/isolation/models/{model_id}/activate": {
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Activate Model",
+        "operationId": "activate_model_isolation_models__model_id__activate_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationModelSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/models/import": {
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Import Model",
+        "operationId": "import_model_isolation_models_import_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_model_isolation_models_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationModelSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/isolation/predict": {
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Predict Isolation",
+        "operationId": "predict_isolation_isolation_predict_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "png or json",
+              "default": "png",
+              "title": "Format"
+            },
+            "description": "png or json"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_predict_isolation_isolation_predict_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -932,6 +1927,363 @@
         }
       }
     },
+    "/internal/worker/tripo/next": {
+      "get": {
+        "summary": "Internal Worker Tripo Next",
+        "description": "GPU worker polls for queued single-image TripoSR jobs (no Tripo cloud API key).",
+        "operationId": "internal_worker_tripo_next_internal_worker_tripo_next_get",
+        "parameters": [
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/tripo/{tripo_job_id}/complete": {
+      "post": {
+        "summary": "Internal Worker Tripo Complete",
+        "operationId": "internal_worker_tripo_complete_internal_worker_tripo__tripo_job_id__complete_post",
+        "parameters": [
+          {
+            "name": "tripo_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tripo Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_internal_worker_tripo_complete_internal_worker_tripo__tripo_job_id__complete_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Internal Worker Tripo Complete Internal Worker Tripo  Tripo Job Id  Complete Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/tripo/{tripo_job_id}/fail": {
+      "post": {
+        "summary": "Internal Worker Tripo Fail",
+        "operationId": "internal_worker_tripo_fail_internal_worker_tripo__tripo_job_id__fail_post",
+        "parameters": [
+          {
+            "name": "tripo_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tripo Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerFailBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Internal Worker Tripo Fail Internal Worker Tripo  Tripo Job Id  Fail Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/isolation/train/next": {
+      "get": {
+        "summary": "Internal Worker Isolation Train Next",
+        "operationId": "internal_worker_isolation_train_next_internal_worker_isolation_train_next_get",
+        "parameters": [
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/isolation/train/{job_id}/complete": {
+      "post": {
+        "summary": "Internal Worker Isolation Train Complete",
+        "operationId": "internal_worker_isolation_train_complete_internal_worker_isolation_train__job_id__complete_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_internal_worker_isolation_train_complete_internal_worker_isolation_train__job_id__complete_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Internal Worker Isolation Train Complete Internal Worker Isolation Train  Job Id  Complete Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/worker/isolation/train/{job_id}/fail": {
+      "post": {
+        "summary": "Internal Worker Isolation Train Fail",
+        "operationId": "internal_worker_isolation_train_fail_internal_worker_isolation_train__job_id__fail_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkerFailBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Internal Worker Isolation Train Fail Internal Worker Isolation Train  Job Id  Fail Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/job-stages": {
       "get": {
         "summary": "Job Stages",
@@ -1090,6 +2442,62 @@
         }
       }
     },
+    "/users/me/quota": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get My Quota",
+        "operationId": "get_my_quota_users_me_quota_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserQuotaStatus"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/users/me/models": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Get My Models",
+        "operationId": "get_my_models_users_me_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ModelListItem"
+                  },
+                  "type": "array",
+                  "title": "Response Get My Models Users Me Models Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/jobs": {
       "get": {
         "summary": "List Jobs",
@@ -1109,7 +2517,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "post": {
         "summary": "Create Job From Uploads",
@@ -1146,13 +2559,23 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/jobs/{job_id}": {
       "get": {
         "summary": "Get Job",
         "operationId": "get_job_jobs__job_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1191,6 +2614,11 @@
         "summary": "Delete Job",
         "description": "Delete a gallery/job item (job row + generated/uploaded artifacts).",
         "operationId": "delete_job_jobs__job_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1226,10 +2654,60 @@
         }
       }
     },
+    "/jobs/{job_id}/download": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Download Job Model",
+        "operationId": "download_job_model_jobs__job_id__download_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/jobs/{job_id}/capture-metadata": {
       "get": {
         "summary": "Get Job Capture Metadata",
         "operationId": "get_job_capture_metadata_jobs__job_id__capture_metadata_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1269,6 +2747,11 @@
       "put": {
         "summary": "Put Job Capture Metadata",
         "operationId": "put_job_capture_metadata_jobs__job_id__capture_metadata_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1324,6 +2807,11 @@
         "summary": "Job Masked Preview",
         "description": "Browse SAM-isolated RGB frames (same files as ``masked_view_urls`` on ``GET /jobs/{job_id}``).",
         "operationId": "job_masked_preview_jobs__job_id__masked_preview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1363,6 +2851,11 @@
       "post": {
         "summary": "Stop Job",
         "operationId": "stop_job_jobs__job_id__stop_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1402,6 +2895,11 @@
       "post": {
         "summary": "Continue Job",
         "operationId": "continue_job_jobs__job_id__continue_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1441,6 +2939,11 @@
       "post": {
         "summary": "Reprocess Job",
         "operationId": "reprocess_job_jobs__job_id__reprocess_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1495,7 +2998,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/jobs/video": {
@@ -1534,7 +3042,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/jobs/video/reconstruct": {
@@ -1573,7 +3086,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/jobs/{job_id}/start": {
@@ -1581,6 +3099,11 @@
         "summary": "Start Job",
         "description": "Begin processing for a PENDING job (minimum image count depends on active backend).",
         "operationId": "start_job_jobs__job_id__start_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "job_id",
@@ -1652,16 +3175,26 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/output/{full_path}": {
-      "head": {
+      "get": {
         "tags": [
           "files"
         ],
         "summary": "Files Output Root",
-        "operationId": "files_output_root_output__full_path__head",
+        "operationId": "files_output_root_output__full_path__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "full_path",
@@ -1694,12 +3227,17 @@
           }
         }
       },
-      "get": {
+      "head": {
         "tags": [
           "files"
         ],
         "summary": "Files Output Root",
-        "operationId": "files_output_root_output__full_path__head",
+        "operationId": "files_output_root_output__full_path__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "full_path",
@@ -1734,12 +3272,12 @@
       }
     },
     "/uploads/{full_path}": {
-      "head": {
+      "get": {
         "tags": [
           "files"
         ],
         "summary": "Files Uploads Root",
-        "operationId": "files_uploads_root_uploads__full_path__head",
+        "operationId": "files_uploads_root_uploads__full_path__get",
         "parameters": [
           {
             "name": "full_path",
@@ -1772,12 +3310,12 @@
           }
         }
       },
-      "get": {
+      "head": {
         "tags": [
           "files"
         ],
         "summary": "Files Uploads Root",
-        "operationId": "files_uploads_root_uploads__full_path__head",
+        "operationId": "files_uploads_root_uploads__full_path__get",
         "parameters": [
           {
             "name": "full_path",
@@ -1814,6 +3352,47 @@
   },
   "components": {
     "schemas": {
+      "AuthMessageResponse": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "AuthMessageResponse"
+      },
+      "AuthTokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Token lifetime in seconds"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserPublic"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "expires_in",
+          "user"
+        ],
+        "title": "AuthTokenResponse"
+      },
       "Body_create_job_from_uploads_jobs_post": {
         "properties": {
           "files": {
@@ -1881,6 +3460,42 @@
         ],
         "title": "Body_create_job_from_video_jobs_video_post"
       },
+      "Body_import_model_isolation_models_import_post": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "description": "model.onnx"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "activate": {
+            "type": "boolean",
+            "title": "Activate",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "file"
+        ],
+        "title": "Body_import_model_isolation_models_import_post"
+      },
       "Body_internal_worker_comparison_glb_internal_worker_jobs__job_id__comparison_glb_post": {
         "properties": {
           "variant": {
@@ -1920,6 +3535,30 @@
         ],
         "title": "Body_internal_worker_complete_internal_worker_jobs__job_id__complete_post"
       },
+      "Body_internal_worker_isolation_train_complete_internal_worker_isolation_train__job_id__complete_post": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "metrics_json": {
+            "type": "string",
+            "title": "Metrics Json",
+            "default": "{}"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "file"
+        ],
+        "title": "Body_internal_worker_isolation_train_complete_internal_worker_isolation_train__job_id__complete_post"
+      },
       "Body_internal_worker_masked_views_internal_worker_jobs__job_id__masked_views_post": {
         "properties": {
           "files": {
@@ -1936,6 +3575,20 @@
           "files"
         ],
         "title": "Body_internal_worker_masked_views_internal_worker_jobs__job_id__masked_views_post"
+      },
+      "Body_internal_worker_tripo_complete_internal_worker_tripo__tripo_job_id__complete_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_internal_worker_tripo_complete_internal_worker_tripo__tripo_job_id__complete_post"
       },
       "Body_post_photo_compose_try_on_photo_compose_post": {
         "properties": {
@@ -2002,6 +3655,46 @@
         ],
         "title": "Body_post_photo_compose_try_on_photo_compose_post"
       },
+      "Body_post_tripo_image_to_model_tripo_image_to_model_post": {
+        "properties": {
+          "image": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Image",
+            "description": "Single product/object photo (JPEG, PNG, or WebP)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "image"
+        ],
+        "title": "Body_post_tripo_image_to_model_tripo_image_to_model_post"
+      },
+      "Body_predict_isolation_isolation_predict_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_predict_isolation_isolation_predict_post"
+      },
       "Body_reconstruct_from_video_jobs_video_reconstruct_post": {
         "properties": {
           "video": {
@@ -2067,6 +3760,56 @@
           "files"
         ],
         "title": "Body_reconstruct_jobs_reconstruct_post"
+      },
+      "Body_upload_pairs_isolation_datasets__dataset_id__pairs_post": {
+        "properties": {
+          "indices": {
+            "type": "string",
+            "title": "Indices",
+            "description": "Comma-separated pair indices, e.g. 0,1,2"
+          },
+          "before": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Before",
+            "description": "Before images (same order as indices)"
+          },
+          "after": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "After",
+            "description": "After studio cutout images"
+          },
+          "mask": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "contentMediaType": "application/octet-stream"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask",
+            "description": "Optional explicit masks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "indices",
+          "before",
+          "after"
+        ],
+        "title": "Body_upload_pairs_isolation_datasets__dataset_id__pairs_post"
       },
       "CaptureMetadataUpsertResult": {
         "properties": {
@@ -2159,6 +3902,88 @@
         ],
         "title": "DeleteJobResult"
       },
+      "EmailLoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "EmailLoginRequest"
+      },
+      "EmailRegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email",
+            "description": "Account email (not verified at signup)"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "Password",
+            "description": "Password (min 8 characters)"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Optional display name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "EmailRegisterRequest"
+      },
+      "GoogleIdTokenRequest": {
+        "properties": {
+          "id_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Token",
+            "description": "Google Sign-In ID token"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "description": "Alias for id_token (GIS button payload)"
+          }
+        },
+        "type": "object",
+        "title": "GoogleIdTokenRequest"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2195,6 +4020,418 @@
         ],
         "title": "HangerPointBody",
         "description": "Backward-compatible hanger-only body (``{ x, y, z }``)."
+      },
+      "IsolationDatasetCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "IsolationDatasetCreate"
+      },
+      "IsolationDatasetDetail": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pair_count": {
+            "type": "integer",
+            "title": "Pair Count"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "pairs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Pairs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "name",
+          "pair_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "IsolationDatasetDetail"
+      },
+      "IsolationDatasetSummary": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pair_count": {
+            "type": "integer",
+            "title": "Pair Count"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "name",
+          "pair_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "IsolationDatasetSummary"
+      },
+      "IsolationHealthResponse": {
+        "properties": {
+          "onnxruntime_ok": {
+            "type": "boolean",
+            "title": "Onnxruntime Ok"
+          },
+          "model_loaded": {
+            "type": "boolean",
+            "title": "Model Loaded"
+          },
+          "active_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Model Id"
+          },
+          "active_model_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Model Path"
+          }
+        },
+        "type": "object",
+        "required": [
+          "onnxruntime_ok",
+          "model_loaded"
+        ],
+        "title": "IsolationHealthResponse"
+      },
+      "IsolationModelSummary": {
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": false
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsolationTrainMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model_id",
+          "name",
+          "created_at"
+        ],
+        "title": "IsolationModelSummary"
+      },
+      "IsolationPairUploadResult": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "uploaded": {
+            "type": "integer",
+            "title": "Uploaded"
+          },
+          "pair_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Pair Indices"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "uploaded",
+          "pair_indices"
+        ],
+        "title": "IsolationPairUploadResult"
+      },
+      "IsolationQuotaStatus": {
+        "properties": {
+          "used": {
+            "type": "integer",
+            "title": "Used"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "remaining": {
+            "type": "integer",
+            "title": "Remaining"
+          },
+          "period_start": {
+            "type": "string",
+            "title": "Period Start"
+          },
+          "period_end": {
+            "type": "string",
+            "title": "Period End"
+          }
+        },
+        "type": "object",
+        "required": [
+          "used",
+          "limit",
+          "remaining",
+          "period_start",
+          "period_end"
+        ],
+        "title": "IsolationQuotaStatus"
+      },
+      "IsolationTrainMetrics": {
+        "properties": {
+          "iou": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iou"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "val_pairs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Pairs"
+          },
+          "train_pairs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Pairs"
+          },
+          "base_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Model"
+          }
+        },
+        "type": "object",
+        "title": "IsolationTrainMetrics"
+      },
+      "IsolationTrainRequest": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "base_model": {
+            "type": "string",
+            "title": "Base Model",
+            "description": "rembg-compatible base model name",
+            "default": "isnet-general-use"
+          },
+          "epochs": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Epochs",
+            "default": 20
+          },
+          "val_split": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.05,
+            "title": "Val Split",
+            "default": 0.2
+          },
+          "force_min_pairs": {
+            "type": "boolean",
+            "title": "Force Min Pairs",
+            "description": "Allow training with fewer than 20 pairs (testing only).",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataset_id"
+        ],
+        "title": "IsolationTrainRequest"
+      },
+      "IsolationTrainResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IsolationTrainStatus"
+          },
+          "progress": {
+            "type": "integer",
+            "title": "Progress",
+            "default": 0
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsolationTrainMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "IsolationTrainResponse"
+      },
+      "IsolationTrainStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed"
+        ],
+        "title": "IsolationTrainStatus"
       },
       "JewelryType": {
         "type": "string",
@@ -2560,6 +4797,30 @@
             "title": "Capture Orbit Coverage Deg",
             "description": "Estimated orbit coverage in degrees from app metadata summary."
           },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id",
+            "description": "Authenticated user who owns this job and its 3D model."
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url",
+            "description": "Authenticated download URL for the generated model (derived per response)."
+          },
           "created_at_iso": {
             "type": "string",
             "title": "Created At Iso",
@@ -2620,6 +4881,18 @@
             ],
             "title": "Image Url",
             "description": "URL of the first uploaded input image for this job (preview). Same construction as job.image_sample_url."
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url",
+            "description": "Authenticated download URL for this model file."
           },
           "size_bytes": {
             "type": "integer",
@@ -3894,6 +6167,69 @@
         "type": "object",
         "title": "RuntimeSettings"
       },
+      "TripoImageToModelResponse": {
+        "properties": {
+          "tripo_job_id": {
+            "type": "string",
+            "title": "Tripo Job Id",
+            "description": "PolyGraphics Tripo job id (poll this endpoint)."
+          },
+          "status": {
+            "$ref": "#/components/schemas/TripoJobStatus"
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url",
+            "description": "Relative API path to download the GLB when status is completed."
+          },
+          "tripo_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tripo Task Id",
+            "description": "Tripo cloud task id when known."
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tripo_job_id",
+          "status"
+        ],
+        "title": "TripoImageToModelResponse"
+      },
+      "TripoJobStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "processing",
+          "completed",
+          "failed"
+        ],
+        "title": "TripoJobStatus"
+      },
       "TryOnEarOffsets": {
         "properties": {
           "vertical": {
@@ -3959,6 +6295,83 @@
         },
         "type": "object",
         "title": "TryOnSideLateralNudge"
+      },
+      "UserPublic": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "picture_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Picture Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "email"
+        ],
+        "title": "UserPublic"
+      },
+      "UserQuotaStatus": {
+        "properties": {
+          "used": {
+            "type": "integer",
+            "title": "Used",
+            "description": "Reconstructions started this calendar month (UTC)."
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit",
+            "description": "Free monthly reconstruction limit."
+          },
+          "remaining": {
+            "type": "integer",
+            "title": "Remaining"
+          },
+          "period_start": {
+            "type": "string",
+            "title": "Period Start",
+            "description": "UTC month start (ISO date)."
+          },
+          "period_end": {
+            "type": "string",
+            "title": "Period End",
+            "description": "UTC month end exclusive (ISO date)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "used",
+          "limit",
+          "remaining",
+          "period_start",
+          "period_end"
+        ],
+        "title": "UserQuotaStatus"
       },
       "UserTryOnCalibration": {
         "properties": {
@@ -4077,6 +6490,18 @@
         },
         "type": "object",
         "title": "WorkerProgressBody"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Google sign-in access token from POST /auth/google or GET /auth/google/callback."
       }
     }
   }

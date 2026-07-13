@@ -27,6 +27,7 @@ import shutil
 import sys
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlparse, urlunparse
@@ -465,6 +466,126 @@ def _poll_next(client: httpx.Client, base: str, token: str) -> httpx.Response:
     )
 
 
+def _poll_tripo_next(client: httpx.Client, base: str, token: str) -> httpx.Response:
+    return client.get(
+        f"{base.rstrip('/')}/internal/worker/tripo/next",
+        headers=_headers(token),
+        timeout=120.0,
+    )
+
+
+def _poll_isolation_train_next(client: httpx.Client, base: str, token: str) -> httpx.Response:
+    return client.get(
+        f"{base.rstrip('/')}/internal/worker/isolation/train/next",
+        headers=_headers(token),
+        timeout=120.0,
+    )
+
+
+def _sync_triposr_env_from_worker() -> None:
+    mapping = (
+        ("TRIPO_TRIPOSR_REPO", "POLYGRAPH_OVERRIDE_TRIPOSR_REPO"),
+        ("TRIPO_TRIPOSR_PYTHON", "POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON"),
+    )
+    for dst, src in mapping:
+        val = os.getenv(src, "").strip()
+        if val:
+            os.environ[dst] = val
+
+
+def _run_one_tripo_job(base: str, token: str, payload: dict, client: httpx.Client) -> None:
+    tripo_job_id = str(payload.get("tripo_job_id") or "")
+    image_url = str(payload.get("image_url") or "")
+    if not tripo_job_id or not image_url:
+        raise RuntimeError("Invalid Tripo worker payload (missing tripo_job_id or image_url)")
+
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    _sync_triposr_env_from_worker()
+    work = _make_worker_job_dir(f"tripo-{tripo_job_id[:8]}")
+    try:
+        from app.tripo_triposr import run_triposr_local
+
+        full = image_url if image_url.startswith("http") else f"{base.rstrip('/')}{image_url}"
+        resp = client.get(full, timeout=120.0)
+        resp.raise_for_status()
+        image_path = work / "input.jpg"
+        image_path.write_bytes(resp.content)
+        output_path = work / "model.glb"
+        print(f"[polygraph-worker] tripo {tripo_job_id}: running TripoSR on {len(resp.content)} byte image", flush=True)
+        run_triposr_local(image_path=image_path, output_path=output_path)
+        glb = output_path.read_bytes()
+        up = client.post(
+            f"{base.rstrip('/')}/internal/worker/tripo/{tripo_job_id}/complete",
+            headers=_headers(token),
+            files={"file": (f"{tripo_job_id}.glb", glb, "model/gltf-binary")},
+            timeout=600.0,
+        )
+        if up.status_code >= 400:
+            raise RuntimeError(f"Tripo complete upload failed HTTP {up.status_code}: {(up.text or '')[:300]}")
+        print(f"[polygraph-worker] tripo {tripo_job_id}: uploaded GLB ({len(glb)} bytes)", flush=True)
+    except Exception as exc:
+        try:
+            client.post(
+                f"{base.rstrip('/')}/internal/worker/tripo/{tripo_job_id}/fail",
+                headers=_headers(token),
+                json={"error": str(exc)},
+                timeout=60.0,
+            )
+        except Exception:
+            pass
+        raise
+    finally:
+        if not _env_truthy("POLYGRAPH_WORKER_PRESERVE_WORKDIR"):
+            shutil.rmtree(work, ignore_errors=True)
+
+
+def _run_one_isolation_train_job(base: str, token: str, payload: dict, client: httpx.Client) -> None:
+    job_id = str(payload["job_id"])
+    model_id = str(payload["model_id"])
+    zip_url = str(payload["dataset_zip_url"])
+    if not zip_url.startswith("http"):
+        zip_url = f"{base.rstrip('/')}{zip_url}"
+
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    work = Path(tempfile.mkdtemp(prefix="iso-train-"))
+    try:
+        from app.isolation_train import run_training_job
+
+        zpath = work / "dataset.zip"
+        zr = client.get(zip_url, timeout=600.0)
+        zr.raise_for_status()
+        zpath.write_bytes(zr.content)
+        extract = work / "dataset"
+        extract.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zpath) as zf:
+            zf.extractall(extract)
+        out_dir = work / "output"
+        metrics = run_training_job(
+            dataset_dir=extract,
+            output_dir=out_dir,
+            base_model=str(payload.get("base_model") or "isnet-general-use"),
+            epochs=int(payload.get("epochs") or 20),
+            val_split=float(payload.get("val_split") or 0.2),
+        )
+        onnx = (out_dir / "model.onnx").read_bytes()
+        up = client.post(
+            f"{base.rstrip('/')}/internal/worker/isolation/train/{job_id}/complete",
+            headers=_headers(token),
+            data={"model_id": model_id, "metrics_json": json.dumps(metrics)},
+            files={"file": ("model.onnx", onnx, "application/octet-stream")},
+        )
+        up.raise_for_status()
+    finally:
+        if not _env_truthy("POLYGRAPH_WORKER_PRESERVE_WORKDIR"):
+            shutil.rmtree(work, ignore_errors=True)
+
+
 async def _consume_payloads(
     base: str,
     token: str,
@@ -478,6 +599,43 @@ async def _consume_payloads(
         payload = await queue.get()
         websocket_may_connect.clear()
         await active_ws.close_if_open()
+        kind = payload.get("kind")
+        if kind == "tripo_image_to_model":
+            tripo_job_id = payload.get("tripo_job_id")
+            try:
+                print(f"[polygraph-worker] running tripo job {tripo_job_id}", flush=True)
+                await asyncio.to_thread(_run_one_tripo_job, base, token, payload, client)
+                print(f"[polygraph-worker] finished tripo job {tripo_job_id}", flush=True)
+            except Exception as exc:
+                print(f"[polygraph-worker] tripo job error: {exc}", flush=True)
+            finally:
+                websocket_may_connect.set()
+            continue
+
+        if kind == "isolation_train":
+            job_id = payload.get("job_id")
+            try:
+                print(f"[polygraph-worker] running isolation train {job_id}", flush=True)
+                await asyncio.to_thread(_run_one_isolation_train_job, base, token, payload, client)
+                print(f"[polygraph-worker] finished isolation train {job_id}", flush=True)
+            except Exception as exc:
+                print(f"[polygraph-worker] isolation train error: {exc}", flush=True)
+                if job_id:
+                    try:
+                        await asyncio.to_thread(
+                            lambda: client.post(
+                                f"{base.rstrip('/')}/internal/worker/isolation/train/{job_id}/fail",
+                                headers=_headers(token),
+                                json={"error": str(exc)},
+                                timeout=60.0,
+                            )
+                        )
+                    except Exception:
+                        pass
+            finally:
+                websocket_may_connect.set()
+            continue
+
         job_id = payload.get("job_id")
         try:
             print(f"[polygraph-worker] running job {job_id}", flush=True)
@@ -629,7 +787,22 @@ async def _poll_feed(base: str, token: str, queue: asyncio.Queue, client: httpx.
         try:
             r = await asyncio.to_thread(_poll_next, client, base, token)
             if r.status_code == 204:
-                pass
+                tr = await asyncio.to_thread(_poll_tripo_next, client, base, token)
+                if tr.status_code == 200:
+                    await queue.put(tr.json())
+                elif tr.status_code not in (204,):
+                    body = (tr.text or "")[:300]
+                    print(f"[polygraph-worker] poll /tripo/next -> {tr.status_code} {body}", flush=True)
+                else:
+                    ir = await asyncio.to_thread(_poll_isolation_train_next, client, base, token)
+                    if ir.status_code == 200:
+                        await queue.put(ir.json())
+                    elif ir.status_code not in (204,):
+                        body = (ir.text or "")[:300]
+                        print(
+                            f"[polygraph-worker] poll /isolation/train/next -> {ir.status_code} {body}",
+                            flush=True,
+                        )
             elif r.status_code != 200:
                 body = (r.text or "")[:300]
                 print(f"[polygraph-worker] poll /next -> {r.status_code} {body}", flush=True)

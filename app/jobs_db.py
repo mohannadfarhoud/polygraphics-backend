@@ -4,7 +4,8 @@ import json
 import sqlite3
 from pathlib import Path
 
-from . import try_on_db
+from . import quota_db, try_on_db
+from . import isolation_db
 from .interfaces import JobStatus
 from .job_models import JobRecord
 
@@ -32,6 +33,9 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN model_format TEXT")
     if "progress" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN progress INTEGER")
+    if "owner_user_id" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN owner_user_id TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_owner_user_id ON jobs(owner_user_id)")
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -52,9 +56,12 @@ def init_and_migrate(db_path: Path, root_dir: Path) -> None:
         _ensure_columns(conn)
         conn.commit()
     try_on_db.init_schema(db_path)
-    from . import photo_compose_db
+    from . import auth_db, photo_compose_db
 
+    auth_db.init_schema(db_path)
+    quota_db.init_schema(db_path)
     photo_compose_db.init_schema(db_path)
+    isolation_db.init_schema(db_path)
 
     json_path = root_dir / "config" / "jobs.json"
     if not json_path.is_file():
@@ -95,6 +102,9 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     progress: int | None = None
     if "progress" in keys and row["progress"] is not None:
         progress = int(row["progress"])
+    owner_user_id: str | None = None
+    if "owner_user_id" in keys and row["owner_user_id"]:
+        owner_user_id = str(row["owner_user_id"])
     return {
         "job_id": row["job_id"],
         "status": row["status"],
@@ -106,6 +116,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
         "image_count": int(row["image_count"]),
         "created_at": float(row["created_at"]),
         "updated_at": float(row["updated_at"]),
+        "owner_user_id": owner_user_id,
     }
 
 
@@ -114,8 +125,8 @@ def _save_record_conn(conn: sqlite3.Connection, rec: JobRecord) -> None:
     conn.execute(
         """
         INSERT OR REPLACE INTO jobs
-        (job_id, status, stage, progress, model_url, model_format, error, image_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (job_id, status, stage, progress, model_url, model_format, error, image_count, created_at, updated_at, owner_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             rec.job_id,
@@ -128,6 +139,7 @@ def _save_record_conn(conn: sqlite3.Connection, rec: JobRecord) -> None:
             int(rec.image_count),
             float(rec.created_at),
             float(rec.updated_at),
+            rec.owner_user_id,
         ),
     )
 
@@ -141,10 +153,39 @@ def get_job(db_path: Path, job_id: str) -> JobRecord | None:
         return JobRecord.model_validate(_row_to_dict(row))
 
 
-def list_jobs(db_path: Path) -> list[JobRecord]:
+def list_jobs(db_path: Path, *, owner_user_id: str | None = None) -> list[JobRecord]:
     with _connect(db_path) as conn:
-        cur = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+        if owner_user_id:
+            cur = conn.execute(
+                "SELECT * FROM jobs WHERE owner_user_id = ? ORDER BY created_at DESC",
+                (owner_user_id,),
+            )
+        else:
+            cur = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC")
         return [JobRecord.model_validate(_row_to_dict(r)) for r in cur.fetchall()]
+
+
+def get_job_owner(db_path: Path, job_id: str) -> str | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT owner_user_id FROM jobs WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+    if not row or not row["owner_user_id"]:
+        return None
+    return str(row["owner_user_id"])
+
+
+def set_job_owner_if_unset(db_path: Path, job_id: str, owner_user_id: str) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE jobs SET owner_user_id = ?
+            WHERE job_id = ? AND (owner_user_id IS NULL OR owner_user_id = '')
+            """,
+            (owner_user_id, job_id),
+        )
+        conn.commit()
 
 
 def count_jobs_by_status(db_path: Path) -> dict[str, int]:

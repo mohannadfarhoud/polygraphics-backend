@@ -14,4 +14,7 @@ httpx
 websockets
 rembg
 onnxruntime
-Pillow
+PyJWT
+google-auth
+bcrypt
+tripo3d

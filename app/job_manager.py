@@ -15,6 +15,7 @@ from .job_models import JobRecord, ModelListItem
 from . import jobs_db, try_on_db
 from .pipeline import JobCancelled, ReconstructionPipeline
 from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_images, satisfies_minimum_job_uploads
+from .user_quota import QuotaExceededError, charge_reconstruction_start
 
 
 def _mirror_masked_views_to_uploads(root_dir: Path, upload_dir: Path, masked_dir_name: str, job_id: str) -> None:
@@ -141,9 +142,21 @@ class JobManager:
         with self._lock:
             return jobs_db.get_job(self._db_path, job_id)
 
-    def list_jobs(self) -> list[JobRecord]:
+    def list_jobs(self, *, owner_user_id: str | None = None) -> list[JobRecord]:
         with self._lock:
-            return jobs_db.list_jobs(self._db_path)
+            return jobs_db.list_jobs(self._db_path, owner_user_id=owner_user_id)
+
+    def get_job_owner(self, job_id: str) -> str | None:
+        with self._lock:
+            return jobs_db.get_job_owner(self._db_path, job_id)
+
+    def bind_job_owner(self, job_id: str, owner_user_id: str) -> None:
+        with self._lock:
+            jobs_db.set_job_owner_if_unset(self._db_path, job_id, owner_user_id)
+            job = jobs_db.get_job(self._db_path, job_id)
+            if job is not None and not job.owner_user_id:
+                job.owner_user_id = owner_user_id
+                jobs_db.save_record(self._db_path, job)
 
     def upsert_job(self, record: JobRecord) -> JobRecord:
         with self._lock:
@@ -287,19 +300,29 @@ class JobManager:
             except Exception:
                 pass
 
-    def create_job_pending(self, job_id: str, image_count: int) -> JobRecord:
+    def create_job_pending(self, job_id: str, image_count: int, *, owner_user_id: str | None = None) -> JobRecord:
         """Register uploads only; processing starts after start_job()."""
-        rec = JobRecord(job_id=job_id, status=JobStatus.PENDING, image_count=image_count)
+        rec = JobRecord(job_id=job_id, status=JobStatus.PENDING, image_count=image_count, owner_user_id=owner_user_id)
         self.upsert_job(rec)
         return self.get_job(job_id) or rec
 
-    def start_job(self, job_id: str) -> JobRecord:
+    def _charge_quota_if_needed(self, job_id: str, *, owner_user_id: str | None) -> None:
+        if not owner_user_id:
+            return
+        charge_reconstruction_start(self._db_path, user_id=owner_user_id, job_id=job_id)
+
+    def start_job(self, job_id: str, *, owner_user_id: str | None = None) -> JobRecord:
         """Move PENDING → QUEUED and run the worker."""
         job = self.get_job(job_id)
         if not job:
             raise KeyError(job_id)
         if job.status != JobStatus.PENDING:
             raise RuntimeError(f"Can only start a PENDING job; current status is {job.status.value}")
+        effective_owner = owner_user_id or job.owner_user_id
+        if owner_user_id and not job.owner_user_id:
+            self.bind_job_owner(job_id, owner_user_id)
+            effective_owner = owner_user_id
+        self._charge_quota_if_needed(job_id, owner_user_id=effective_owner)
         settings = self.settings_store.load()
         paths = _sorted_input_images(self.upload_dir / job_id)
         if not satisfies_minimum_job_uploads(settings, self.upload_dir, job_id, len(paths)):
@@ -314,10 +337,10 @@ class JobManager:
             self._start_worker(job_id)
         return self.get_job(job_id) or job
 
-    def enqueue_new_job(self, job_id: str, image_count: int) -> JobRecord:
+    def enqueue_new_job(self, job_id: str, image_count: int, *, owner_user_id: str | None = None) -> JobRecord:
         """Create PENDING record and immediately start (same as upload + start)."""
-        self.create_job_pending(job_id, image_count)
-        return self.start_job(job_id)
+        self.create_job_pending(job_id, image_count, owner_user_id=owner_user_id)
+        return self.start_job(job_id, owner_user_id=owner_user_id)
 
     def request_stop(self, job_id: str) -> JobRecord:
         """Stop a job in any non-terminal state.
@@ -395,7 +418,7 @@ class JobManager:
             self._start_worker(job_id)
         return self.get_job(job_id) or job
 
-    def reprocess_job(self, job_id: str) -> JobRecord:
+    def reprocess_job(self, job_id: str, *, owner_user_id: str | None = None) -> JobRecord:
         job = self.get_job(job_id)
         if not job:
             raise KeyError(job_id)
@@ -422,22 +445,37 @@ class JobManager:
                 "(or one video when video_input_enabled=true)"
             )
         self._cancel_events[job_id] = threading.Event()
+        effective_owner = owner_user_id or job.owner_user_id
+        self._charge_quota_if_needed(job_id, owner_user_id=effective_owner)
         self.update_job(job_id, JobStatus.QUEUED, clear_model_url=True, clear_error=True)
         if not remote_workers_enabled():
             self._start_worker(job_id)
         return self.get_job(job_id) or job
 
-    def list_models(self, output_dir: Path, *, model_base_url: str) -> list[ModelListItem]:
+    def list_models(
+        self,
+        output_dir: Path,
+        *,
+        model_base_url: str,
+        owner_user_id: str | None = None,
+    ) -> list[ModelListItem]:
         if not output_dir.is_dir():
             return []
+        allowed_job_ids: set[str] | None = None
+        if owner_user_id:
+            allowed_job_ids = {
+                j.job_id for j in jobs_db.list_jobs(self._db_path, owner_user_id=owner_user_id)
+            }
         files: list[Path] = []
         for ext in ("*.glb", "*.ply"):
             files.extend(output_dir.glob(ext))
         items: list[ModelListItem] = []
         base = model_base_url.rstrip("/")
         for p in sorted(files, key=lambda x: x.stat().st_mtime, reverse=True):
-            st = p.stat()
             jid = p.stem
+            if allowed_job_ids is not None and jid not in allowed_job_ids:
+                continue
+            st = p.stat()
             items.append(
                 ModelListItem(
                     job_id=jid,
@@ -448,6 +486,15 @@ class JobManager:
                 )
             )
         return items
+
+    def resolve_model_file(self, job_id: str) -> Path | None:
+        settings = self.settings_store.load()
+        output_dir = self.root_dir / settings.output_dir_name
+        for ext in (".glb", ".ply"):
+            candidate = output_dir / f"{job_id}{ext}"
+            if candidate.is_file():
+                return candidate
+        return None
 
     def _build_assignment_payload(self, job_id: str) -> dict:
         settings = self.settings_store.load()

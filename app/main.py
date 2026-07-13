@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.websockets import WebSocketDisconnect
@@ -42,7 +43,15 @@ from .runtime_settings import RuntimeSettings, SettingsStore, minimum_input_imag
 from .settings_guide import settings_deployment_guide
 from .server_status import collect_server_status
 from .web_capture_contract import build_web_capture_contract
+from .auth_api import init_auth_api, router as auth_router
+from .auth_deps import init_auth_deps
+from .auth_models import UserPublic
+from .auth_service import GoogleAuthError, get_user_from_access_token
+from .job_access import enforce_job_owner, require_authenticated_user
 from .try_on_api import init_try_on_api, router as try_on_router
+from .tripo_api import get_tripo_service, init_tripo_api, router as tripo_router
+from .isolation_api import get_isolation_service, init_isolation_api, router as isolation_router
+from .user_quota import QuotaExceededError, UserQuotaStatus, get_user_quota
 from .worker_hub import WorkerHub, init_hub
 
 # Resolve project root reliably when running as a Windows service (CWD may be
@@ -100,6 +109,14 @@ def custom_openapi() -> dict:
         routes=app.routes,
         servers=servers,
     )
+    app.openapi_schema.setdefault("components", {}).setdefault("securitySchemes", {})[
+        "BearerAuth"
+    ] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Google sign-in access token from POST /auth/google or GET /auth/google/callback.",
+    }
     return app.openapi_schema
 
 
@@ -451,8 +468,38 @@ def _decorate_job_response(job: JobRecord) -> JobRecord:
             job.progress = 100
         if job.stage is None:
             job.stage = "completed"
+        if job_manager.resolve_model_file(job.job_id):
+            job.download_url = _job_download_url(job.job_id)
 
     return job
+
+
+def _job_download_url(job_id: str) -> str:
+    return _relative_api_path(f"jobs/{job_id}/download")
+
+
+def _decorate_model_item(item: ModelListItem) -> ModelListItem:
+    return item.model_copy(update={"download_url": _job_download_url(item.job_id)})
+
+
+def _assert_job_access(job_id: str, user: UserPublic) -> JobRecord:
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    enforce_job_owner(job.owner_user_id, user.user_id)
+    return job
+
+
+def _assert_upload_allowed_for_user(job_id: str, user: UserPublic) -> None:
+    _assert_upload_allowed(job_id)
+    existing = job_manager.get_job(job_id)
+    if existing and existing.owner_user_id and existing.owner_user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized for this job")
+    if existing and not existing.owner_user_id:
+        job_manager.bind_job_owner(job_id, user.user_id)
+
+
+_bearer_optional = HTTPBearer(auto_error=False)
 
 
 def _build_pipeline_for_job(
@@ -495,7 +542,30 @@ init_try_on_api(
     root_dir=ROOT_DIR,
     uploads_dir=UPLOAD_DIR,
 )
+init_auth_api(job_manager.db_path)
+init_auth_deps(job_manager.db_path)
+init_tripo_api(
+    db_path=job_manager.db_path,
+    root_dir=ROOT_DIR,
+    download_url_for=lambda jid: _relative_api_path(f"tripo/image-to-model/{jid}/download"),
+)
+def _isolation_asset_url(rel: str) -> str:
+    rel = rel.strip("/").replace("\\", "/")
+    if "/" in rel:
+        head, tail = rel.split("/", 1)
+        return f"{_relative_base(head).rstrip('/')}/{tail}"
+    return _relative_base(rel)
+
+
+init_isolation_api(
+    db_path=job_manager.db_path,
+    root_dir=ROOT_DIR,
+    asset_url_for=_isolation_asset_url,
+)
+app.include_router(auth_router)
 app.include_router(try_on_router)
+app.include_router(tripo_router)
+app.include_router(isolation_router)
 
 
 def _assert_upload_allowed(job_id: str) -> None:
@@ -772,6 +842,111 @@ def internal_worker_progress(job_id: str, body: WorkerProgressBody) -> JobRecord
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
 
+@app.get(
+    "/internal/worker/tripo/next",
+    dependencies=[Depends(verify_worker_token)],
+    response_model=None,
+)
+def internal_worker_tripo_next() -> dict[str, Any] | Response:
+    """GPU worker polls for queued single-image TripoSR jobs (no Tripo cloud API key)."""
+    if not remote_workers_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Remote workers disabled. Set APP_REMOTE_WORKERS=true on the API server.",
+        )
+    payload = get_tripo_service().claim_next_for_worker()
+    if payload is None:
+        return Response(status_code=204)
+    return payload
+
+
+@app.post(
+    "/internal/worker/tripo/{tripo_job_id}/complete",
+    dependencies=[Depends(verify_worker_token)],
+)
+async def internal_worker_tripo_complete(
+    tripo_job_id: str,
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    body = await file.read()
+    try:
+        resp = get_tripo_service().complete_from_worker(tripo_job_id, body)
+        return resp.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Tripo job not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.post(
+    "/internal/worker/tripo/{tripo_job_id}/fail",
+    dependencies=[Depends(verify_worker_token)],
+)
+def internal_worker_tripo_fail(tripo_job_id: str, body: WorkerFailBody) -> dict[str, Any]:
+    try:
+        resp = get_tripo_service().fail_job(tripo_job_id, body.error)
+        return resp.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Tripo job not found") from None
+
+
+@app.get(
+    "/internal/worker/isolation/train/next",
+    dependencies=[Depends(verify_worker_token)],
+    response_model=None,
+)
+def internal_worker_isolation_train_next() -> dict[str, Any] | Response:
+    if not remote_workers_enabled():
+        raise HTTPException(status_code=503, detail="Remote workers disabled")
+    payload = get_isolation_service().claim_train_for_worker()
+    if payload is None:
+        return Response(status_code=204)
+    return payload
+
+
+@app.post(
+    "/internal/worker/isolation/train/{job_id}/complete",
+    dependencies=[Depends(verify_worker_token)],
+)
+async def internal_worker_isolation_train_complete(
+    job_id: str,
+    model_id: str = Form(...),
+    file: UploadFile = File(...),
+    metrics_json: str = Form(default="{}"),
+) -> dict[str, Any]:
+    import json as _json
+
+    body = await file.read()
+    try:
+        metrics = _json.loads(metrics_json or "{}")
+    except _json.JSONDecodeError:
+        metrics = {}
+    try:
+        resp = get_isolation_service().complete_train_from_worker(
+            job_id=job_id,
+            model_id=model_id,
+            onnx_bytes=body,
+            metrics=metrics if isinstance(metrics, dict) else {},
+        )
+        return resp.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Train job not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+
+@app.post(
+    "/internal/worker/isolation/train/{job_id}/fail",
+    dependencies=[Depends(verify_worker_token)],
+)
+def internal_worker_isolation_train_fail(job_id: str, body: WorkerFailBody) -> dict[str, Any]:
+    try:
+        resp = get_isolation_service().fail_train(job_id, body.error)
+        return resp.model_dump(mode="json")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Train job not found") from None
+
+
 @app.get("/job-stages")
 def job_stages() -> dict[str, Any]:
     """Canonical JSON mapping of pipeline stage ids to progress bands (same file as ``ui/job-stages-progress.json``)."""
@@ -819,24 +994,61 @@ def server_status() -> dict:
     )
 
 
+@app.get("/users/me/quota", response_model=UserQuotaStatus, tags=["users"])
+def get_my_quota(current_user: UserPublic = Depends(require_authenticated_user)) -> UserQuotaStatus:
+    return get_user_quota(job_manager.db_path, current_user.user_id)
+
+
+@app.get("/users/me/models", response_model=list[ModelListItem], tags=["users"])
+def get_my_models(current_user: UserPublic = Depends(require_authenticated_user)) -> list[ModelListItem]:
+    settings = settings_store.load()
+    output_dir = ROOT_DIR / settings.output_dir_name
+    base = _effective_model_base_url(settings)
+    items = job_manager.list_models(
+        output_dir,
+        model_base_url=base,
+        owner_user_id=current_user.user_id,
+    )
+    return [
+        _decorate_model_item(it.model_copy(update={"image_url": _image_sample_url(it.job_id)}))
+        for it in items
+    ]
+
+
 @app.get("/jobs", response_model=list[JobRecord])
-def list_jobs() -> list[JobRecord]:
-    return [_decorate_job_response(j) for j in job_manager.list_jobs()]
+def list_jobs(current_user: UserPublic = Depends(require_authenticated_user)) -> list[JobRecord]:
+    return [
+        _decorate_job_response(j)
+        for j in job_manager.list_jobs(owner_user_id=current_user.user_id)
+    ]
 
 
 @app.get("/jobs/{job_id}", response_model=JobRecord)
-def get_job(job_id: str) -> JobRecord:
-    job = job_manager.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_job(job_id: str, current_user: UserPublic = Depends(require_authenticated_user)) -> JobRecord:
+    job = _assert_job_access(job_id, current_user)
     return _decorate_job_response(job)
 
 
+@app.get("/jobs/{job_id}/download", tags=["jobs"])
+def download_job_model(job_id: str, current_user: UserPublic = Depends(require_authenticated_user)) -> FileResponse:
+    _assert_job_access(job_id, current_user)
+    model_path = job_manager.resolve_model_file(job_id)
+    if model_path is None:
+        raise HTTPException(status_code=404, detail="Model file not found for this job")
+    mt, _ = mimetypes.guess_type(str(model_path))
+    return FileResponse(
+        str(model_path),
+        filename=model_path.name,
+        media_type=mt or "application/octet-stream",
+    )
+
+
 @app.get("/jobs/{job_id}/capture-metadata", response_model=dict[str, Any])
-def get_job_capture_metadata(job_id: str) -> dict[str, Any]:
-    job = job_manager.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def get_job_capture_metadata(
+    job_id: str,
+    current_user: UserPublic = Depends(require_authenticated_user),
+) -> dict[str, Any]:
+    _assert_job_access(job_id, current_user)
     payload = read_capture_metadata(UPLOAD_DIR, job_id)
     if payload is None:
         raise HTTPException(status_code=404, detail="Capture metadata not found for this job")
@@ -844,10 +1056,12 @@ def get_job_capture_metadata(job_id: str) -> dict[str, Any]:
 
 
 @app.put("/jobs/{job_id}/capture-metadata", response_model=CaptureMetadataUpsertResult)
-def put_job_capture_metadata(job_id: str, payload: dict[str, Any]) -> CaptureMetadataUpsertResult:
-    job = job_manager.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+def put_job_capture_metadata(
+    job_id: str,
+    payload: dict[str, Any],
+    current_user: UserPublic = Depends(require_authenticated_user),
+) -> CaptureMetadataUpsertResult:
+    _assert_job_access(job_id, current_user)
     try:
         normalized = validate_capture_metadata_payload(payload)
     except Exception as exc:
@@ -868,11 +1082,12 @@ def put_job_capture_metadata(job_id: str, payload: dict[str, Any]) -> CaptureMet
 
 
 @app.get("/jobs/{job_id}/masked-preview", response_class=HTMLResponse, tags=["jobs"])
-def job_masked_preview(job_id: str) -> HTMLResponse:
+def job_masked_preview(
+    job_id: str,
+    current_user: UserPublic = Depends(require_authenticated_user),
+) -> HTMLResponse:
     """Browse SAM-isolated RGB frames (same files as ``masked_view_urls`` on ``GET /jobs/{job_id}``)."""
-    job = job_manager.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    _assert_job_access(job_id, current_user)
     urls = _masked_view_urls(job_id)
     expose = settings_store.load().expose_masked_views
     jid_esc = html_module.escape(job_id)
@@ -920,7 +1135,8 @@ code {{ background: #222; padding: 0.12em 0.35em; border-radius: 4px; }}
 
 
 @app.post("/jobs/{job_id}/stop", response_model=JobRecord)
-def stop_job(job_id: str) -> JobRecord:
+def stop_job(job_id: str, current_user: UserPublic = Depends(require_authenticated_user)) -> JobRecord:
+    _assert_job_access(job_id, current_user)
     try:
         return _decorate_job_response(job_manager.request_stop(job_id))
     except KeyError:
@@ -928,7 +1144,8 @@ def stop_job(job_id: str) -> JobRecord:
 
 
 @app.post("/jobs/{job_id}/continue", response_model=JobRecord)
-def continue_job(job_id: str) -> JobRecord:
+def continue_job(job_id: str, current_user: UserPublic = Depends(require_authenticated_user)) -> JobRecord:
+    _assert_job_access(job_id, current_user)
     try:
         return _decorate_job_response(job_manager.continue_job(job_id))
     except KeyError:
@@ -938,18 +1155,24 @@ def continue_job(job_id: str) -> JobRecord:
 
 
 @app.post("/jobs/{job_id}/reprocess", response_model=JobRecord)
-def reprocess_job(job_id: str) -> JobRecord:
+def reprocess_job(job_id: str, current_user: UserPublic = Depends(require_authenticated_user)) -> JobRecord:
+    _assert_job_access(job_id, current_user)
     try:
-        return _decorate_job_response(job_manager.reprocess_job(job_id))
+        return _decorate_job_response(
+            job_manager.reprocess_job(job_id, owner_user_id=current_user.user_id)
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except QuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
 
 
 @app.delete("/jobs/{job_id}", response_model=DeleteJobResult)
-def delete_job(job_id: str) -> DeleteJobResult:
+def delete_job(job_id: str, current_user: UserPublic = Depends(require_authenticated_user)) -> DeleteJobResult:
     """Delete a gallery/job item (job row + generated/uploaded artifacts)."""
+    _assert_job_access(job_id, current_user)
     try:
         job_manager.delete_job(job_id)
     except KeyError:
@@ -960,15 +1183,8 @@ def delete_job(job_id: str) -> DeleteJobResult:
 
 
 @app.get("/models", response_model=list[ModelListItem])
-def list_models() -> list[ModelListItem]:
-    settings = settings_store.load()
-    output_dir = ROOT_DIR / settings.output_dir_name
-    base = _effective_model_base_url(settings)
-    items = job_manager.list_models(output_dir, model_base_url=base)
-    return [
-        it.model_copy(update={"image_url": _image_sample_url(it.job_id)})
-        for it in items
-    ]
+def list_models(current_user: UserPublic = Depends(require_authenticated_user)) -> list[ModelListItem]:
+    return get_my_models(current_user)
 
 
 _VIDEO_MIME_TYPES = frozenset({
@@ -995,6 +1211,7 @@ async def _save_video_file(job_id: str, video: UploadFile) -> Path:
 async def create_job_from_video(
     video: UploadFile = File(..., description="Single video file (.mp4, .mov, .webm). Job stays PENDING until POST /jobs/{job_id}/start."),
     job_id: str | None = Form(default=None),
+    current_user: UserPublic = Depends(require_authenticated_user),
 ) -> JobRecord:
     """Accept a single video upload. Frames are extracted automatically when the job starts.
 
@@ -1014,15 +1231,18 @@ async def create_job_from_video(
 
     max_mb = int(getattr(current_settings, "video_input_max_file_mb", 500))
     use_job_id = job_id or str(uuid.uuid4())
-    _assert_upload_allowed(use_job_id)
+    _assert_upload_allowed_for_user(use_job_id, current_user)
     await _save_video_file(use_job_id, video)
-    return _decorate_job_response(job_manager.create_job_pending(use_job_id, image_count=1))
+    return _decorate_job_response(
+        job_manager.create_job_pending(use_job_id, image_count=1, owner_user_id=current_user.user_id)
+    )
 
 
 @app.post("/jobs/video/reconstruct", response_model=JobRecord)
 async def reconstruct_from_video(
     video: UploadFile = File(..., description="Single video file (.mp4, .mov, .webm). Uploaded and processed immediately."),
     job_id: str | None = Form(default=None),
+    current_user: UserPublic = Depends(require_authenticated_user),
 ) -> JobRecord:
     """Convenience: same as POST /jobs/video then POST /jobs/{id}/start — upload video and run immediately."""
     current_settings = settings_store.load()
@@ -1037,12 +1257,16 @@ async def reconstruct_from_video(
             )
 
     use_job_id = job_id or str(uuid.uuid4())
-    _assert_upload_allowed(use_job_id)
+    _assert_upload_allowed_for_user(use_job_id, current_user)
     await _save_video_file(use_job_id, video)
     try:
-        return _decorate_job_response(job_manager.enqueue_new_job(use_job_id, image_count=1))
+        return _decorate_job_response(
+            job_manager.enqueue_new_job(use_job_id, image_count=1, owner_user_id=current_user.user_id)
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except QuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
 
 
 @app.post("/jobs", response_model=JobRecord)
@@ -1056,6 +1280,7 @@ async def create_job_from_uploads(
             "Stored at uploads/{job_id}/capture_metadata.json."
         ),
     ),
+    current_user: UserPublic = Depends(require_authenticated_user),
 ) -> JobRecord:
     """Accept multipart images in the body, save them under uploads/{job_id}/, create job as PENDING (does not run pipeline yet)."""
     current_settings = settings_store.load()
@@ -1070,22 +1295,29 @@ async def create_job_from_uploads(
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
     use_job_id = job_id or str(uuid.uuid4())
-    _assert_upload_allowed(use_job_id)
+    _assert_upload_allowed_for_user(use_job_id, current_user)
     await _save_job_files(use_job_id, files)
     if metadata_payload is not None:
         write_capture_metadata(UPLOAD_DIR, use_job_id, metadata_payload)
-    return _decorate_job_response(job_manager.create_job_pending(use_job_id, len(files)))
+    return _decorate_job_response(
+        job_manager.create_job_pending(use_job_id, len(files), owner_user_id=current_user.user_id)
+    )
 
 
 @app.post("/jobs/{job_id}/start", response_model=JobRecord)
-def start_job(job_id: str) -> JobRecord:
+def start_job(job_id: str, current_user: UserPublic = Depends(require_authenticated_user)) -> JobRecord:
     """Begin processing for a PENDING job (minimum image count depends on active backend)."""
+    _assert_job_access(job_id, current_user)
     try:
-        return _decorate_job_response(job_manager.start_job(job_id))
+        return _decorate_job_response(
+            job_manager.start_job(job_id, owner_user_id=current_user.user_id)
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail="Job not found") from None
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except QuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
 
 
 @app.post("/jobs/reconstruct", response_model=JobRecord)
@@ -1099,6 +1331,7 @@ async def reconstruct(
             "Stored at uploads/{job_id}/capture_metadata.json."
         ),
     ),
+    current_user: UserPublic = Depends(require_authenticated_user),
 ) -> JobRecord:
     """Convenience: same as POST /jobs then POST /jobs/{id}/start — upload and run immediately."""
     current_settings = settings_store.load()
@@ -1117,14 +1350,18 @@ async def reconstruct(
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
     use_job_id = job_id or str(uuid.uuid4())
-    _assert_upload_allowed(use_job_id)
+    _assert_upload_allowed_for_user(use_job_id, current_user)
     await _save_job_files(use_job_id, files)
     if metadata_payload is not None:
         write_capture_metadata(UPLOAD_DIR, use_job_id, metadata_payload)
     try:
-        return _decorate_job_response(job_manager.enqueue_new_job(use_job_id, len(files)))
+        return _decorate_job_response(
+            job_manager.enqueue_new_job(use_job_id, len(files), owner_user_id=current_user.user_id)
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except QuotaExceededError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from None
 
 
 def _safe_file_under(root: Path, rel: str) -> Path | None:
@@ -1143,13 +1380,27 @@ def _safe_file_under(root: Path, rel: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-async def _serve_output_file(full_path: str) -> FileResponse:
+async def _serve_output_file(
+    full_path: str,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_optional)] = None,
+) -> FileResponse:
     settings = settings_store.load()
     root = ROOT_DIR / settings.output_dir_name
     root.mkdir(parents=True, exist_ok=True)
     p = _safe_file_under(root, full_path)
     if not p:
         raise HTTPException(status_code=404, detail="Not found")
+    job_id = p.stem.split("_compare_")[0]
+    owner = job_manager.get_job_owner(job_id)
+    if owner:
+        token = credentials.credentials.strip() if credentials and credentials.scheme.lower() == "bearer" else ""
+        if not token:
+            raise HTTPException(status_code=401, detail="Authentication required to download this model")
+        try:
+            user = get_user_from_access_token(job_manager.db_path, token)
+        except GoogleAuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        enforce_job_owner(owner, user.user_id)
     mt, _ = mimetypes.guess_type(str(p))
     return FileResponse(
         str(p),

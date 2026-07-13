@@ -359,6 +359,65 @@ Notes:
 - In `command` mode with `ai_prior_force_prior_only=true`, backend minimum input becomes 1 image (useful for quick trials).
 - The AI-prior route keeps Tripo output as the final mesh path unless you intentionally switch to hybrid refinement.
 
+## Isolation model: dataset → train → activate → predict
+
+PicPolish uploads **before/after** image pairs; the API learns foreground masks and serves **CPU ONNX** inference for HQ product cutouts (RGBA PNG).
+
+### Flow
+
+1. **Create dataset** — `POST /isolation/datasets` with `{ "name": "..." }` (Bearer auth).
+2. **Upload pairs** — `POST /isolation/datasets/{dataset_id}/pairs` (multipart: `indices`, `before[]`, `after[]`, optional `mask[]`). If no mask is sent, a binary mask is derived from the after image (non–near-white pixels).
+3. **Train** — `POST /isolation/train` with `{ "dataset_id", "base_model?", "epochs?", "val_split?" }`. Returns `{ job_id, status }`. Poll `GET /isolation/train/{job_id}` for metrics (IoU / precision / recall) and `model_id`.
+4. **Activate** — `POST /isolation/models/{model_id}/activate` sets the default model for predict.
+5. **Predict** — `POST /isolation/predict` with multipart `file` (and optional `model_id`). Returns `image/png` RGBA cutout (or `format=json` for URLs). Quota: `GET /isolation/quota`.
+
+Health: `GET /isolation/health` (ONNX Runtime, active model).
+
+All routes are under `APP_ROOT_PATH` (e.g. `/polygraph/isolation/...`). Swagger tag: **isolation**.
+
+### Storage layout
+
+```
+datasets/isolation/{dataset_id}/meta.json
+datasets/isolation/{dataset_id}/pairs/{i}/before.*, after.*, mask.png
+models/isolation/{model_id}/model.onnx, metrics.json
+uploads/isolation/predict/{uuid}/isolated.png, mask.png
+uploads/isolation/exports/{dataset_id}.zip   # worker download
+```
+
+### Training on a GPU worker (production API is CPU-only)
+
+When `APP_REMOTE_WORKERS=true`, train jobs are queued for the remote worker (`GET /internal/worker/isolation/train/next`). The worker downloads the dataset zip, runs training, and uploads `model.onnx`.
+
+**Offline / manual GPU train** (same machine or Colab):
+
+```bash
+# Export dataset zip from API disk, or copy datasets/isolation/{id}/
+python scripts/isolation_train_worker.py \
+  --dataset-dir /path/to/datasets/isolation/{dataset_id} \
+  --output-dir /tmp/iso-out \
+  --base-model isnet-general-use --epochs 20
+
+# Import ONNX without training (CPU smoke test):
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -F "file=@model.onnx" \
+  https://host/polygraph/isolation/models/import
+```
+
+**Worker env** (`.env.worker`): same `POLYGRAPH_API_BASE` + `POLYGRAPH_WORKER_TOKEN` as reconstruction jobs; the worker polls isolation train jobs automatically.
+
+### Environment
+
+```env
+# APP_FREE_ISOLATION_PER_MONTH=50
+# ISOLATION_TRAIN_ON_API=0          # 1 = run train in API process (dev/small sets)
+# ISOLATION_TRAIN_DEV_MOCK=0        # 1 = skip real train, export placeholder ONNX (tests)
+# ISOLATION_BASE_ONNX_PATH=         # optional fixed ONNX for predict without registry
+# ISOLATION_MIN_PAIRS=20            # warn below; block unless force_min_pairs on train request
+```
+
+Minimum pairs: warn if < 20; pass `"force_min_pairs": true` on `POST /isolation/train` for small test sets.
+
 ## Run
 
 ```bash

@@ -6,8 +6,10 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
+
+from .auth_deps import resolve_user_id
 
 from .job_manager import JobManager
 from .photo_compose_models import PhotoComposeResponse
@@ -90,15 +92,17 @@ def _assert_model_job_exists(job_id: str) -> None:
         raise HTTPException(status_code=404, detail="Job not found")
 
 
-def _optional_user_id(
-    x_user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
-) -> str | None:
-    v = (x_user_id or "").strip()
-    return v or None
+def _require_authenticated_user_id(user_id: str | None = Depends(resolve_user_id)) -> str:
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Send Authorization: Bearer <token> or X-User-Id.",
+        )
+    return user_id
 
 
 def _enforce_owner_access(job_id: str, user_id: str | None) -> None:
-    """When a row has owner_user_id, require matching X-User-Id (403)."""
+    """When a row has owner_user_id, require matching authenticated user (403)."""
     store = get_try_on_store()
     owner = store.get_owner(job_id)
     if owner and owner != user_id:
@@ -116,7 +120,7 @@ def _resolve_owner_on_write(job_id: str, user_id: str | None) -> str | None:
 
 
 @router.get("/models/{job_id}/try-on", response_model=ModelTryOnConfig)
-def get_model_try_on(job_id: str, user_id: str | None = Depends(_optional_user_id)) -> ModelTryOnConfig:
+def get_model_try_on(job_id: str, user_id: str | None = Depends(resolve_user_id)) -> ModelTryOnConfig:
     _assert_model_job_exists(job_id)
     _enforce_owner_access(job_id, user_id)
     cfg = get_try_on_store().get(job_id)
@@ -129,7 +133,7 @@ def get_model_try_on(job_id: str, user_id: str | None = Depends(_optional_user_i
 def put_model_try_on(
     job_id: str,
     body: ModelTryOnConfigPut,
-    user_id: str | None = Depends(_optional_user_id),
+    user_id: str | None = Depends(resolve_user_id),
 ) -> ModelTryOnConfig:
     _assert_model_job_exists(job_id)
     _enforce_owner_access(job_id, user_id)
@@ -148,7 +152,7 @@ def put_model_try_on(
 
 
 @router.get("/models/{job_id}/hanger-point", response_model=ModelPoint3D)
-def get_hanger_point(job_id: str, user_id: str | None = Depends(_optional_user_id)) -> ModelPoint3D:
+def get_hanger_point(job_id: str, user_id: str | None = Depends(resolve_user_id)) -> ModelPoint3D:
     _assert_model_job_exists(job_id)
     _enforce_owner_access(job_id, user_id)
     cfg = get_try_on_store().get(job_id)
@@ -161,7 +165,7 @@ def get_hanger_point(job_id: str, user_id: str | None = Depends(_optional_user_i
 def put_hanger_point(
     job_id: str,
     body: HangerPointBody,
-    user_id: str | None = Depends(_optional_user_id),
+    user_id: str | None = Depends(resolve_user_id),
 ) -> ModelPoint3D:
     _assert_model_job_exists(job_id)
     _enforce_owner_access(job_id, user_id)
@@ -180,13 +184,8 @@ def put_hanger_point(
 
 @router.get("/users/me/try-on-calibration", response_model=UserTryOnCalibration)
 def get_user_try_on_calibration(
-    user_id: str | None = Depends(_optional_user_id),
+    user_id: str = Depends(_require_authenticated_user_id),
 ) -> UserTryOnCalibration:
-    if not user_id:
-        raise HTTPException(
-            status_code=400,
-            detail="X-User-Id header is required for user try-on calibration.",
-        )
     cfg = get_try_on_store().get_user_calibration(user_id)
     if cfg is None:
         raise HTTPException(status_code=404, detail="Try-on calibration not found for this user")
@@ -196,13 +195,8 @@ def get_user_try_on_calibration(
 @router.put("/users/me/try-on-calibration", response_model=UserTryOnCalibration)
 def put_user_try_on_calibration(
     body: UserTryOnCalibrationPut,
-    user_id: str | None = Depends(_optional_user_id),
+    user_id: str = Depends(_require_authenticated_user_id),
 ) -> UserTryOnCalibration:
-    if not user_id:
-        raise HTTPException(
-            status_code=400,
-            detail="X-User-Id header is required for user try-on calibration.",
-        )
     return get_try_on_store().upsert_user_calibration(user_id, body)
 
 
@@ -225,7 +219,7 @@ async def post_photo_compose(
     image_height: int = Form(..., gt=0, description="Native pixel height of face_image"),
     placement_side: str = Form(default="auto", description="left | right | auto"),
     prompt: str | None = Form(default=None, description="Optional extra instruction (max 2000 chars)"),
-    user_id: str | None = Depends(_optional_user_id),
+    user_id: str | None = Depends(resolve_user_id),
 ) -> JSONResponse:
     if not (0.0 <= placement_x <= 1.0):
         raise HTTPException(status_code=400, detail="placement_x must be between 0 and 1")
