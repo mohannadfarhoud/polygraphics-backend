@@ -210,6 +210,13 @@ def train_unet_incremental(
     onnx_path = output_dir / "model.onnx"
     dummy = torch.randn(1, 3, INPUT_SIZE, INPUT_SIZE, device=device)
     model.eval()
+    try:
+        import onnx  # noqa: F401
+    except ImportError as exc:
+        raise RuntimeError(
+            'Package "onnx" is required to export the trained model. '
+            'On the GPU worker run: pip install onnx'
+        ) from exc
     torch.onnx.export(
         model,
         dummy,
