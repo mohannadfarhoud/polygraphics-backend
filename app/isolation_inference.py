@@ -100,6 +100,29 @@ def _preprocess_simple(image_bgr: np.ndarray, size: int = 320) -> tuple[np.ndarr
     return arr, (h, w)
 
 
+def _session_input_channels(session) -> int:
+    try:
+        shape = session.get_inputs()[0].shape
+        if len(shape) >= 2:
+            c = shape[1]
+            if isinstance(c, int) and c > 0:
+                return int(c)
+    except Exception:
+        pass
+    return 3
+
+
+def _preprocess_color_edge(image_bgr: np.ndarray, size: int = 320) -> tuple[np.ndarray, tuple[int, int]]:
+    """4-channel RGB + color-edge input (matches isolation_finetune UNet)."""
+    from .isolation_finetune import pack_input_chw
+
+    h, w = image_bgr.shape[:2]
+    rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(rgb, (size, size), interpolation=cv2.INTER_AREA)
+    chw = pack_input_chw(resized)
+    return chw[None, ...], (h, w)
+
+
 def _postprocess_mask(output: np.ndarray, original_hw: tuple[int, int], *, minmax: bool) -> np.ndarray:
     h, w = original_hw
     if output.ndim == 4:
@@ -124,16 +147,25 @@ def _postprocess_mask(output: np.ndarray, original_hw: tuple[int, int], *, minma
 def predict_mask(image_bgr: np.ndarray, *, model_path: Path) -> np.ndarray:
     session = get_or_load_session(model_path)
     size = _session_input_size(session)
-    # rembg isnet / DIS models use 1024 + min-max postprocess
-    use_isnet = size >= 512 or os.getenv("ISOLATION_PREPROCESS", "").strip().lower() in (
+    channels = _session_input_channels(session)
+
+    if channels >= 4:
+        # Growing UNet: RGB + color-edge channel
+        if not isinstance(size, int) or size <= 0 or size > 2048:
+            size = 320
+        inp, hw = _preprocess_color_edge(image_bgr, size=size)
+        use_isnet = False
+    elif size >= 512 or os.getenv("ISOLATION_PREPROCESS", "").strip().lower() in (
         "isnet",
         "rembg",
         "dis",
-    )
-    if use_isnet:
+    ):
         inp, hw = _preprocess_isnet(image_bgr, size=size)
+        use_isnet = True
     else:
-        inp, hw = _preprocess_simple(image_bgr, size=size)
+        inp, hw = _preprocess_simple(image_bgr, size=size if size > 0 else 320)
+        use_isnet = False
+
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: inp})
     if not outputs:
