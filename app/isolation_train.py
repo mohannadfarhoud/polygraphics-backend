@@ -173,8 +173,9 @@ def run_training_job(
     epochs: int,
     val_split: float,
     progress_callback: Callable[[int], None] | None = None,
+    resume_checkpoint: Path | None = None,
 ) -> dict:
-    """Train/evaluate isolation model and write model.onnx + metrics to output_dir."""
+    """Train isolation model (incremental UNet when torch is available) and write model.onnx (+ checkpoint.pt)."""
     output_dir.mkdir(parents=True, exist_ok=True)
     pairs = _list_pairs(dataset_dir)
     random.shuffle(pairs)
@@ -183,9 +184,37 @@ def run_training_job(
     train_pairs = pairs[n_val:] or pairs
 
     if progress_callback:
-        progress_callback(20)
+        progress_callback(15)
 
     dev_mock = os.getenv("ISOLATION_TRAIN_DEV_MOCK", "").strip().lower() in ("1", "true", "yes")
+    force_rembg = os.getenv("ISOLATION_TRAIN_REMBG_ONLY", "").strip().lower() in ("1", "true", "yes")
+
+    # Prefer real incremental fine-tune on GPU/CPU torch when available.
+    if not dev_mock and not force_rembg:
+        try:
+            from .isolation_finetune import torch_available, train_unet_incremental
+
+            if torch_available():
+                metrics = train_unet_incremental(
+                    pairs=pairs,
+                    output_dir=output_dir,
+                    epochs=epochs,
+                    val_split=val_split,
+                    resume_checkpoint=resume_checkpoint,
+                    progress_callback=progress_callback,
+                )
+                metrics["base_model"] = base_model
+                metrics["resumed"] = bool(resume_checkpoint and Path(resume_checkpoint).is_file())
+                (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+                if progress_callback:
+                    progress_callback(95)
+                return metrics
+        except Exception as exc:
+            log.exception("incremental UNet fine-tune failed; falling back to rembg export: %s", exc)
+
+    if progress_callback:
+        progress_callback(20)
+
     if dev_mock:
         iou, precision, recall = 0.5, 0.5, 0.5
     else:
@@ -196,7 +225,6 @@ def run_training_job(
 
     onnx_dest = output_dir / "model.onnx"
     if dev_mock and not shutil.which("nvidia-smi"):
-        # CPU smoke: write minimal valid onnx using rembg download attempt
         try:
             _export_rembg_onnx(base_model, onnx_dest)
         except Exception as exc:
@@ -216,9 +244,12 @@ def run_training_job(
         "train_pairs": len(train_pairs),
         "base_model": base_model,
         "epochs": epochs,
+        "generation": 1,
+        "backend": "rembg_export",
+        "resumed": False,
         "note": (
-            "v1 exports rembg-compatible ONNX selected by holdout IoU; "
-            "full U2Net fine-tune runs on GPU worker when torch is available."
+            "Fallback rembg ONNX export (no torch fine-tune). "
+            "Install torch on the GPU worker for incremental UNet training."
         ),
     }
     (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")

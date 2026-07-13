@@ -904,6 +904,19 @@ def internal_worker_isolation_train_next() -> dict[str, Any] | Response:
     return payload
 
 
+@app.get(
+    "/internal/worker/isolation/models/{model_id}/checkpoint",
+    dependencies=[Depends(verify_worker_token)],
+)
+def internal_worker_isolation_checkpoint(model_id: str) -> Response:
+    """GPU worker downloads the parent checkpoint.pt for incremental fine-tune."""
+    svc = get_isolation_service()
+    path = svc.root_dir / "models" / "isolation" / model_id / "checkpoint.pt"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="checkpoint.pt not found")
+    return Response(content=path.read_bytes(), media_type="application/octet-stream")
+
+
 @app.post(
     "/internal/worker/isolation/train/{job_id}/complete",
     dependencies=[Depends(verify_worker_token)],
@@ -913,10 +926,12 @@ async def internal_worker_isolation_train_complete(
     model_id: str = Form(...),
     file: UploadFile = File(...),
     metrics_json: str = Form(default="{}"),
+    checkpoint: UploadFile | None = File(default=None),
 ) -> dict[str, Any]:
     import json as _json
 
     body = await file.read()
+    ckpt = await checkpoint.read() if checkpoint is not None else None
     try:
         metrics = _json.loads(metrics_json or "{}")
     except _json.JSONDecodeError:
@@ -927,6 +942,7 @@ async def internal_worker_isolation_train_complete(
             model_id=model_id,
             onnx_bytes=body,
             metrics=metrics if isinstance(metrics, dict) else {},
+            checkpoint_bytes=ckpt if ckpt else None,
         )
         return resp.model_dump(mode="json")
     except KeyError:

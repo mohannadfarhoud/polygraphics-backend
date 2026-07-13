@@ -37,12 +37,24 @@ class IsolationPairUploadResult(BaseModel):
 
 class IsolationTrainRequest(BaseModel):
     dataset_id: str
-    base_model: str = Field(default="isnet-general-use", description="rembg-compatible base model name")
+    base_model: str = Field(default="isnet-general-use", description="rembg-compatible base model name (bootstrap only)")
     epochs: int = Field(default=20, ge=1, le=500)
     val_split: float = Field(default=0.2, ge=0.05, le=0.5)
     force_min_pairs: bool = Field(
         default=False,
         description="Allow training with fewer than 20 pairs (testing only).",
+    )
+    grow_active: bool = Field(
+        default=True,
+        description="Resume from the active model checkpoint and update that same model_id (one growing model).",
+    )
+    resume_from_model_id: str | None = Field(
+        default=None,
+        description="Optional explicit parent model to resume from (overrides grow_active source).",
+    )
+    auto_activate: bool = Field(
+        default=True,
+        description="Activate the resulting model when training completes.",
     )
 
 
@@ -53,6 +65,11 @@ class IsolationTrainMetrics(BaseModel):
     val_pairs: int | None = None
     train_pairs: int | None = None
     base_model: str | None = None
+    generation: int | None = None
+    backend: str | None = None
+    resumed: bool | None = None
+    parent_model_id: str | None = None
+    note: str | None = None
 
 
 class IsolationTrainResponse(BaseModel):
@@ -62,6 +79,8 @@ class IsolationTrainResponse(BaseModel):
     metrics: IsolationTrainMetrics | None = None
     model_id: str | None = None
     error: str | None = None
+    generation: int | None = None
+    resumed_from: str | None = None
 
 
 class IsolationModelSummary(BaseModel):

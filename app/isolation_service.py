@@ -200,6 +200,9 @@ class IsolationService:
         val_split: float,
         force_min_pairs: bool,
         owner_user_id: str | None,
+        grow_active: bool = True,
+        resume_from_model_id: str | None = None,
+        auto_activate: bool = True,
     ) -> IsolationTrainResponse:
         row = isolation_db.get_dataset(self.db_path, dataset_id)
         if not row:
@@ -213,9 +216,20 @@ class IsolationService:
                 "Set force_min_pairs=true to override for testing."
             )
 
+        active = isolation_db.get_active_model(self.db_path)
+        parent_id = resume_from_model_id
+        if not parent_id and grow_active and active:
+            parent_id = active["model_id"]
+
+        # One growing model: reuse active model_id when grow_active is on.
+        if grow_active and active and (not resume_from_model_id or resume_from_model_id == active["model_id"]):
+            model_id = active["model_id"]
+            parent_id = active["model_id"]
+        else:
+            model_id = str(uuid.uuid4())
+
         provider = self._train_provider()
         job_id = str(uuid.uuid4())
-        model_id = str(uuid.uuid4())
         isolation_db.insert_train_job(
             self.db_path,
             {
@@ -229,6 +243,9 @@ class IsolationService:
                 "model_id": model_id,
                 "provider": provider,
                 "owner_user_id": owner_user_id,
+                "resume_from_model_id": parent_id,
+                "grow_active": grow_active,
+                "auto_activate": auto_activate,
             },
         )
         if provider == "api_thread":
@@ -252,7 +269,16 @@ class IsolationService:
         row = row or isolation_db.get_train_job(self.db_path, job_id)
         assert row is not None
         metrics_raw = isolation_db.metrics_from_json(row.get("metrics_json"))
-        metrics = IsolationTrainMetrics(**metrics_raw) if metrics_raw else None
+        metrics = None
+        if metrics_raw:
+            allowed = set(IsolationTrainMetrics.model_fields)
+            metrics = IsolationTrainMetrics(**{k: metrics_raw[k] for k in metrics_raw if k in allowed})
+        generation = None
+        if metrics_raw and metrics_raw.get("generation") is not None:
+            try:
+                generation = int(metrics_raw["generation"])
+            except (TypeError, ValueError):
+                generation = None
         return IsolationTrainResponse(
             job_id=row["job_id"],
             status=IsolationTrainStatus(row["status"]),
@@ -260,6 +286,8 @@ class IsolationService:
             metrics=metrics,
             model_id=row.get("model_id"),
             error=row.get("error"),
+            generation=generation,
+            resumed_from=row.get("resume_from_model_id"),
         )
 
     def claim_train_for_worker(self) -> dict | None:
@@ -271,6 +299,19 @@ class IsolationService:
         public = os.getenv("APP_PUBLIC_BASE_URL", "").strip().rstrip("/")
         rel = zip_path.relative_to(self.root_dir).as_posix()
         dataset_zip_url = f"{public}/{rel}" if public else f"/{rel}"
+
+        resume_id = row.get("resume_from_model_id")
+        resume_checkpoint_url = None
+        if resume_id:
+            ckpt = self._model_dir(str(resume_id)) / "checkpoint.pt"
+            if ckpt.is_file():
+                # Auth'd worker endpoint (models/ is not a public static mount).
+                resume_checkpoint_url = (
+                    f"{public}/internal/worker/isolation/models/{resume_id}/checkpoint"
+                    if public
+                    else f"/internal/worker/isolation/models/{resume_id}/checkpoint"
+                )
+
         return {
             "kind": "isolation_train",
             "job_id": row["job_id"],
@@ -281,6 +322,10 @@ class IsolationService:
             "val_split": row.get("val_split"),
             "dataset_zip_url": dataset_zip_url,
             "dataset_dir": str(self._dataset_dir(dataset_id)),
+            "resume_from_model_id": resume_id,
+            "resume_checkpoint_url": resume_checkpoint_url,
+            "grow_active": bool(row.get("grow_active", 1)),
+            "auto_activate": bool(row.get("auto_activate", 1)),
         }
 
     def complete_train_from_worker(
@@ -290,6 +335,7 @@ class IsolationService:
         model_id: str,
         onnx_bytes: bytes,
         metrics: dict[str, Any],
+        checkpoint_bytes: bytes | None = None,
     ) -> IsolationTrainResponse:
         row = isolation_db.get_train_job(self.db_path, job_id)
         if not row:
@@ -298,10 +344,13 @@ class IsolationService:
         model_dir.mkdir(parents=True, exist_ok=True)
         onnx_path = model_dir / "model.onnx"
         onnx_path.write_bytes(onnx_bytes)
+        if checkpoint_bytes:
+            (model_dir / "checkpoint.pt").write_bytes(checkpoint_bytes)
         metrics_path = model_dir / "metrics.json"
         metrics_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
         rel = onnx_path.relative_to(self.root_dir).as_posix()
-        isolation_db.insert_model(
+        auto_activate = bool(row.get("auto_activate", 1))
+        isolation_db.upsert_model(
             self.db_path,
             {
                 "model_id": model_id,
@@ -309,10 +358,13 @@ class IsolationService:
                 "dataset_id": row["dataset_id"],
                 "onnx_rel_path": rel,
                 "metrics_json": json.dumps(metrics),
-                "is_active": 0,
+                "is_active": 1 if auto_activate else 0,
                 "owner_user_id": row.get("owner_user_id"),
             },
         )
+        if auto_activate:
+            isolation_db.set_active_model(self.db_path, model_id)
+            invalidate_session()
         isolation_db.update_train_job(
             self.db_path,
             job_id,
@@ -509,22 +561,44 @@ class IsolationService:
             dataset_dir = self._dataset_dir(row["dataset_id"])
             model_id = str(row["model_id"])
             out_dir = self._model_dir(model_id)
+            resume_ckpt = None
+            parent = row.get("resume_from_model_id")
+            if parent:
+                cand = self._model_dir(str(parent)) / "checkpoint.pt"
+                if cand.is_file():
+                    resume_ckpt = cand
             metrics = run_training_job(
                 dataset_dir=dataset_dir,
                 output_dir=out_dir,
                 base_model=str(row.get("base_model") or "isnet-general-use"),
                 epochs=int(row.get("epochs") or 20),
                 val_split=float(row.get("val_split") or 0.2),
+                resume_checkpoint=resume_ckpt,
                 progress_callback=lambda p: isolation_db.update_train_job(
                     self.db_path, job_id, progress=p
                 ),
             )
+            # Stamp lineage onto checkpoint
+            ckpt_path = out_dir / "checkpoint.pt"
+            ckpt_bytes = ckpt_path.read_bytes() if ckpt_path.is_file() else None
+            if ckpt_bytes:
+                try:
+                    import torch
+
+                    blob = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+                    if isinstance(blob, dict):
+                        blob["model_id"] = model_id
+                        torch.save(blob, str(ckpt_path))
+                        ckpt_bytes = ckpt_path.read_bytes()
+                except Exception:
+                    pass
             onnx_path = out_dir / "model.onnx"
             self.complete_train_from_worker(
                 job_id=job_id,
                 model_id=model_id,
                 onnx_bytes=onnx_path.read_bytes(),
                 metrics=metrics,
+                checkpoint_bytes=ckpt_bytes,
             )
         except Exception as exc:
             log.exception("isolation train %s failed", job_id)

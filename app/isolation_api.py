@@ -142,6 +142,9 @@ def start_train(body: IsolationTrainRequest) -> JSONResponse:
             val_split=body.val_split,
             force_min_pairs=body.force_min_pairs,
             owner_user_id=None,
+            grow_active=body.grow_active,
+            resume_from_model_id=body.resume_from_model_id,
+            auto_activate=body.auto_activate,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Dataset not found") from None

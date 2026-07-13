@@ -565,6 +565,30 @@ def _run_one_isolation_train_job(base: str, token: str, payload: dict, client: h
         extract.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zpath) as zf:
             zf.extractall(extract)
+
+        resume_ckpt = None
+        resume_url = payload.get("resume_checkpoint_url")
+        if resume_url:
+            full = str(resume_url)
+            if not full.startswith("http"):
+                full = f"{base.rstrip('/')}{full}"
+            try:
+                cr = client.get(full, headers=_headers(token), timeout=300.0)
+                if cr.status_code == 200 and len(cr.content) > 100:
+                    resume_ckpt = work / "checkpoint.pt"
+                    resume_ckpt.write_bytes(cr.content)
+                    print(
+                        f"[polygraph-worker] isolation train {job_id}: resumed checkpoint ({len(cr.content)} bytes)",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[polygraph-worker] isolation train {job_id}: no checkpoint yet (HTTP {cr.status_code}) — training from scratch",
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(f"[polygraph-worker] isolation train: checkpoint download skipped: {exc}", flush=True)
+
         out_dir = work / "output"
         metrics = run_training_job(
             dataset_dir=extract,
@@ -572,15 +596,36 @@ def _run_one_isolation_train_job(base: str, token: str, payload: dict, client: h
             base_model=str(payload.get("base_model") or "isnet-general-use"),
             epochs=int(payload.get("epochs") or 20),
             val_split=float(payload.get("val_split") or 0.2),
+            resume_checkpoint=resume_ckpt,
         )
+        # Stamp model_id into checkpoint for lineage
+        ckpt_path = out_dir / "checkpoint.pt"
+        if ckpt_path.is_file():
+            try:
+                import torch
+
+                blob = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+                if isinstance(blob, dict):
+                    blob["model_id"] = model_id
+                    torch.save(blob, str(ckpt_path))
+            except Exception:
+                pass
+
         onnx = (out_dir / "model.onnx").read_bytes()
+        files = {"file": ("model.onnx", onnx, "application/octet-stream")}
+        if ckpt_path.is_file():
+            files["checkpoint"] = ("checkpoint.pt", ckpt_path.read_bytes(), "application/octet-stream")
         up = client.post(
             f"{base.rstrip('/')}/internal/worker/isolation/train/{job_id}/complete",
             headers=_headers(token),
             data={"model_id": model_id, "metrics_json": json.dumps(metrics)},
-            files={"file": ("model.onnx", onnx, "application/octet-stream")},
+            files=files,
         )
         up.raise_for_status()
+        print(
+            f"[polygraph-worker] isolation train {job_id}: uploaded model generation={metrics.get('generation')}",
+            flush=True,
+        )
     finally:
         if not _env_truthy("POLYGRAPH_WORKER_PRESERVE_WORKDIR"):
             shutil.rmtree(work, ignore_errors=True)

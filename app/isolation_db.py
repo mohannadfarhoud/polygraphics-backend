@@ -61,6 +61,14 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 def init_schema(db_path: Path) -> None:
     with _connect(db_path) as conn:
         conn.executescript(SCHEMA)
+        # Incremental train columns (safe if already present).
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(isolation_train_jobs)").fetchall()}
+        if "resume_from_model_id" not in cols:
+            conn.execute("ALTER TABLE isolation_train_jobs ADD COLUMN resume_from_model_id TEXT")
+        if "grow_active" not in cols:
+            conn.execute("ALTER TABLE isolation_train_jobs ADD COLUMN grow_active INTEGER NOT NULL DEFAULT 1")
+        if "auto_activate" not in cols:
+            conn.execute("ALTER TABLE isolation_train_jobs ADD COLUMN auto_activate INTEGER NOT NULL DEFAULT 1")
         conn.commit()
 
 
@@ -124,8 +132,10 @@ def insert_train_job(db_path: Path, row: dict[str, Any]) -> dict[str, Any]:
             """
             INSERT INTO isolation_train_jobs (
               job_id, dataset_id, status, progress, base_model, epochs, val_split,
-              model_id, metrics_json, error, provider, owner_user_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              model_id, metrics_json, error, provider, owner_user_id,
+              resume_from_model_id, grow_active, auto_activate,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["job_id"],
@@ -140,6 +150,9 @@ def insert_train_job(db_path: Path, row: dict[str, Any]) -> dict[str, Any]:
                 row.get("error"),
                 row.get("provider"),
                 row.get("owner_user_id"),
+                row.get("resume_from_model_id"),
+                1 if row.get("grow_active", True) else 0,
+                1 if row.get("auto_activate", True) else 0,
                 now,
                 now,
             ),
@@ -220,6 +233,35 @@ def insert_model(db_path: Path, row: dict[str, Any]) -> dict[str, Any]:
                 int(row.get("is_active") or 0),
                 row.get("owner_user_id"),
                 now,
+            ),
+        )
+        conn.commit()
+    saved = get_model(db_path, row["model_id"])
+    assert saved is not None
+    return saved
+
+
+def upsert_model(db_path: Path, row: dict[str, Any]) -> dict[str, Any]:
+    """Insert or update model weights/metrics (used when grow_active reuses model_id)."""
+    existing = get_model(db_path, row["model_id"])
+    if not existing:
+        return insert_model(db_path, row)
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE isolation_models
+            SET name = ?, dataset_id = ?, onnx_rel_path = ?, metrics_json = ?,
+                is_active = ?, owner_user_id = COALESCE(?, owner_user_id)
+            WHERE model_id = ?
+            """,
+            (
+                row.get("name") or existing["name"],
+                row.get("dataset_id", existing.get("dataset_id")),
+                row["onnx_rel_path"],
+                row.get("metrics_json"),
+                int(row.get("is_active") if row.get("is_active") is not None else existing.get("is_active") or 0),
+                row.get("owner_user_id"),
+                row["model_id"],
             ),
         )
         conn.commit()
