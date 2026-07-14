@@ -255,7 +255,9 @@ def register_with_email(
 
 
 def login_with_email(db_path: Path, *, email: str, password: str) -> AuthTokenResponse:
-    normalized = normalize_email(email)
+    from .isolation_auth import resolve_login_email
+
+    normalized = resolve_login_email(email)
     user = get_user_by_email(db_path, normalized)
     if user is None:
         raise EmailAuthError("Invalid email or password")

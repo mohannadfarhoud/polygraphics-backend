@@ -39,11 +39,12 @@ class IsolationApiTests(unittest.TestCase):
             {
                 "APP_ROOT_DIR": str(self._root),
                 "APP_DATABASE_PATH": str(self._root / "data" / "test.sqlite"),
-                "APP_JWT_SECRET": "test-jwt-secret",
+                "APP_JWT_SECRET": "test-jwt-secret-at-least-32-bytes-long!!",
                 "APP_REMOTE_WORKERS": "0",
                 "ISOLATION_TRAIN_ON_API": "1",
                 "ISOLATION_TRAIN_DEV_MOCK": "1",
                 "ISOLATION_BASE_ONNX_PATH": "",
+                "ISOLATION_TRAINER_PASSWORD": "devtek2026",
             },
             clear=False,
         )
@@ -53,12 +54,12 @@ class IsolationApiTests(unittest.TestCase):
         importlib.reload(main_mod)
         self.client = TestClient(main_mod.app)
 
-        reg = self.client.post(
-            "/auth/register",
-            json={"email": "iso@test.local", "password": "secret123", "display_name": "Iso"},
+        login = self.client.post(
+            "/auth/login",
+            json={"email": "trainer", "password": "devtek2026"},
         )
-        self.assertEqual(reg.status_code, 200, reg.text)
-        self.token = reg.json()["access_token"]
+        self.assertEqual(login.status_code, 200, login.text)
+        self.token = login.json()["access_token"]
         self.headers = {"Authorization": f"Bearer {self.token}"}
 
     def tearDown(self) -> None:
@@ -75,6 +76,7 @@ class IsolationApiTests(unittest.TestCase):
         ds = self.client.post(
             "/isolation/datasets",
             json={"name": "picpolish-v1"},
+            headers=self.headers,
         )
         self.assertEqual(ds.status_code, 201, ds.text)
         dataset_id = ds.json()["dataset_id"]
@@ -86,11 +88,12 @@ class IsolationApiTests(unittest.TestCase):
         data = {"indices": "0"}
         up = self.client.post(
             f"/isolation/datasets/{dataset_id}/pairs",
+            headers=self.headers,
             data=data,
             files=files,
         )
         self.assertEqual(up.status_code, 200, up.text)
-        detail = self.client.get(f"/isolation/datasets/{dataset_id}")
+        detail = self.client.get(f"/isolation/datasets/{dataset_id}", headers=self.headers)
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["pair_count"], 1)
         mask_path = self._root / "datasets" / "isolation" / dataset_id / "pairs" / "0" / "mask.png"
@@ -99,16 +102,20 @@ class IsolationApiTests(unittest.TestCase):
     @patch("app.isolation_train._export_rembg_onnx")
     def test_train_activate_predict(self, mock_export) -> None:
         def _fake_export(_base: str, dest: Path) -> None:
-            # minimal onnx-like blob for import path; predict is mocked below
             dest.write_bytes(b"\x08\x03" + b"\x00" * 1024)
 
         mock_export.side_effect = _fake_export
 
-        ds = self.client.post("/isolation/datasets", json={"name": "train-set"})
+        ds = self.client.post(
+            "/isolation/datasets",
+            json={"name": "train-set"},
+            headers=self.headers,
+        )
         dataset_id = ds.json()["dataset_id"]
         b, a = self._before_after_pair()
         self.client.post(
             f"/isolation/datasets/{dataset_id}/pairs",
+            headers=self.headers,
             data={"indices": "0,1"},
             files=[
                 ("before", ("b0.png", b, "image/png")),
@@ -119,6 +126,7 @@ class IsolationApiTests(unittest.TestCase):
         )
         train = self.client.post(
             "/isolation/train",
+            headers=self.headers,
             json={
                 "dataset_id": dataset_id,
                 "epochs": 2,
@@ -131,7 +139,7 @@ class IsolationApiTests(unittest.TestCase):
 
         final = None
         for _ in range(80):
-            got = self.client.get(f"/isolation/train/{job_id}")
+            got = self.client.get(f"/isolation/train/{job_id}", headers=self.headers)
             final = got.json()
             if final["status"] in ("completed", "failed"):
                 break
@@ -140,7 +148,7 @@ class IsolationApiTests(unittest.TestCase):
         model_id = final["model_id"]
         self.assertTrue(model_id)
 
-        act = self.client.post(f"/isolation/models/{model_id}/activate")
+        act = self.client.post(f"/isolation/models/{model_id}/activate", headers=self.headers)
         self.assertEqual(act.status_code, 200)
 
         fake_rgba = _png_bytes(
@@ -156,19 +164,32 @@ class IsolationApiTests(unittest.TestCase):
         self.assertEqual(pred.headers.get("content-type"), "image/png")
         self.assertTrue(pred.content.startswith(b"\x89PNG"))
 
-    def test_health_and_public_predict(self) -> None:
+    def test_trainer_auth_gates(self) -> None:
         h = self.client.get("/isolation/health")
         self.assertEqual(h.status_code, 200)
-        # All isolation endpoints are public (no Bearer required).
+        # Upload/train requires trainer Bearer.
         r = self.client.post("/isolation/datasets", json={"name": "x"})
-        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(r.status_code, 401, r.text)
+        # Predict stays public.
         pred = self.client.post(
             "/isolation/predict",
             files={"file": ("t.png", b"\x89PNG\r\n\x1a\n", "image/png")},
         )
-        # 503 = no active model yet (auth is not required)
         self.assertIn(pred.status_code, (503, 400))
         self.assertNotEqual(pred.status_code, 401)
+        # Non-trainer user is forbidden.
+        reg = self.client.post(
+            "/auth/register",
+            json={"email": "other@test.local", "password": "secret123", "display_name": "Other"},
+        )
+        self.assertEqual(reg.status_code, 200, reg.text)
+        other_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+        denied = self.client.post(
+            "/isolation/datasets",
+            json={"name": "nope"},
+            headers=other_headers,
+        )
+        self.assertEqual(denied.status_code, 403, denied.text)
 
 
 if __name__ == "__main__":

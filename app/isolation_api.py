@@ -1,6 +1,7 @@
 """REST routes for PicPolish isolation dataset, training, and inference.
 
-All isolation endpoints are public (no authentication) for now.
+Training / dataset upload / model admin require the fixed trainer account.
+Predict + health + read-only model listing remain public.
 """
 
 from __future__ import annotations
@@ -8,9 +9,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
+from .auth_models import UserPublic
+from .isolation_auth import ensure_trainer_user, require_trainer
 from .isolation_models import (
     IsolationDatasetCreate,
     IsolationDatasetDetail,
@@ -39,6 +42,10 @@ def init_isolation_api(
 ) -> None:
     global _service
     _service = IsolationService(db_path=db_path, root_dir=root_dir, asset_url_for=asset_url_for)
+    try:
+        ensure_trainer_user(db_path)
+    except Exception as exc:
+        log.warning("could not ensure isolation trainer user: %s", exc)
 
 
 def get_isolation_service() -> IsolationService:
@@ -54,22 +61,27 @@ def isolation_health() -> IsolationHealthResponse:
 
 @router.get("/isolation/quota", response_model=IsolationQuotaStatus)
 def isolation_quota() -> IsolationQuotaStatus:
-    # Public: report unlimited / anonymous quota status (no auth).
     return get_isolation_service().get_quota("anonymous")
 
 
 @router.post("/isolation/datasets", response_model=IsolationDatasetSummary, status_code=201)
-def create_dataset(body: IsolationDatasetCreate) -> IsolationDatasetSummary:
-    return get_isolation_service().create_dataset(name=body.name, owner_user_id=None)
+def create_dataset(
+    body: IsolationDatasetCreate,
+    user: UserPublic = Depends(require_trainer),
+) -> IsolationDatasetSummary:
+    return get_isolation_service().create_dataset(name=body.name, owner_user_id=user.user_id)
 
 
 @router.get("/isolation/datasets", response_model=list[IsolationDatasetSummary])
-def list_datasets() -> list[IsolationDatasetSummary]:
+def list_datasets(user: UserPublic = Depends(require_trainer)) -> list[IsolationDatasetSummary]:
     return get_isolation_service().list_datasets()
 
 
 @router.get("/isolation/datasets/{dataset_id}", response_model=IsolationDatasetDetail)
-def get_dataset(dataset_id: str) -> IsolationDatasetDetail:
+def get_dataset(
+    dataset_id: str,
+    user: UserPublic = Depends(require_trainer),
+) -> IsolationDatasetDetail:
     resp = get_isolation_service().get_dataset(dataset_id)
     if resp is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -77,7 +89,10 @@ def get_dataset(dataset_id: str) -> IsolationDatasetDetail:
 
 
 @router.delete("/isolation/datasets/{dataset_id}", status_code=204)
-def delete_dataset(dataset_id: str) -> Response:
+def delete_dataset(
+    dataset_id: str,
+    user: UserPublic = Depends(require_trainer),
+) -> Response:
     if not get_isolation_service().delete_dataset(dataset_id):
         raise HTTPException(status_code=404, detail="Dataset not found")
     return Response(status_code=204)
@@ -90,7 +105,9 @@ async def upload_pairs(
     before: list[UploadFile] = File(..., description="Before images (same order as indices)"),
     after: list[UploadFile] = File(..., description="After studio cutout images"),
     mask: list[UploadFile] | None = File(default=None, description="Optional explicit masks"),
+    user: UserPublic = Depends(require_trainer),
 ) -> IsolationPairUploadResult:
+    del user  # auth gate only
     try:
         index_list = [int(x.strip()) for x in indices.split(",") if x.strip() != ""]
     except ValueError as exc:
@@ -131,7 +148,10 @@ async def upload_pairs(
 
 
 @router.post("/isolation/train", response_model=IsolationTrainResponse, status_code=202)
-def start_train(body: IsolationTrainRequest) -> JSONResponse:
+def start_train(
+    body: IsolationTrainRequest,
+    user: UserPublic = Depends(require_trainer),
+) -> JSONResponse:
     try:
         resp = get_isolation_service().start_train(
             dataset_id=body.dataset_id,
@@ -139,7 +159,7 @@ def start_train(body: IsolationTrainRequest) -> JSONResponse:
             epochs=body.epochs,
             val_split=body.val_split,
             force_min_pairs=body.force_min_pairs,
-            owner_user_id=None,
+            owner_user_id=user.user_id,
             grow_active=body.grow_active,
             resume_from_model_id=body.resume_from_model_id,
             auto_activate=body.auto_activate,
@@ -152,7 +172,11 @@ def start_train(body: IsolationTrainRequest) -> JSONResponse:
 
 
 @router.get("/isolation/train/{job_id}", response_model=IsolationTrainResponse)
-def get_train(job_id: str) -> IsolationTrainResponse:
+def get_train(
+    job_id: str,
+    user: UserPublic = Depends(require_trainer),
+) -> IsolationTrainResponse:
+    del user
     resp = get_isolation_service().get_train(job_id)
     if resp is None:
         raise HTTPException(status_code=404, detail="Train job not found")
@@ -173,7 +197,11 @@ def get_active_model() -> IsolationModelSummary:
 
 
 @router.post("/isolation/models/{model_id}/activate", response_model=IsolationModelSummary)
-def activate_model(model_id: str) -> IsolationModelSummary:
+def activate_model(
+    model_id: str,
+    user: UserPublic = Depends(require_trainer),
+) -> IsolationModelSummary:
+    del user
     try:
         return get_isolation_service().activate_model(model_id)
     except KeyError:
@@ -186,6 +214,7 @@ async def import_model(
     file: UploadFile = File(..., description="model.onnx"),
     dataset_id: str | None = Form(default=None),
     activate: bool = Form(default=False),
+    user: UserPublic = Depends(require_trainer),
 ) -> IsolationModelSummary:
     raw = await file.read()
     if len(raw) < 1024:
@@ -195,7 +224,7 @@ async def import_model(
         onnx_bytes=raw,
         dataset_id=dataset_id,
         metrics={"imported": True},
-        owner_user_id=None,
+        owner_user_id=user.user_id,
         activate=activate,
     )
 
