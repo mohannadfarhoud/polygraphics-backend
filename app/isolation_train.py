@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import random
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -165,6 +164,17 @@ def _export_rembg_onnx(base_model: str, dest: Path) -> None:
     )
 
 
+def _sticky_pair_split(pairs: list[dict], val_split: float) -> tuple[list[dict], list[dict]]:
+    """Match finetune sticky holdout so rembg-fallback metrics stay comparable."""
+    from .isolation_finetune import _pair_stable_key, _sticky_train_val_split
+
+    keys = [_pair_stable_key(p) for p in pairs]
+    train, val, _ = _sticky_train_val_split(pairs, keys=keys, val_split=val_split)
+    if not val:
+        val = list(train)
+    return train, val
+
+
 def run_training_job(
     *,
     dataset_dir: Path,
@@ -178,10 +188,7 @@ def run_training_job(
     """Train isolation model (incremental UNet when torch is available) and write model.onnx (+ checkpoint.pt)."""
     output_dir.mkdir(parents=True, exist_ok=True)
     pairs = _list_pairs(dataset_dir)
-    random.shuffle(pairs)
-    n_val = max(1, int(len(pairs) * val_split))
-    val_pairs = pairs[:n_val]
-    train_pairs = pairs[n_val:] or pairs
+    train_pairs, val_pairs = _sticky_pair_split(pairs, val_split)
 
     if progress_callback:
         progress_callback(15)

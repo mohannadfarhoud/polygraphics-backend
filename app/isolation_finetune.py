@@ -8,6 +8,7 @@ Training bias: color-edge / boundary patterns over absolute size & position.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import random
@@ -24,6 +25,8 @@ INPUT_SIZE = 320
 EDGE_LOSS_WEIGHT = float(os.getenv("ISOLATION_EDGE_LOSS_WEIGHT", "2.5"))
 BCE_WEIGHT = float(os.getenv("ISOLATION_BCE_WEIGHT", "0.35"))
 DICE_WEIGHT = float(os.getenv("ISOLATION_DICE_WEIGHT", "0.65"))
+# Sticky train/val assignment so IoU is comparable across retrain/grow runs.
+VAL_SPLIT_SALT = os.getenv("ISOLATION_VAL_SPLIT_SALT", "isolation-val-v1")
 
 
 def _device() -> str:
@@ -165,8 +168,47 @@ def _geom_augment(rgb: np.ndarray, mask: np.ndarray, size: int) -> tuple[np.ndar
     return canvas_rgb, canvas_m
 
 
-def _load_raw_pairs(pairs: list[dict]) -> list[tuple[np.ndarray, np.ndarray]]:
+def _pair_stable_key(item: dict) -> str:
+    """Identity used for sticky val membership (stable across retrain/grow)."""
+    if item.get("index") is not None:
+        return f"idx:{int(item['index'])}"
+    return f"path:{Path(str(item['before'])).as_posix()}"
+
+
+def _sticky_train_val_split(
+    items: list,
+    *,
+    keys: list[str],
+    val_split: float,
+) -> tuple[list, list, int]:
+    """Deterministic holdout: same pair stays train or val as the dataset grows.
+
+    Sort by hash(salt|key), take the first n_val as validation. Adding pairs only
+    changes the holdout when n_val increases (or a new low-hash pair enters).
+    """
+    if len(items) != len(keys):
+        raise ValueError("items/keys length mismatch")
+    n = len(items)
+    if n == 0:
+        return [], [], 0
+    if n == 1:
+        return list(items), [], 0
+
+    ranked = sorted(
+        range(n),
+        key=lambda i: hashlib.sha256(f"{VAL_SPLIT_SALT}|{keys[i]}".encode()).hexdigest(),
+    )
+    n_val = max(1, int(n * val_split))
+    n_val = min(n_val, n - 1)  # always keep ≥1 train pair when n≥2
+    val_pos = set(ranked[:n_val])
+    train = [items[i] for i in range(n) if i not in val_pos]
+    val = [items[i] for i in ranked[:n_val]]
+    return train, val, n_val
+
+
+def _load_raw_pairs(pairs: list[dict]) -> tuple[list[tuple[np.ndarray, np.ndarray]], list[str]]:
     out: list[tuple[np.ndarray, np.ndarray]] = []
+    keys: list[str] = []
     for item in pairs:
         before = cv2.imread(str(item["before"]), cv2.IMREAD_COLOR)
         gt = cv2.imread(str(item["mask"]), cv2.IMREAD_GRAYSCALE)
@@ -174,9 +216,10 @@ def _load_raw_pairs(pairs: list[dict]) -> list[tuple[np.ndarray, np.ndarray]]:
             continue
         before = cv2.cvtColor(before, cv2.COLOR_BGR2RGB)
         out.append((before, gt))
+        keys.append(_pair_stable_key(item))
     if not out:
         raise ValueError("No readable before/mask pairs for fine-tune")
-    return out
+    return out, keys
 
 
 def _mask_boundary_weight(mask_t, device):
@@ -263,28 +306,24 @@ def train_unet_incremental(
     """Fine-tune UNet focused on color edges; geometric aug breaks size/position bias."""
     import torch
     import torch.nn.functional as F
-    from torch.utils.data import DataLoader, random_split
+    from torch.utils.data import DataLoader
 
     output_dir.mkdir(parents=True, exist_ok=True)
     device = _device()
-    raw = _load_raw_pairs(pairs)
+    raw, keys = _load_raw_pairs(pairs)
     n = len(raw)
-    n_val = max(1, int(n * val_split)) if n >= 2 else 0
-    n_train = max(1, n - n_val) if n_val else n
-
-    full_idx = list(range(n))
-    random.shuffle(full_idx)
-    val_idx = set(full_idx[:n_val]) if n_val else set()
-    train_raw = [raw[i] for i in range(n) if i not in val_idx] or raw
-    val_raw = [raw[i] for i in val_idx] if val_idx else None
+    train_raw, val_raw, n_val = _sticky_train_val_split(raw, keys=keys, val_split=val_split)
+    n_train = len(train_raw)
+    if n_val == 0:
+        # Single pair: no true holdout — report unaugmented train IoU and mark it.
+        val_raw = list(train_raw)
 
     train_ds = _PairDataset(train_raw, augment=True)
-    val_ds = _PairDataset(val_raw, augment=False) if val_raw else None
+    # Always score without augmentation so IoU is not random per batch/aug.
+    val_ds = _PairDataset(val_raw, augment=False)
 
     train_loader = DataLoader(train_ds, batch_size=min(4, len(train_ds)), shuffle=True, num_workers=0)
-    val_loader = (
-        DataLoader(val_ds, batch_size=min(4, len(val_ds)), shuffle=False, num_workers=0) if val_ds else None
-    )
+    val_loader = DataLoader(val_ds, batch_size=min(4, len(val_ds)), shuffle=False, num_workers=0)
 
     model = _build_unet(in_ch=4).to(device)
     generation = 1
@@ -340,14 +379,24 @@ def train_unet_incremental(
     model.eval()
     ious: list[float] = []
     with torch.no_grad():
-        loader = val_loader or train_loader
-        for xb, yb in loader:
+        for xb, yb in val_loader:
             xb = xb.to(device)
             yb = yb.to(device)
             pred = model(xb)
             ious.append(_iou_batch(pred, yb))
     mean_iou = float(np.mean(ious)) if ious else 0.0
     precision = recall = mean_iou
+
+    # Also score all pairs (unaugmented) so UI can see dataset-wide trend vs holdout luck.
+    all_loader = DataLoader(_PairDataset(raw, augment=False), batch_size=min(4, n), shuffle=False, num_workers=0)
+    all_ious: list[float] = []
+    with torch.no_grad():
+        for xb, yb in all_loader:
+            xb = xb.to(device)
+            yb = yb.to(device)
+            pred = model(xb)
+            all_ious.append(_iou_batch(pred, yb))
+    mean_iou_all = float(np.mean(all_ious)) if all_ious else mean_iou
 
     ckpt_path = output_dir / "checkpoint.pt"
     torch.save(
@@ -384,9 +433,10 @@ def train_unet_incremental(
 
     return {
         "iou": round(mean_iou, 4),
+        "iou_all": round(mean_iou_all, 4),
         "precision": round(float(precision), 4),
         "recall": round(float(recall), 4),
-        "val_pairs": n_val or 0,
+        "val_pairs": n_val,
         "train_pairs": n_train,
         "epochs": epochs,
         "generation": generation,
@@ -396,9 +446,11 @@ def train_unet_incremental(
         "input_size": INPUT_SIZE,
         "in_channels": 4,
         "edge_loss_weight": EDGE_LOSS_WEIGHT,
+        "val_split_mode": "sticky_hash",
         "note": (
-            "Incremental UNet biased to color-edge/boundary patterns; "
-            "strong scale/translate aug reduces size/position memorization."
+            "IoU is mean mask overlap on a sticky holdout (same pairs stay in val across retrain). "
+            "iou_all is unaugmented score on every pair. Small datasets still move when hard "
+            "pairs enter the holdout or n_val grows."
         ),
     }
 

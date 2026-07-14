@@ -42,7 +42,7 @@ class IsolationTrainRequest(BaseModel):
     val_split: float = Field(default=0.2, ge=0.05, le=0.5)
     force_min_pairs: bool = Field(
         default=False,
-        description="Allow training with fewer than 20 pairs (testing only).",
+        description="Allow training with fewer than 20 pairs (including a single couple).",
     )
     grow_active: bool = Field(
         default=True,
@@ -60,6 +60,7 @@ class IsolationTrainRequest(BaseModel):
 
 class IsolationTrainMetrics(BaseModel):
     iou: float | None = None
+    iou_all: float | None = None
     precision: float | None = None
     recall: float | None = None
     val_pairs: int | None = None
@@ -69,7 +70,10 @@ class IsolationTrainMetrics(BaseModel):
     backend: str | None = None
     resumed: bool | None = None
     parent_model_id: str | None = None
+    val_split_mode: str | None = None
     note: str | None = None
+
+    model_config = {"extra": "ignore"}
 
 
 class IsolationTrainResponse(BaseModel):

@@ -130,7 +130,13 @@ class IsolationService:
         indices: list[int] = []
 
         for item in items:
-            index = int(item["index"])
+            raw_index = item.get("index")
+            if raw_index is None:
+                index = 0
+                while index in used_indices:
+                    index += 1
+            else:
+                index = int(raw_index)
             before_bytes: bytes = item["before_bytes"]
             after_bytes: bytes = item["after_bytes"]
             mask_bytes: bytes | None = item.get("mask_bytes")
@@ -208,8 +214,8 @@ class IsolationService:
         if not row:
             raise KeyError(dataset_id)
         pair_count = int(row.get("pair_count") or 0)
-        if pair_count < 2:
-            raise ValueError("Dataset needs at least 2 pairs to train.")
+        if pair_count < 1:
+            raise ValueError("Dataset needs at least 1 before/after couple to train.")
         if pair_count < _MIN_PAIRS_WARN and not force_min_pairs:
             raise ValueError(
                 f"Dataset has only {pair_count} pairs (recommended >= {_MIN_PAIRS_WARN}). "

@@ -101,28 +101,41 @@ def delete_dataset(
 @router.post("/isolation/datasets/{dataset_id}/pairs", response_model=IsolationPairUploadResult)
 async def upload_pairs(
     dataset_id: str,
-    indices: str = Form(..., description="Comma-separated pair indices, e.g. 0,1,2"),
-    before: list[UploadFile] = File(..., description="Before images (same order as indices)"),
-    after: list[UploadFile] = File(..., description="After studio cutout images"),
-    mask: list[UploadFile] | None = File(default=None, description="Optional explicit masks"),
+    before: list[UploadFile] = File(..., description="Before image(s). One file = a single couple."),
+    after: list[UploadFile] = File(..., description="After cutout image(s), same order as before"),
+    mask: list[UploadFile] | None = File(default=None, description="Optional mask(s)"),
+    indices: str | None = Form(
+        default=None,
+        description="Optional comma-separated indices. Omit for a single couple (auto next index).",
+    ),
     user: UserPublic = Depends(require_trainer),
 ) -> IsolationPairUploadResult:
     del user  # auth gate only
-    try:
-        index_list = [int(x.strip()) for x in indices.split(",") if x.strip() != ""]
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="indices must be comma-separated integers") from exc
-    if len(index_list) != len(before) or len(index_list) != len(after):
-        raise HTTPException(status_code=400, detail="indices, before, and after counts must match")
-    if mask is not None and len(mask) not in (0, len(index_list)):
-        raise HTTPException(status_code=400, detail="mask file count must be 0 or match indices")
+    if not before or not after:
+        raise HTTPException(status_code=400, detail="before and after are required")
+    if len(before) != len(after):
+        raise HTTPException(status_code=400, detail="before and after counts must match")
+    if mask is not None and len(mask) not in (0, len(before)):
+        raise HTTPException(status_code=400, detail="mask file count must be 0 or match before/after")
+
+    index_list: list[int | None]
+    if indices is None or not str(indices).strip():
+        # Single couple or batch without indices → auto-assign sequential next indices.
+        index_list = [None] * len(before)
+    else:
+        try:
+            index_list = [int(x.strip()) for x in str(indices).split(",") if x.strip() != ""]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="indices must be comma-separated integers") from exc
+        if len(index_list) != len(before):
+            raise HTTPException(status_code=400, detail="indices count must match before/after")
 
     items: list[dict] = []
     for i, idx in enumerate(index_list):
         b_raw = await before[i].read()
         a_raw = await after[i].read()
         if not b_raw or not a_raw:
-            raise HTTPException(status_code=400, detail=f"empty before/after at index {idx}")
+            raise HTTPException(status_code=400, detail=f"empty before/after at pair {i}")
         m_raw = None
         if mask and len(mask) > i and mask[i] is not None:
             m_raw = await mask[i].read()

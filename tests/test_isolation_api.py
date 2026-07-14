@@ -72,6 +72,30 @@ class IsolationApiTests(unittest.TestCase):
         after[16:48, 16:48] = (40, 80, 120)
         return _png_bytes(before), _png_bytes(after)
 
+    def test_single_couple_upload_without_indices(self) -> None:
+        ds = self.client.post(
+            "/isolation/datasets",
+            json={"name": "single-couple"},
+            headers=self.headers,
+        )
+        self.assertEqual(ds.status_code, 201, ds.text)
+        dataset_id = ds.json()["dataset_id"]
+        b, a = self._before_after_pair()
+        up = self.client.post(
+            f"/isolation/datasets/{dataset_id}/pairs",
+            headers=self.headers,
+            files=[
+                ("before", ("b0.png", b, "image/png")),
+                ("after", ("a0.png", a, "image/png")),
+            ],
+        )
+        self.assertEqual(up.status_code, 200, up.text)
+        body = up.json()
+        self.assertEqual(body["uploaded"], 1)
+        self.assertEqual(body["pair_indices"], [0])
+        detail = self.client.get(f"/isolation/datasets/{dataset_id}", headers=self.headers)
+        self.assertEqual(detail.json()["pair_count"], 1)
+
     def test_dataset_pairs_and_mask_generation(self) -> None:
         ds = self.client.post(
             "/isolation/datasets",
