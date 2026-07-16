@@ -57,7 +57,7 @@ def _multipart(path: str, *, headers: dict, files: dict[str, tuple[str, bytes, s
 
 
 def main() -> None:
-    login = _json("POST", "/auth/login", {"email": "trainer", "password": "devtek2026"})
+    login = _json("POST", "/auth/login", {"email": "admin", "password": "devtek2026"})
     token = login["access_token"]
     auth = {"Authorization": f"Bearer {token}"}
     ds = _json("POST", "/isolation/datasets", {"name": "single-couple-check"}, headers=auth)

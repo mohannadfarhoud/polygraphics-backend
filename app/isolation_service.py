@@ -20,6 +20,7 @@ from .isolation_models import (
     IsolationDatasetSummary,
     IsolationHealthResponse,
     IsolationModelSummary,
+    IsolationStatistics,
     IsolationTrainMetrics,
     IsolationTrainResponse,
     IsolationTrainStatus,
@@ -180,6 +181,45 @@ class IsolationService:
         self._save_meta(dataset_id, meta)
         isolation_db.update_dataset(self.db_path, dataset_id, pair_count=len(pairs_meta))
         return uploaded, sorted(indices)
+
+    def record_upload_event(
+        self,
+        *,
+        dataset_id: str,
+        user_id: str | None,
+        submitted_photos: int,
+        submitted_pairs: int,
+        successful_pairs: int,
+        error: str | None = None,
+    ) -> None:
+        try:
+            isolation_db.insert_upload_event(
+                self.db_path,
+                dataset_id=dataset_id,
+                user_id=user_id,
+                submitted_photos=submitted_photos,
+                successful_photos=successful_pairs * 2,
+                submitted_pairs=submitted_pairs,
+                successful_pairs=successful_pairs,
+                error=error,
+            )
+        except Exception:
+            log.exception("failed to record isolation upload statistics")
+
+    def get_statistics(self, *, dataset_id: str | None = None) -> IsolationStatistics:
+        if dataset_id and not isolation_db.get_dataset(self.db_path, dataset_id):
+            raise KeyError(dataset_id)
+        raw = isolation_db.get_statistics(self.db_path, dataset_id=dataset_id)
+        from datetime import datetime, timezone
+
+        for contributor in raw["contributors"]:
+            ts = contributor.get("last_submitted_at")
+            contributor["last_submitted_at"] = (
+                datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                if ts is not None
+                else None
+            )
+        return IsolationStatistics(dataset_id=dataset_id, **raw)
 
     def export_dataset_zip(self, dataset_id: str, dest_zip: Path | None = None) -> Path:
         row = isolation_db.get_dataset(self.db_path, dataset_id)

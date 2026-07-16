@@ -56,7 +56,7 @@ curl -s -o /dev/null -w "noauth_ds=%{http_code}\n" -X POST https://tryonme.net/p
   -H "Content-Type: application/json" -d '{"name":"x"}'
 TOKEN=$(curl -sf -X POST https://tryonme.net/polygraph/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"trainer","password":"devtek2026"}' | .venv/bin/python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+  -d '{"email":"admin","password":"devtek2026"}' | .venv/bin/python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 curl -s -o /dev/null -w "trainer_ds=%{http_code}\n" -X POST https://tryonme.net/polygraph/isolation/datasets \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"name":"trainer-check"}'
 systemctl is-active polygraphics-api

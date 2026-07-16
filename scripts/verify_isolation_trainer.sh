@@ -15,7 +15,7 @@ curl -s -o /dev/null -w "%{http_code}" -X POST https://tryonme.net/polygraph/iso
 echo
 TOK=$(curl -sf -X POST https://tryonme.net/polygraph/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"trainer","password":"devtek2026"}')
+  -d '{"email":"admin","password":"devtek2026"}')
 TOKEN=$(printf '%s' "$TOK" | .venv/bin/python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 echo "got_token=${#TOKEN}"
 echo -n "trainer_ds="

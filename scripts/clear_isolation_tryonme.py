@@ -18,7 +18,7 @@ from pathlib import Path
 data = Path("/var/lib/polygraphics")
 db = data / "data" / "jobs.sqlite"
 conn = sqlite3.connect(str(db))
-for table in ("isolation_models", "isolation_train_jobs", "isolation_datasets"):
+for table in ("isolation_models", "isolation_train_jobs", "isolation_upload_events", "isolation_datasets"):
     row = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
         (table,),

@@ -365,15 +365,15 @@ PicPolish uploads **before/after** image pairs; the API learns foreground masks 
 
 ### Flow
 
-1. **Login as trainer** — `POST /auth/login` with `{ "email": "trainer", "password": "devtek2026" }` → Bearer token.
-2. **Create dataset once** — `POST /isolation/datasets` with `{ "name": "..." }` (**trainer Bearer required**). Keep this `dataset_id`.
-3. **Upload pairs** — `POST /isolation/datasets/{dataset_id}/pairs` (multipart; **trainer Bearer required**). Append more pairs to the **same** dataset over time.
-4. **Train (incremental)** — `POST /isolation/train` with `{ "dataset_id", "grow_active": true }` (**trainer Bearer required**).  
+1. **Login as admin** — `POST /auth/login` with `{ "email": "admin", "password": "devtek2026" }` → Bearer token.
+2. **Create dataset once** — `POST /isolation/datasets` with `{ "name": "..." }` (**Bearer required**). Keep this `dataset_id`.
+3. **Upload pairs** — `POST /isolation/datasets/{dataset_id}/pairs` (multipart; **Bearer required**). Append more pairs to the **same** dataset over time.
+4. **Train (incremental)** — `POST /isolation/train` with `{ "dataset_id", "grow_active": true }` (**Bearer required**).  
    Defaults: resume from the active model checkpoint, reuse the same `model_id`, auto-activate. Each successful train bumps `generation` (1 → 2 → 3…).
 5. **Predict** — `POST /isolation/predict` with multipart `file` (**no auth**). Uses the active growing model. Returns RGBA PNG (or `format=json`).
 6. **See active model** — `GET /isolation/models/active` → `model_id`, `metrics.generation`, IoU (**public**).
 
-Training / dataset / model-admin routes require the fixed user **`trainer` / `devtek2026`**. Predict + health + model list remain public.
+Training / dataset / model-admin routes require any authenticated user. Predict + health + model list remain public.
 
 
 Health: `GET /isolation/health` (ONNX Runtime, active model).

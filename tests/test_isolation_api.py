@@ -56,7 +56,7 @@ class IsolationApiTests(unittest.TestCase):
 
         login = self.client.post(
             "/auth/login",
-            json={"email": "trainer", "password": "devtek2026"},
+            json={"email": "admin", "password": "devtek2026"},
         )
         self.assertEqual(login.status_code, 200, login.text)
         self.token = login.json()["access_token"]
@@ -123,6 +123,53 @@ class IsolationApiTests(unittest.TestCase):
         mask_path = self._root / "datasets" / "isolation" / dataset_id / "pairs" / "0" / "mask.png"
         self.assertTrue(mask_path.is_file())
 
+    def test_statistics_track_contributor_success_and_failure(self) -> None:
+        ds = self.client.post(
+            "/isolation/datasets",
+            json={"name": "statistics"},
+            headers=self.headers,
+        )
+        dataset_id = ds.json()["dataset_id"]
+        b, a = self._before_after_pair()
+
+        success = self.client.post(
+            f"/isolation/datasets/{dataset_id}/pairs",
+            headers=self.headers,
+            files=[
+                ("before", ("b0.png", b, "image/png")),
+                ("after", ("a0.png", a, "image/png")),
+            ],
+        )
+        self.assertEqual(success.status_code, 200, success.text)
+
+        failure = self.client.post(
+            f"/isolation/datasets/{dataset_id}/pairs",
+            headers=self.headers,
+            files=[
+                ("before", ("b1.png", b, "image/png")),
+                ("after", ("a1.png", a, "image/png")),
+                ("after", ("a2.png", a, "image/png")),
+            ],
+        )
+        self.assertEqual(failure.status_code, 400, failure.text)
+
+        stats = self.client.get(
+            "/isolation/statistics",
+            params={"dataset_id": dataset_id},
+            headers=self.headers,
+        )
+        self.assertEqual(stats.status_code, 200, stats.text)
+        body = stats.json()
+        self.assertEqual(body["datasets"]["current_pairs"], 1)
+        self.assertEqual(body["uploads"]["upload_attempts"], 2)
+        self.assertEqual(body["uploads"]["submitted_photos"], 5)
+        self.assertEqual(body["uploads"]["successful_photos"], 2)
+        self.assertEqual(body["uploads"]["unsuccessful_photos"], 3)
+        self.assertEqual(body["uploads"]["successful_pairs"], 1)
+        self.assertEqual(body["uploads"]["unsuccessful_pairs"], 2)
+        self.assertEqual(len(body["contributors"]), 1)
+        self.assertEqual(body["contributors"][0]["email"], "admin@polygraph.local")
+
     @patch("app.isolation_train._export_rembg_onnx")
     def test_train_activate_predict(self, mock_export) -> None:
         def _fake_export(_base: str, dest: Path) -> None:
@@ -188,10 +235,10 @@ class IsolationApiTests(unittest.TestCase):
         self.assertEqual(pred.headers.get("content-type"), "image/png")
         self.assertTrue(pred.content.startswith(b"\x89PNG"))
 
-    def test_trainer_auth_gates(self) -> None:
+    def test_logged_in_user_can_train(self) -> None:
         h = self.client.get("/isolation/health")
         self.assertEqual(h.status_code, 200)
-        # Upload/train requires trainer Bearer.
+        # Upload/train requires authentication.
         r = self.client.post("/isolation/datasets", json={"name": "x"})
         self.assertEqual(r.status_code, 401, r.text)
         # Predict stays public.
@@ -201,19 +248,19 @@ class IsolationApiTests(unittest.TestCase):
         )
         self.assertIn(pred.status_code, (503, 400))
         self.assertNotEqual(pred.status_code, 401)
-        # Non-trainer user is forbidden.
+        # Any registered user may create datasets and train.
         reg = self.client.post(
             "/auth/register",
             json={"email": "other@test.local", "password": "secret123", "display_name": "Other"},
         )
         self.assertEqual(reg.status_code, 200, reg.text)
         other_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
-        denied = self.client.post(
+        allowed = self.client.post(
             "/isolation/datasets",
-            json={"name": "nope"},
+            json={"name": "user-dataset"},
             headers=other_headers,
         )
-        self.assertEqual(denied.status_code, 403, denied.text)
+        self.assertEqual(allowed.status_code, 201, allowed.text)
 
 
 if __name__ == "__main__":

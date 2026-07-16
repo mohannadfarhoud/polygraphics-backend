@@ -28,6 +28,9 @@ Write-Host "==> Installing PyTorch + torchvision ($CudaTorchIndex)" -ForegroundC
 Write-Host "==> SAM + MapAnything stack (skipping duplicate torch install)" -ForegroundColor Cyan
 & "$PSScriptRoot\install_ml_windows.ps1" -ProjectRoot $ProjectRoot -SkipTorch
 
+Write-Host "==> Tripo (tripo3d SDK + TripoSR repo)" -ForegroundColor Cyan
+& "$PSScriptRoot\install_tripo3d_worker_windows.ps1" -ProjectRoot $ProjectRoot
+
 $workerEnv = Join-Path $ProjectRoot ".env.worker"
 $example = Join-Path $ProjectRoot ".env.worker.example"
 if (-not (Test-Path $workerEnv)) {

@@ -1,6 +1,6 @@
 """REST routes for PicPolish isolation dataset, training, and inference.
 
-Training / dataset upload / model admin require the fixed trainer account.
+Training / dataset upload / model admin require any authenticated user.
 Predict + health + read-only model listing remain public.
 """
 
@@ -12,8 +12,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse, Response
 
+from .auth_deps import get_current_user
 from .auth_models import UserPublic
-from .isolation_auth import ensure_trainer_user, require_trainer
+from .isolation_auth import ensure_trainer_user
 from .isolation_models import (
     IsolationDatasetCreate,
     IsolationDatasetDetail,
@@ -22,6 +23,7 @@ from .isolation_models import (
     IsolationModelSummary,
     IsolationPairUploadResult,
     IsolationPredictJsonResponse,
+    IsolationStatistics,
     IsolationTrainRequest,
     IsolationTrainResponse,
 )
@@ -64,23 +66,35 @@ def isolation_quota() -> IsolationQuotaStatus:
     return get_isolation_service().get_quota("anonymous")
 
 
+@router.get("/isolation/statistics", response_model=IsolationStatistics)
+def isolation_statistics(
+    dataset_id: str | None = Query(default=None),
+    user: UserPublic = Depends(get_current_user),
+) -> IsolationStatistics:
+    del user
+    try:
+        return get_isolation_service().get_statistics(dataset_id=dataset_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Dataset not found") from None
+
+
 @router.post("/isolation/datasets", response_model=IsolationDatasetSummary, status_code=201)
 def create_dataset(
     body: IsolationDatasetCreate,
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> IsolationDatasetSummary:
     return get_isolation_service().create_dataset(name=body.name, owner_user_id=user.user_id)
 
 
 @router.get("/isolation/datasets", response_model=list[IsolationDatasetSummary])
-def list_datasets(user: UserPublic = Depends(require_trainer)) -> list[IsolationDatasetSummary]:
+def list_datasets(user: UserPublic = Depends(get_current_user)) -> list[IsolationDatasetSummary]:
     return get_isolation_service().list_datasets()
 
 
 @router.get("/isolation/datasets/{dataset_id}", response_model=IsolationDatasetDetail)
 def get_dataset(
     dataset_id: str,
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> IsolationDatasetDetail:
     resp = get_isolation_service().get_dataset(dataset_id)
     if resp is None:
@@ -91,7 +105,7 @@ def get_dataset(
 @router.delete("/isolation/datasets/{dataset_id}", status_code=204)
 def delete_dataset(
     dataset_id: str,
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> Response:
     if not get_isolation_service().delete_dataset(dataset_id):
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -108,14 +122,29 @@ async def upload_pairs(
         default=None,
         description="Optional comma-separated indices. Omit for a single couple (auto next index).",
     ),
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> IsolationPairUploadResult:
-    del user  # auth gate only
+    submitted_photos = len(before) + len(after)
+    submitted_pairs = max(len(before), len(after))
+
+    def record_failure(detail: str) -> None:
+        get_isolation_service().record_upload_event(
+            dataset_id=dataset_id,
+            user_id=user.user_id,
+            submitted_photos=submitted_photos,
+            submitted_pairs=submitted_pairs,
+            successful_pairs=0,
+            error=detail,
+        )
+
     if not before or not after:
+        record_failure("before and after are required")
         raise HTTPException(status_code=400, detail="before and after are required")
     if len(before) != len(after):
+        record_failure("before and after counts must match")
         raise HTTPException(status_code=400, detail="before and after counts must match")
     if mask is not None and len(mask) not in (0, len(before)):
+        record_failure("mask file count must be 0 or match before/after")
         raise HTTPException(status_code=400, detail="mask file count must be 0 or match before/after")
 
     index_list: list[int | None]
@@ -126,8 +155,10 @@ async def upload_pairs(
         try:
             index_list = [int(x.strip()) for x in str(indices).split(",") if x.strip() != ""]
         except ValueError as exc:
+            record_failure("indices must be comma-separated integers")
             raise HTTPException(status_code=400, detail="indices must be comma-separated integers") from exc
         if len(index_list) != len(before):
+            record_failure("indices count must match before/after")
             raise HTTPException(status_code=400, detail="indices count must match before/after")
 
     items: list[dict] = []
@@ -135,6 +166,7 @@ async def upload_pairs(
         b_raw = await before[i].read()
         a_raw = await after[i].read()
         if not b_raw or not a_raw:
+            record_failure(f"empty before/after at pair {i}")
             raise HTTPException(status_code=400, detail=f"empty before/after at pair {i}")
         m_raw = None
         if mask and len(mask) > i and mask[i] is not None:
@@ -153,17 +185,29 @@ async def upload_pairs(
     try:
         uploaded, pair_indices = get_isolation_service().add_pairs(dataset_id=dataset_id, items=items)
     except KeyError:
+        record_failure("Dataset not found")
         raise HTTPException(status_code=404, detail="Dataset not found") from None
     except ValueError as exc:
+        record_failure(str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except Exception as exc:
+        record_failure(str(exc))
+        raise
 
+    get_isolation_service().record_upload_event(
+        dataset_id=dataset_id,
+        user_id=user.user_id,
+        submitted_photos=submitted_photos,
+        submitted_pairs=submitted_pairs,
+        successful_pairs=uploaded,
+    )
     return IsolationPairUploadResult(dataset_id=dataset_id, uploaded=uploaded, pair_indices=pair_indices)
 
 
 @router.post("/isolation/train", response_model=IsolationTrainResponse, status_code=202)
 def start_train(
     body: IsolationTrainRequest,
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> JSONResponse:
     try:
         resp = get_isolation_service().start_train(
@@ -187,7 +231,7 @@ def start_train(
 @router.get("/isolation/train/{job_id}", response_model=IsolationTrainResponse)
 def get_train(
     job_id: str,
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> IsolationTrainResponse:
     del user
     resp = get_isolation_service().get_train(job_id)
@@ -212,7 +256,7 @@ def get_active_model() -> IsolationModelSummary:
 @router.post("/isolation/models/{model_id}/activate", response_model=IsolationModelSummary)
 def activate_model(
     model_id: str,
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> IsolationModelSummary:
     del user
     try:
@@ -227,7 +271,7 @@ async def import_model(
     file: UploadFile = File(..., description="model.onnx"),
     dataset_id: str | None = Form(default=None),
     activate: bool = Form(default=False),
-    user: UserPublic = Depends(require_trainer),
+    user: UserPublic = Depends(get_current_user),
 ) -> IsolationModelSummary:
     raw = await file.read()
     if len(raw) < 1024:

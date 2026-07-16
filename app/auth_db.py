@@ -129,6 +129,23 @@ def touch_user_login(db_path: Path, user_id: str) -> None:
         conn.commit()
 
 
+def update_user_email(db_path: Path, *, user_id: str, email: str, name: str | None = None) -> None:
+    normalized = normalize_email(email)
+    now = time.time()
+    with _connect(db_path) as conn:
+        if name is not None:
+            conn.execute(
+                "UPDATE users SET email = ?, name = ?, updated_at = ? WHERE user_id = ?",
+                (normalized, name, now, user_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE users SET email = ?, updated_at = ? WHERE user_id = ?",
+                (normalized, now, user_id),
+            )
+        conn.commit()
+
+
 def update_user_password_hash(db_path: Path, *, email: str, password_hash: str, name: str | None = None) -> None:
     normalized = normalize_email(email)
     now = time.time()

@@ -35,6 +35,48 @@ class IsolationPairUploadResult(BaseModel):
     pair_indices: list[int]
 
 
+class IsolationContributorStatistics(BaseModel):
+    user_id: str | None = None
+    email: str | None = None
+    name: str | None = None
+    upload_attempts: int = 0
+    submitted_photos: int = 0
+    successful_photos: int = 0
+    unsuccessful_photos: int = 0
+    last_submitted_at: str | None = None
+
+
+class IsolationUploadStatistics(BaseModel):
+    upload_attempts: int = 0
+    submitted_photos: int = 0
+    successful_photos: int = 0
+    unsuccessful_photos: int = 0
+    submitted_pairs: int = 0
+    successful_pairs: int = 0
+    unsuccessful_pairs: int = 0
+
+
+class IsolationTrainingStatistics(BaseModel):
+    total: int = 0
+    completed: int = 0
+    failed: int = 0
+    queued: int = 0
+    running: int = 0
+
+
+class IsolationDatasetStatistics(BaseModel):
+    total_datasets: int = 0
+    current_pairs: int = 0
+
+
+class IsolationStatistics(BaseModel):
+    dataset_id: str | None = None
+    datasets: IsolationDatasetStatistics
+    uploads: IsolationUploadStatistics
+    training: IsolationTrainingStatistics
+    contributors: list[IsolationContributorStatistics] = Field(default_factory=list)
+
+
 class IsolationTrainRequest(BaseModel):
     dataset_id: str
     base_model: str = Field(default="isnet-general-use", description="rembg-compatible base model name (bootstrap only)")
