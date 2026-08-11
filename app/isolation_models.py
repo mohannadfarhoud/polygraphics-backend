@@ -149,7 +149,7 @@ class IsolationRetrainAllRequest(BaseModel):
         description="Dataset to purge+train. If omitted, uses active model's dataset, else largest dataset.",
     )
     base_model: str = Field(default="isnet-general-use")
-    epochs: int = Field(default=20, ge=1, le=500)
+    epochs: int = Field(default=40, ge=1, le=500)
     val_split: float = Field(default=0.2, ge=0.05, le=0.5)
     force_min_pairs: bool = Field(default=True)
     grow_active: bool = Field(

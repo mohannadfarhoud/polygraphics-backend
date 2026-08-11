@@ -20,6 +20,13 @@ FILES = [
     "app/isolation_service.py",
     "app/isolation_db.py",
     "app/isolation_train.py",
+    "app/isolation_finetune.py",
+    "app/isolation_mask.py",
+    "app/isolation_inference.py",
+    "app/isolation_auth.py",
+    "app/auth_models.py",
+    "app/auth_service.py",
+    "app/main.py",
     "openapi.json",
 ]
 

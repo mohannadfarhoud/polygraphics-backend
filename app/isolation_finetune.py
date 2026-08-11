@@ -20,11 +20,11 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-INPUT_SIZE = 320
-# Loss mix: focus on edges/boundaries more than bulk region fill.
-EDGE_LOSS_WEIGHT = float(os.getenv("ISOLATION_EDGE_LOSS_WEIGHT", "2.5"))
-BCE_WEIGHT = float(os.getenv("ISOLATION_BCE_WEIGHT", "0.35"))
-DICE_WEIGHT = float(os.getenv("ISOLATION_DICE_WEIGHT", "0.65"))
+INPUT_SIZE = int(os.getenv("ISOLATION_INPUT_SIZE", "512") or "512")
+# Loss mix: focus on color edges / shape outline more than bulk region fill.
+EDGE_LOSS_WEIGHT = float(os.getenv("ISOLATION_EDGE_LOSS_WEIGHT", "4.0"))
+BCE_WEIGHT = float(os.getenv("ISOLATION_BCE_WEIGHT", "0.25"))
+DICE_WEIGHT = float(os.getenv("ISOLATION_DICE_WEIGHT", "0.55"))
 # Sticky train/val assignment so IoU is comparable across retrain/grow runs.
 VAL_SPLIT_SALT = os.getenv("ISOLATION_VAL_SPLIT_SALT", "isolation-val-v1")
 
@@ -44,15 +44,20 @@ def color_edge_map(rgb: np.ndarray) -> np.ndarray:
     """Color-aware edge magnitude in [0,1] (float32 HxW). Emphasizes hue/chroma boundaries."""
     rgb_u8 = np.clip(rgb, 0, 255).astype(np.uint8) if rgb.dtype != np.uint8 else rgb
     lab = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2LAB)
-    # Edges on L (structure) + a/b (color) — color channels weighted higher.
+    hsv = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2HSV)
+    # Edges on L (structure) + a/b (color) + hue — color/shape over brightness.
     edges = []
-    weights = (0.35, 0.9, 0.9)  # L, a, b
+    weights = (0.2, 1.15, 1.15)  # L, a, b
     for i, w in enumerate(weights):
         ch = lab[:, :, i]
         gx = cv2.Sobel(ch, cv2.CV_32F, 1, 0, ksize=3)
         gy = cv2.Sobel(ch, cv2.CV_32F, 0, 1, ksize=3)
         mag = cv2.magnitude(gx, gy)
         edges.append(w * mag)
+    hue = hsv[:, :, 0].astype(np.float32)
+    gx = cv2.Sobel(hue, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(hue, cv2.CV_32F, 0, 1, ksize=3)
+    edges.append(1.0 * cv2.magnitude(gx, gy))
     edge = np.maximum.reduce(edges)
     # Soft normalize per-image so absolute contrast doesn't dominate.
     p95 = float(np.percentile(edge, 95)) + 1e-6
@@ -322,8 +327,9 @@ def train_unet_incremental(
     # Always score without augmentation so IoU is not random per batch/aug.
     val_ds = _PairDataset(val_raw, augment=False)
 
-    train_loader = DataLoader(train_ds, batch_size=min(4, len(train_ds)), shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=min(4, len(val_ds)), shuffle=False, num_workers=0)
+    batch = 2 if INPUT_SIZE >= 512 else 4
+    train_loader = DataLoader(train_ds, batch_size=min(batch, len(train_ds)), shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_ds, batch_size=min(batch, len(val_ds)), shuffle=False, num_workers=0)
 
     model = _build_unet(in_ch=4).to(device)
     generation = 1
@@ -366,7 +372,7 @@ def train_unet_incremental(
             bce = F.binary_cross_entropy(pred, yb, weight=weights)
             dice = _dice_loss(pred, yb)
             edge_l = _edge_consistency_loss(pred, yb)
-            loss = BCE_WEIGHT * bce + DICE_WEIGHT * dice + EDGE_LOSS_WEIGHT * 0.5 * edge_l
+            loss = BCE_WEIGHT * bce + DICE_WEIGHT * dice + EDGE_LOSS_WEIGHT * 0.65 * edge_l
             loss.backward()
             opt.step()
             total += float(loss.item())
@@ -388,7 +394,7 @@ def train_unet_incremental(
     precision = recall = mean_iou
 
     # Also score all pairs (unaugmented) so UI can see dataset-wide trend vs holdout luck.
-    all_loader = DataLoader(_PairDataset(raw, augment=False), batch_size=min(4, n), shuffle=False, num_workers=0)
+    all_loader = DataLoader(_PairDataset(raw, augment=False), batch_size=min(batch, n), shuffle=False, num_workers=0)
     all_ious: list[float] = []
     with torch.no_grad():
         for xb, yb in all_loader:
@@ -441,7 +447,7 @@ def train_unet_incremental(
         "epochs": epochs,
         "generation": generation,
         "parent_model_id": parent_model_id,
-        "backend": "unet_finetune_color_edge",
+        "backend": "unet_finetune_color_shape_v2",
         "device": device,
         "input_size": INPUT_SIZE,
         "in_channels": 4,

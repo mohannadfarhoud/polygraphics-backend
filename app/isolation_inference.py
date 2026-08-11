@@ -112,7 +112,7 @@ def _session_input_channels(session) -> int:
     return 3
 
 
-def _preprocess_color_edge(image_bgr: np.ndarray, size: int = 320) -> tuple[np.ndarray, tuple[int, int]]:
+def _preprocess_color_edge(image_bgr: np.ndarray, size: int = 512) -> tuple[np.ndarray, tuple[int, int]]:
     """4-channel RGB + color-edge input (matches isolation_finetune UNet)."""
     from .isolation_finetune import pack_input_chw
 
@@ -152,7 +152,7 @@ def predict_mask(image_bgr: np.ndarray, *, model_path: Path) -> np.ndarray:
     if channels >= 4:
         # Growing UNet: RGB + color-edge channel
         if not isinstance(size, int) or size <= 0 or size > 2048:
-            size = 320
+            size = 512
         inp, hw = _preprocess_color_edge(image_bgr, size=size)
         use_isnet = False
     elif size >= 512 or os.getenv("ISOLATION_PREPROCESS", "").strip().lower() in (

@@ -26,13 +26,53 @@ def mask_from_after_image(*, before_shape: tuple[int, int], after_bgr_or_bgra: n
         alpha = img[:, :, 3].astype(np.uint8)
         fg = alpha >= 128
     else:
-        rgb = img[:, :, :3].astype(np.int16)
-        near_white = (rgb[:, :, 0] >= 245) & (rgb[:, :, 1] >= 245) & (rgb[:, :, 2] >= 245)
-        fg = ~near_white
+        fg = _foreground_from_studio_cutout(img[:, :, :3])
 
     mask = np.zeros((h, w), dtype=np.uint8)
     mask[fg] = 255
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)
     return mask
+
+
+def _foreground_from_studio_cutout(bgr: np.ndarray) -> np.ndarray:
+    """Foreground = not the connected white/low-chroma studio background.
+
+    Corner flood-fill keeps product color (even light beige) and follows shape
+    better than a hard RGB>=245 threshold.
+    """
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    sat = hsv[:, :, 1]
+    val = hsv[:, :, 2]
+    rgb = bgr.astype(np.int16)
+    near_white = (sat <= 30) & (val >= 225)
+    near_white |= (rgb[:, :, 0] >= 242) & (rgb[:, :, 1] >= 242) & (rgb[:, :, 2] >= 242)
+
+    hh, ww = near_white.shape
+    bg = np.zeros((hh, ww), dtype=bool)
+    stack = []
+    for y, x in ((0, 0), (0, ww - 1), (hh - 1, 0), (hh - 1, ww - 1)):
+        if near_white[y, x]:
+            stack.append((y, x))
+    while stack:
+        y, x = stack.pop()
+        if bg[y, x] or not near_white[y, x]:
+            continue
+        bg[y, x] = True
+        if y > 0:
+            stack.append((y - 1, x))
+        if y + 1 < hh:
+            stack.append((y + 1, x))
+        if x > 0:
+            stack.append((y, x - 1))
+        if x + 1 < ww:
+            stack.append((y, x + 1))
+
+    fg = ~bg
+    if int(fg.sum()) < (hh * ww) * 0.002:
+        fg = ~near_white
+    return fg
 
 
 def generate_and_save_mask(*, before_path: str, after_path: str, mask_path: str) -> None:

@@ -45,7 +45,20 @@ def _list_pairs(dataset_dir: Path) -> list[dict]:
         before = next(pair_dir.glob("before.*"), None)
         after = next(pair_dir.glob("after.*"), None)
         mask = pair_dir / "mask.png"
-        if not before or not mask.is_file():
+        if not before:
+            continue
+        if after is not None and after.is_file():
+            try:
+                from .isolation_mask import generate_and_save_mask
+
+                generate_and_save_mask(
+                    before_path=str(before),
+                    after_path=str(after),
+                    mask_path=str(mask),
+                )
+            except Exception as exc:
+                log.warning("could not rebuild mask for pair %s: %s", idx, exc)
+        if not mask.is_file():
             continue
         content_hash = str(p.get("content_hash") or "").strip() or _content_hash_from_files(before, after)
         if content_hash in seen_hashes:

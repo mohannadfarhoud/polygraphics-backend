@@ -1593,7 +1593,7 @@
                 "$ref": "#/components/schemas/IsolationRetrainAllRequest",
                 "default": {
                   "base_model": "isnet-general-use",
-                  "epochs": 20,
+                  "epochs": 40,
                   "val_split": 0.2,
                   "force_min_pairs": true,
                   "grow_active": false,
@@ -5097,7 +5097,7 @@
             "maximum": 500.0,
             "minimum": 1.0,
             "title": "Epochs",
-            "default": 20
+            "default": 40
           },
           "val_split": {
             "type": "number",
