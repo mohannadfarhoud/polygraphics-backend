@@ -8,6 +8,7 @@ class UserPublic(BaseModel):
     email: str
     name: str | None = None
     picture_url: str | None = None
+    is_admin: bool = False
 
 
 class AuthTokenResponse(BaseModel):

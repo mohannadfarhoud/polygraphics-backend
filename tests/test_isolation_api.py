@@ -66,10 +66,10 @@ class IsolationApiTests(unittest.TestCase):
         self._env.stop()
         gc.collect()
 
-    def _before_after_pair(self) -> tuple[bytes, bytes]:
-        before = np.full((64, 64, 3), (40, 80, 120), dtype=np.uint8)
+    def _before_after_pair(self, seed: int = 0) -> tuple[bytes, bytes]:
+        before = np.full((64, 64, 3), (40 + seed, 80, 120), dtype=np.uint8)
         after = np.full((64, 64, 3), 255, dtype=np.uint8)
-        after[16:48, 16:48] = (40, 80, 120)
+        after[16:48, 16:48] = (40 + seed, 80, 120)
         return _png_bytes(before), _png_bytes(after)
 
     def test_single_couple_upload_without_indices(self) -> None:
@@ -170,6 +170,61 @@ class IsolationApiTests(unittest.TestCase):
         self.assertEqual(len(body["contributors"]), 1)
         self.assertEqual(body["contributors"][0]["email"], "admin@polygraph.local")
 
+    def test_reject_duplicate_pairs_and_admin_pair_list(self) -> None:
+        ds = self.client.post(
+            "/isolation/datasets",
+            json={"name": "dup-check"},
+            headers=self.headers,
+        )
+        dataset_id = ds.json()["dataset_id"]
+        b, a = self._before_after_pair()
+        first = self.client.post(
+            f"/isolation/datasets/{dataset_id}/pairs",
+            headers=self.headers,
+            files=[
+                ("before", ("b0.png", b, "image/png")),
+                ("after", ("a0.png", a, "image/png")),
+            ],
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["uploaded"], 1)
+
+        dup = self.client.post(
+            f"/isolation/datasets/{dataset_id}/pairs",
+            headers=self.headers,
+            files=[
+                ("before", ("b0-again.png", b, "image/png")),
+                ("after", ("a0-again.png", a, "image/png")),
+            ],
+        )
+        self.assertEqual(dup.status_code, 400, dup.text)
+        self.assertIn("duplicate", dup.json()["detail"].lower())
+
+        pairs = self.client.get("/isolation/pairs", headers=self.headers)
+        self.assertEqual(pairs.status_code, 200, pairs.text)
+        body = pairs.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["counts"]["total_pairs"], 1)
+        self.assertEqual(body["counts"]["admin_pairs"], 1)
+        self.assertEqual(len(body["pairs"]), 1)
+        self.assertEqual(body["pairs"][0]["uploaded_by_email"], "admin@polygraph.local")
+        self.assertTrue(body["pairs"][0]["is_admin_uploader"])
+        self.assertTrue(body["pairs"][0]["uploaded_at"])
+        self.assertTrue(body["pairs"][0]["before_url"])
+        self.assertTrue(body["pairs"][0]["after_url"])
+        before = self.client.get(body["pairs"][0]["before_url"], headers=self.headers)
+        self.assertEqual(before.status_code, 200, before.text)
+        self.assertTrue(before.content.startswith(b"\x89PNG"))
+        after = self.client.get(
+            body["pairs"][0]["after_url"],
+            params={"access_token": self.token},
+        )
+        self.assertEqual(after.status_code, 200, after.text)
+
+        stats = self.client.get("/isolation/statistics", headers=self.headers)
+        self.assertEqual(stats.status_code, 200, stats.text)
+        self.assertEqual(stats.json()["pairs"]["admin_pairs"], 1)
+
     @patch("app.isolation_train._export_rembg_onnx")
     def test_train_activate_predict(self, mock_export) -> None:
         def _fake_export(_base: str, dest: Path) -> None:
@@ -183,16 +238,17 @@ class IsolationApiTests(unittest.TestCase):
             headers=self.headers,
         )
         dataset_id = ds.json()["dataset_id"]
-        b, a = self._before_after_pair()
+        b0, a0 = self._before_after_pair(0)
+        b1, a1 = self._before_after_pair(1)
         self.client.post(
             f"/isolation/datasets/{dataset_id}/pairs",
             headers=self.headers,
             data={"indices": "0,1"},
             files=[
-                ("before", ("b0.png", b, "image/png")),
-                ("before", ("b1.png", b, "image/png")),
-                ("after", ("a0.png", a, "image/png")),
-                ("after", ("a1.png", a, "image/png")),
+                ("before", ("b0.png", b0, "image/png")),
+                ("before", ("b1.png", b1, "image/png")),
+                ("after", ("a0.png", a0, "image/png")),
+                ("after", ("a1.png", a1, "image/png")),
             ],
         )
         train = self.client.post(
@@ -229,7 +285,7 @@ class IsolationApiTests(unittest.TestCase):
         with patch("app.isolation_service.predict_isolated_png", return_value=(fake_rgba, fake_rgba, 12)):
             pred = self.client.post(
                 "/isolation/predict",
-                files={"file": ("test.png", b, "image/png")},
+                files={"file": ("test.png", b0, "image/png")},
             )
         self.assertEqual(pred.status_code, 200, pred.text)
         self.assertEqual(pred.headers.get("content-type"), "image/png")
@@ -248,12 +304,17 @@ class IsolationApiTests(unittest.TestCase):
         )
         self.assertIn(pred.status_code, (503, 400))
         self.assertNotEqual(pred.status_code, 401)
+        # Admin login exposes is_admin for the UI admin panel.
+        me = self.client.get("/auth/me", headers=self.headers)
+        self.assertEqual(me.status_code, 200, me.text)
+        self.assertTrue(me.json().get("is_admin"))
         # Any registered user may create datasets and train.
         reg = self.client.post(
             "/auth/register",
             json={"email": "other@test.local", "password": "secret123", "display_name": "Other"},
         )
         self.assertEqual(reg.status_code, 200, reg.text)
+        self.assertFalse(reg.json()["user"].get("is_admin"))
         other_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
         allowed = self.client.post(
             "/isolation/datasets",
@@ -261,6 +322,108 @@ class IsolationApiTests(unittest.TestCase):
             headers=other_headers,
         )
         self.assertEqual(allowed.status_code, 201, allowed.text)
+        # Admin panel (statistics) is admin-only.
+        denied = self.client.get("/isolation/statistics", headers=other_headers)
+        self.assertEqual(denied.status_code, 403, denied.text)
+        ok = self.client.get("/isolation/statistics", headers=self.headers)
+        self.assertEqual(ok.status_code, 200, ok.text)
+
+    def test_dedupe_and_retrain_all(self) -> None:
+        ds = self.client.post(
+            "/isolation/datasets",
+            json={"name": "dedupe-set"},
+            headers=self.headers,
+        )
+        dataset_id = ds.json()["dataset_id"]
+        b, a = self._before_after_pair(3)
+
+        # Bypass upload reject to simulate legacy duplicate couples already on disk/meta.
+        from app.isolation_api import get_isolation_service
+
+        svc = get_isolation_service()
+        meta = svc._load_meta(dataset_id)
+        for idx in (0, 1):
+            pair_dir = svc._dataset_dir(dataset_id) / "pairs" / str(idx)
+            pair_dir.mkdir(parents=True, exist_ok=True)
+            (pair_dir / "before.png").write_bytes(b)
+            (pair_dir / "after.png").write_bytes(a)
+            from app.isolation_mask import generate_and_save_mask
+
+            generate_and_save_mask(
+                before_path=str(pair_dir / "before.png"),
+                after_path=str(pair_dir / "after.png"),
+                mask_path=str(pair_dir / "mask.png"),
+            )
+            content_hash = svc._pair_content_hash(b, a)
+            meta.setdefault("pairs", []).append(
+                {
+                    "index": idx,
+                    "before": f"pairs/{idx}/before.png",
+                    "after": f"pairs/{idx}/after.png",
+                    "mask": f"pairs/{idx}/mask.png",
+                    "content_hash": content_hash if idx == 0 else content_hash,
+                    "uploaded_by_user_id": None,
+                }
+            )
+            if idx == 0:
+                from app import isolation_db
+
+                isolation_db.insert_pair(
+                    svc.db_path,
+                    dataset_id=dataset_id,
+                    pair_index=0,
+                    content_hash=content_hash,
+                    uploaded_by_user_id=None,
+                    before_rel=f"pairs/0/before.png",
+                    after_rel=f"pairs/0/after.png",
+                    mask_rel=f"pairs/0/mask.png",
+                )
+            else:
+                # Second row: force into meta/disk only (same hash can't insert twice).
+                pass
+        svc._save_meta(dataset_id, meta)
+        from app import isolation_db
+
+        isolation_db.update_dataset(svc.db_path, dataset_id, pair_count=2)
+
+        from app.isolation_train import _list_pairs
+
+        listed = _list_pairs(svc._dataset_dir(dataset_id))
+        self.assertEqual(len(listed), 1)
+
+        reg = self.client.post(
+            "/auth/register",
+            json={"email": "u2@test.local", "password": "secret123", "display_name": "U2"},
+        )
+        self.assertEqual(reg.status_code, 200, reg.text)
+        other_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+        denied = self.client.post(
+            "/isolation/retrain-all",
+            headers=other_headers,
+            json={"dataset_id": dataset_id, "epochs": 1, "force_min_pairs": True},
+        )
+        self.assertEqual(denied.status_code, 403, denied.text)
+
+        retrain = self.client.post(
+            "/isolation/retrain-all",
+            headers=self.headers,
+            json={
+                "dataset_id": dataset_id,
+                "epochs": 1,
+                "force_min_pairs": True,
+                "purge_duplicates": True,
+                "grow_active": False,
+            },
+        )
+        self.assertEqual(retrain.status_code, 202, retrain.text)
+        body = retrain.json()
+        self.assertEqual(body["dataset_id"], dataset_id)
+        self.assertEqual(body["dedupe"]["kept"], 1)
+        self.assertEqual(body["dedupe"]["removed"], 1)
+        self.assertIn(body["train"]["status"], ("queued", "running", "completed"))
+
+        detail = self.client.get(f"/isolation/datasets/{dataset_id}", headers=self.headers)
+        self.assertEqual(detail.json()["pair_count"], 1)
 
 
 if __name__ == "__main__":

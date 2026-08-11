@@ -33,6 +33,7 @@ class IsolationPairUploadResult(BaseModel):
     dataset_id: str
     uploaded: int
     pair_indices: list[int]
+    rejected_duplicates: int = 0
 
 
 class IsolationContributorStatistics(BaseModel):
@@ -43,6 +44,7 @@ class IsolationContributorStatistics(BaseModel):
     submitted_photos: int = 0
     successful_photos: int = 0
     unsuccessful_photos: int = 0
+    successful_pairs: int = 0
     last_submitted_at: str | None = None
 
 
@@ -69,12 +71,46 @@ class IsolationDatasetStatistics(BaseModel):
     current_pairs: int = 0
 
 
+class IsolationPairRoleStatistics(BaseModel):
+    total_pairs: int = 0
+    admin_pairs: int = 0
+    user_pairs: int = 0
+
+
 class IsolationStatistics(BaseModel):
     dataset_id: str | None = None
     datasets: IsolationDatasetStatistics
     uploads: IsolationUploadStatistics
     training: IsolationTrainingStatistics
+    pairs: IsolationPairRoleStatistics = Field(default_factory=IsolationPairRoleStatistics)
     contributors: list[IsolationContributorStatistics] = Field(default_factory=list)
+
+
+class IsolationPairListItem(BaseModel):
+    pair_id: str
+    dataset_id: str
+    dataset_name: str | None = None
+    pair_index: int
+    uploaded_at: str
+    uploaded_by_user_id: str | None = None
+    uploaded_by_email: str | None = None
+    uploaded_by_name: str | None = None
+    is_admin_uploader: bool = False
+    before_path: str | None = None
+    after_path: str | None = None
+    mask_path: str | None = None
+    before_url: str | None = None
+    after_url: str | None = None
+    mask_url: str | None = None
+    content_hash: str | None = None
+
+
+class IsolationPairListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    pairs: list[IsolationPairListItem] = Field(default_factory=list)
+    counts: IsolationPairRoleStatistics = Field(default_factory=IsolationPairRoleStatistics)
 
 
 class IsolationTrainRequest(BaseModel):
@@ -98,6 +134,39 @@ class IsolationTrainRequest(BaseModel):
         default=True,
         description="Activate the resulting model when training completes.",
     )
+
+
+class IsolationDedupeResult(BaseModel):
+    dataset_id: str
+    kept: int
+    removed: int
+    removed_indices: list[int] = Field(default_factory=list)
+
+
+class IsolationRetrainAllRequest(BaseModel):
+    dataset_id: str | None = Field(
+        default=None,
+        description="Dataset to purge+train. If omitted, uses active model's dataset, else largest dataset.",
+    )
+    base_model: str = Field(default="isnet-general-use")
+    epochs: int = Field(default=20, ge=1, le=500)
+    val_split: float = Field(default=0.2, ge=0.05, le=0.5)
+    force_min_pairs: bool = Field(default=True)
+    grow_active: bool = Field(
+        default=False,
+        description="Default false = full retrain (new model). Set true to continue growing the active model.",
+    )
+    auto_activate: bool = Field(default=True)
+    purge_duplicates: bool = Field(
+        default=True,
+        description="Remove exact duplicate before/after couples from the dataset before training.",
+    )
+
+
+class IsolationRetrainAllResponse(BaseModel):
+    dataset_id: str
+    dedupe: IsolationDedupeResult | None = None
+    train: IsolationTrainResponse
 
 
 class IsolationTrainMetrics(BaseModel):

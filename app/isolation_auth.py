@@ -99,12 +99,20 @@ def ensure_trainer_user(db_path: Path) -> dict:
     return existing
 
 
-def require_trainer(user: UserPublic = Depends(get_current_user)) -> UserPublic:
-    """Only the fixed admin account may manage datasets / training uploads."""
-    email = (user.email or "").strip().lower()
-    if email != TRAINER_EMAIL:
+def is_admin_email(email: str | None) -> bool:
+    """True for the fixed admin account (admin / admin@polygraph.local)."""
+    return (email or "").strip().lower() == TRAINER_EMAIL
+
+
+def require_admin(user: UserPublic = Depends(get_current_user)) -> UserPublic:
+    """Only the fixed admin account may access the admin panel APIs."""
+    if not is_admin_email(user.email):
         raise HTTPException(
             status_code=403,
             detail="Admin account required. Login as user 'admin'.",
         )
     return user
+
+
+# Backwards-compatible alias used by older deploy scripts / imports.
+require_trainer = require_admin

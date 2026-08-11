@@ -944,12 +944,328 @@
               }
             }
           }
-        },
+        }
+      }
+    },
+    "/isolation/statistics": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Isolation Statistics",
+        "operationId": "isolation_statistics_isolation_statistics_get",
         "security": [
           {
             "HTTPBearer": []
           }
-        ]
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationStatistics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/pairs": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "List Uploaded Pairs",
+        "description": "Admin table: uploaded before/after pairs with uploader + timestamp.",
+        "operationId": "list_uploaded_pairs_isolation_pairs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationPairListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/pairs/{pair_id}/before": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Get Pair Before",
+        "operationId": "get_pair_before_isolation_pairs__pair_id__before_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional JWT for <img src> (Bearer also works).",
+              "title": "Access Token"
+            },
+            "description": "Optional JWT for <img src> (Bearer also works)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/pairs/{pair_id}/after": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Get Pair After",
+        "operationId": "get_pair_after_isolation_pairs__pair_id__after_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional JWT for <img src> (Bearer also works).",
+              "title": "Access Token"
+            },
+            "description": "Optional JWT for <img src> (Bearer also works)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/pairs/{pair_id}/mask": {
+      "get": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Get Pair Mask",
+        "operationId": "get_pair_mask_isolation_pairs__pair_id__mask_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pair_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pair Id"
+            }
+          },
+          {
+            "name": "access_token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional JWT for <img src> (Bearer also works).",
+              "title": "Access Token"
+            },
+            "description": "Optional JWT for <img src> (Bearer also works)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/isolation/datasets": {
@@ -1214,6 +1530,109 @@
         ]
       }
     },
+    "/isolation/datasets/{dataset_id}/dedupe": {
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Admin: remove duplicate couples",
+        "description": "Admin: remove exact duplicate before/after couples (keeps lowest index).",
+        "operationId": "isolationDedupeDataset",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationDedupeResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/isolation/retrain-all": {
+      "post": {
+        "tags": [
+          "isolation"
+        ],
+        "summary": "Admin: purge duplicates and retrain from current images",
+        "description": "Admin: purge duplicate couples then queue a full retrain of the current dataset.\n\nUI: login as admin, then POST `{}` (or `{ \"dataset_id\": \"...\" }`).\nDefault: `purge_duplicates=true`, `grow_active=false` (rebuild, do not continue the old model).",
+        "operationId": "isolationRetrainAll",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IsolationRetrainAllRequest",
+                "default": {
+                  "base_model": "isnet-general-use",
+                  "epochs": 20,
+                  "val_split": 0.2,
+                  "force_min_pairs": true,
+                  "grow_active": false,
+                  "auto_activate": true,
+                  "purge_duplicates": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationRetrainAllResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/isolation/train/{job_id}": {
       "get": {
         "tags": [
@@ -1283,12 +1702,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/isolation/models/active": {
@@ -1309,12 +1723,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/isolation/models/{model_id}/activate": {
@@ -1417,11 +1826,6 @@
         ],
         "summary": "Predict Isolation",
         "operationId": "predict_isolation_isolation_predict_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "parameters": [
           {
             "name": "format",
@@ -2150,6 +2554,60 @@
         }
       }
     },
+    "/internal/worker/isolation/models/{model_id}/checkpoint": {
+      "get": {
+        "summary": "Internal Worker Isolation Checkpoint",
+        "description": "GPU worker downloads the parent checkpoint.pt for incremental fine-tune.",
+        "operationId": "internal_worker_isolation_checkpoint_internal_worker_isolation_models__model_id__checkpoint_get",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          },
+          {
+            "name": "X-Worker-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Worker-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/worker/isolation/train/{job_id}/complete": {
       "post": {
         "summary": "Internal Worker Isolation Train Complete",
@@ -2398,7 +2856,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/settings/deployment": {
@@ -3550,6 +4013,18 @@
             "type": "string",
             "title": "Metrics Json",
             "default": "{}"
+          },
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint"
           }
         },
         "type": "object",
@@ -3763,11 +4238,6 @@
       },
       "Body_upload_pairs_isolation_datasets__dataset_id__pairs_post": {
         "properties": {
-          "indices": {
-            "type": "string",
-            "title": "Indices",
-            "description": "Comma-separated pair indices, e.g. 0,1,2"
-          },
           "before": {
             "items": {
               "type": "string",
@@ -3775,7 +4245,7 @@
             },
             "type": "array",
             "title": "Before",
-            "description": "Before images (same order as indices)"
+            "description": "Before image(s). One file = a single couple."
           },
           "after": {
             "items": {
@@ -3784,7 +4254,7 @@
             },
             "type": "array",
             "title": "After",
-            "description": "After studio cutout images"
+            "description": "After cutout image(s), same order as before"
           },
           "mask": {
             "anyOf": [
@@ -3800,12 +4270,23 @@
               }
             ],
             "title": "Mask",
-            "description": "Optional explicit masks"
+            "description": "Optional mask(s)"
+          },
+          "indices": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indices",
+            "description": "Optional comma-separated indices. Omit for a single couple (auto next index)."
           }
         },
         "type": "object",
         "required": [
-          "indices",
           "before",
           "after"
         ],
@@ -4021,6 +4502,81 @@
         "title": "HangerPointBody",
         "description": "Backward-compatible hanger-only body (``{ x, y, z }``)."
       },
+      "IsolationContributorStatistics": {
+        "properties": {
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "upload_attempts": {
+            "type": "integer",
+            "title": "Upload Attempts",
+            "default": 0
+          },
+          "submitted_photos": {
+            "type": "integer",
+            "title": "Submitted Photos",
+            "default": 0
+          },
+          "successful_photos": {
+            "type": "integer",
+            "title": "Successful Photos",
+            "default": 0
+          },
+          "unsuccessful_photos": {
+            "type": "integer",
+            "title": "Unsuccessful Photos",
+            "default": 0
+          },
+          "successful_pairs": {
+            "type": "integer",
+            "title": "Successful Pairs",
+            "default": 0
+          },
+          "last_submitted_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Submitted At"
+          }
+        },
+        "type": "object",
+        "title": "IsolationContributorStatistics"
+      },
       "IsolationDatasetCreate": {
         "properties": {
           "name": {
@@ -4077,6 +4633,22 @@
         ],
         "title": "IsolationDatasetDetail"
       },
+      "IsolationDatasetStatistics": {
+        "properties": {
+          "total_datasets": {
+            "type": "integer",
+            "title": "Total Datasets",
+            "default": 0
+          },
+          "current_pairs": {
+            "type": "integer",
+            "title": "Current Pairs",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "IsolationDatasetStatistics"
+      },
       "IsolationDatasetSummary": {
         "properties": {
           "dataset_id": {
@@ -4109,6 +4681,36 @@
           "updated_at"
         ],
         "title": "IsolationDatasetSummary"
+      },
+      "IsolationDedupeResult": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "kept": {
+            "type": "integer",
+            "title": "Kept"
+          },
+          "removed": {
+            "type": "integer",
+            "title": "Removed"
+          },
+          "removed_indices": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Removed Indices"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "kept",
+          "removed"
+        ],
+        "title": "IsolationDedupeResult"
       },
       "IsolationHealthResponse": {
         "properties": {
@@ -4199,6 +4801,214 @@
         ],
         "title": "IsolationModelSummary"
       },
+      "IsolationPairListItem": {
+        "properties": {
+          "pair_id": {
+            "type": "string",
+            "title": "Pair Id"
+          },
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "dataset_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Name"
+          },
+          "pair_index": {
+            "type": "integer",
+            "title": "Pair Index"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "title": "Uploaded At"
+          },
+          "uploaded_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By User Id"
+          },
+          "uploaded_by_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By Email"
+          },
+          "uploaded_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By Name"
+          },
+          "is_admin_uploader": {
+            "type": "boolean",
+            "title": "Is Admin Uploader",
+            "default": false
+          },
+          "before_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Path"
+          },
+          "after_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Path"
+          },
+          "mask_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask Path"
+          },
+          "before_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before Url"
+          },
+          "after_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After Url"
+          },
+          "mask_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask Url"
+          },
+          "content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pair_id",
+          "dataset_id",
+          "pair_index",
+          "uploaded_at"
+        ],
+        "title": "IsolationPairListItem"
+      },
+      "IsolationPairListResponse": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/IsolationPairListItem"
+            },
+            "type": "array",
+            "title": "Pairs"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/IsolationPairRoleStatistics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "IsolationPairListResponse"
+      },
+      "IsolationPairRoleStatistics": {
+        "properties": {
+          "total_pairs": {
+            "type": "integer",
+            "title": "Total Pairs",
+            "default": 0
+          },
+          "admin_pairs": {
+            "type": "integer",
+            "title": "Admin Pairs",
+            "default": 0
+          },
+          "user_pairs": {
+            "type": "integer",
+            "title": "User Pairs",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "IsolationPairRoleStatistics"
+      },
       "IsolationPairUploadResult": {
         "properties": {
           "dataset_id": {
@@ -4215,6 +5025,11 @@
             },
             "type": "array",
             "title": "Pair Indices"
+          },
+          "rejected_duplicates": {
+            "type": "integer",
+            "title": "Rejected Duplicates",
+            "default": 0
           }
         },
         "type": "object",
@@ -4258,6 +5073,133 @@
         ],
         "title": "IsolationQuotaStatus"
       },
+      "IsolationRetrainAllRequest": {
+        "properties": {
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id",
+            "description": "Dataset to purge+train. If omitted, uses active model's dataset, else largest dataset."
+          },
+          "base_model": {
+            "type": "string",
+            "title": "Base Model",
+            "default": "isnet-general-use"
+          },
+          "epochs": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Epochs",
+            "default": 20
+          },
+          "val_split": {
+            "type": "number",
+            "maximum": 0.5,
+            "minimum": 0.05,
+            "title": "Val Split",
+            "default": 0.2
+          },
+          "force_min_pairs": {
+            "type": "boolean",
+            "title": "Force Min Pairs",
+            "default": true
+          },
+          "grow_active": {
+            "type": "boolean",
+            "title": "Grow Active",
+            "description": "Default false = full retrain (new model). Set true to continue growing the active model.",
+            "default": false
+          },
+          "auto_activate": {
+            "type": "boolean",
+            "title": "Auto Activate",
+            "default": true
+          },
+          "purge_duplicates": {
+            "type": "boolean",
+            "title": "Purge Duplicates",
+            "description": "Remove exact duplicate before/after couples from the dataset before training.",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "IsolationRetrainAllRequest"
+      },
+      "IsolationRetrainAllResponse": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "dedupe": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsolationDedupeResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "train": {
+            "$ref": "#/components/schemas/IsolationTrainResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "train"
+        ],
+        "title": "IsolationRetrainAllResponse"
+      },
+      "IsolationStatistics": {
+        "properties": {
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "datasets": {
+            "$ref": "#/components/schemas/IsolationDatasetStatistics"
+          },
+          "uploads": {
+            "$ref": "#/components/schemas/IsolationUploadStatistics"
+          },
+          "training": {
+            "$ref": "#/components/schemas/IsolationTrainingStatistics"
+          },
+          "pairs": {
+            "$ref": "#/components/schemas/IsolationPairRoleStatistics"
+          },
+          "contributors": {
+            "items": {
+              "$ref": "#/components/schemas/IsolationContributorStatistics"
+            },
+            "type": "array",
+            "title": "Contributors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datasets",
+          "uploads",
+          "training"
+        ],
+        "title": "IsolationStatistics"
+      },
       "IsolationTrainMetrics": {
         "properties": {
           "iou": {
@@ -4270,6 +5212,17 @@
               }
             ],
             "title": "Iou"
+          },
+          "iou_all": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iou All"
           },
           "precision": {
             "anyOf": [
@@ -4325,6 +5278,72 @@
               }
             ],
             "title": "Base Model"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "backend": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backend"
+          },
+          "resumed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumed"
+          },
+          "parent_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Model Id"
+          },
+          "val_split_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Split Mode"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
           }
         },
         "type": "object",
@@ -4339,7 +5358,7 @@
           "base_model": {
             "type": "string",
             "title": "Base Model",
-            "description": "rembg-compatible base model name",
+            "description": "rembg-compatible base model name (bootstrap only)",
             "default": "isnet-general-use"
           },
           "epochs": {
@@ -4359,8 +5378,32 @@
           "force_min_pairs": {
             "type": "boolean",
             "title": "Force Min Pairs",
-            "description": "Allow training with fewer than 20 pairs (testing only).",
+            "description": "Allow training with fewer than 20 pairs (including a single couple).",
             "default": false
+          },
+          "grow_active": {
+            "type": "boolean",
+            "title": "Grow Active",
+            "description": "Resume from the active model checkpoint and update that same model_id (one growing model).",
+            "default": true
+          },
+          "resume_from_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume From Model Id",
+            "description": "Optional explicit parent model to resume from (overrides grow_active source)."
+          },
+          "auto_activate": {
+            "type": "boolean",
+            "title": "Auto Activate",
+            "description": "Activate the resulting model when training completes.",
+            "default": true
           }
         },
         "type": "object",
@@ -4414,6 +5457,28 @@
               }
             ],
             "title": "Error"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "resumed_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumed From"
           }
         },
         "type": "object",
@@ -4432,6 +5497,78 @@
           "failed"
         ],
         "title": "IsolationTrainStatus"
+      },
+      "IsolationTrainingStatistics": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "completed": {
+            "type": "integer",
+            "title": "Completed",
+            "default": 0
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed",
+            "default": 0
+          },
+          "queued": {
+            "type": "integer",
+            "title": "Queued",
+            "default": 0
+          },
+          "running": {
+            "type": "integer",
+            "title": "Running",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "IsolationTrainingStatistics"
+      },
+      "IsolationUploadStatistics": {
+        "properties": {
+          "upload_attempts": {
+            "type": "integer",
+            "title": "Upload Attempts",
+            "default": 0
+          },
+          "submitted_photos": {
+            "type": "integer",
+            "title": "Submitted Photos",
+            "default": 0
+          },
+          "successful_photos": {
+            "type": "integer",
+            "title": "Successful Photos",
+            "default": 0
+          },
+          "unsuccessful_photos": {
+            "type": "integer",
+            "title": "Unsuccessful Photos",
+            "default": 0
+          },
+          "submitted_pairs": {
+            "type": "integer",
+            "title": "Submitted Pairs",
+            "default": 0
+          },
+          "successful_pairs": {
+            "type": "integer",
+            "title": "Successful Pairs",
+            "default": 0
+          },
+          "unsuccessful_pairs": {
+            "type": "integer",
+            "title": "Unsuccessful Pairs",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "IsolationUploadStatistics"
       },
       "JewelryType": {
         "type": "string",
@@ -6327,6 +7464,11 @@
               }
             ],
             "title": "Picture Url"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin",
+            "default": false
           }
         },
         "type": "object",

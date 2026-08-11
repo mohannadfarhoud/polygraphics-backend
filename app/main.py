@@ -47,6 +47,7 @@ from .auth_api import init_auth_api, router as auth_router
 from .auth_deps import init_auth_deps
 from .auth_models import UserPublic
 from .auth_service import GoogleAuthError, get_user_from_access_token
+from .isolation_auth import require_admin
 from .job_access import enforce_job_owner, require_authenticated_user
 from .try_on_api import init_try_on_api, router as try_on_router
 from .tripo_api import get_tripo_service, init_tripo_api, router as tripo_router
@@ -997,7 +998,10 @@ def get_settings_deployment() -> dict[str, Any]:
 
 
 @app.put("/settings", response_model=RuntimeSettings)
-def update_settings(payload: RuntimeSettings) -> RuntimeSettings:
+def update_settings(
+    payload: RuntimeSettings,
+    _admin: UserPublic = Depends(require_admin),
+) -> RuntimeSettings:
     return settings_store.save(payload)
 
 

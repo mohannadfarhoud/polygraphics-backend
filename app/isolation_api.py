@@ -1,28 +1,35 @@
 """REST routes for PicPolish isolation dataset, training, and inference.
 
-Training / dataset upload / model admin require any authenticated user.
+Training / dataset upload require any authenticated user.
+Admin panel (statistics, pairs, activate/import, delete, dedupe, retrain-all) requires admin.
 Predict + health + read-only model listing remain public.
 """
 
 from __future__ import annotations
 
 import logging
+import mimetypes
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
 
-from .auth_deps import get_current_user
+from .auth_deps import get_current_user, get_optional_current_user
 from .auth_models import UserPublic
-from .isolation_auth import ensure_trainer_user
+from .auth_service import GoogleAuthError, get_user_from_access_token
+from .isolation_auth import ensure_trainer_user, is_admin_email, require_admin
 from .isolation_models import (
     IsolationDatasetCreate,
     IsolationDatasetDetail,
     IsolationDatasetSummary,
+    IsolationDedupeResult,
     IsolationHealthResponse,
     IsolationModelSummary,
+    IsolationPairListResponse,
     IsolationPairUploadResult,
     IsolationPredictJsonResponse,
+    IsolationRetrainAllRequest,
+    IsolationRetrainAllResponse,
     IsolationStatistics,
     IsolationTrainRequest,
     IsolationTrainResponse,
@@ -34,6 +41,26 @@ router = APIRouter(tags=["isolation"])
 log = logging.getLogger(__name__)
 
 _service: IsolationService | None = None
+
+
+def _require_admin_for_image(
+    user: UserPublic | None = Depends(get_optional_current_user),
+    access_token: str | None = Query(
+        default=None,
+        description="Optional JWT for <img src> (Bearer also works).",
+    ),
+) -> UserPublic:
+    """Admin gate that also accepts ?access_token= for image tags."""
+    if user is None and access_token:
+        try:
+            user = get_user_from_access_token(get_isolation_service().db_path, access_token.strip())
+        except GoogleAuthError as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+    if user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not is_admin_email(user.email):
+        raise HTTPException(status_code=403, detail="Admin account required. Login as user 'admin'.")
+    return user
 
 
 def init_isolation_api(
@@ -69,13 +96,69 @@ def isolation_quota() -> IsolationQuotaStatus:
 @router.get("/isolation/statistics", response_model=IsolationStatistics)
 def isolation_statistics(
     dataset_id: str | None = Query(default=None),
-    user: UserPublic = Depends(get_current_user),
+    user: UserPublic = Depends(require_admin),
 ) -> IsolationStatistics:
     del user
     try:
         return get_isolation_service().get_statistics(dataset_id=dataset_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Dataset not found") from None
+
+
+@router.get("/isolation/pairs", response_model=IsolationPairListResponse)
+def list_uploaded_pairs(
+    dataset_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    user: UserPublic = Depends(require_admin),
+) -> IsolationPairListResponse:
+    """Admin table: uploaded before/after pairs with uploader + timestamp."""
+    del user
+    try:
+        return get_isolation_service().list_uploaded_pairs(
+            dataset_id=dataset_id,
+            limit=limit,
+            offset=offset,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Dataset not found") from None
+
+
+@router.get("/isolation/pairs/{pair_id}/before")
+def get_pair_before(
+    pair_id: str,
+    _admin: UserPublic = Depends(_require_admin_for_image),
+) -> FileResponse:
+    return _pair_image_response(pair_id, "before")
+
+
+@router.get("/isolation/pairs/{pair_id}/after")
+def get_pair_after(
+    pair_id: str,
+    _admin: UserPublic = Depends(_require_admin_for_image),
+) -> FileResponse:
+    return _pair_image_response(pair_id, "after")
+
+
+@router.get("/isolation/pairs/{pair_id}/mask")
+def get_pair_mask(
+    pair_id: str,
+    _admin: UserPublic = Depends(_require_admin_for_image),
+) -> FileResponse:
+    return _pair_image_response(pair_id, "mask")
+
+
+def _pair_image_response(pair_id: str, kind: str) -> FileResponse:
+    try:
+        path = get_isolation_service().resolve_pair_image(pair_id=pair_id, kind=kind)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Pair not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    media_type, _ = mimetypes.guess_type(str(path))
+    return FileResponse(str(path), media_type=media_type or "application/octet-stream", filename=path.name)
 
 
 @router.post("/isolation/datasets", response_model=IsolationDatasetSummary, status_code=201)
@@ -105,7 +188,7 @@ def get_dataset(
 @router.delete("/isolation/datasets/{dataset_id}", status_code=204)
 def delete_dataset(
     dataset_id: str,
-    user: UserPublic = Depends(get_current_user),
+    user: UserPublic = Depends(require_admin),
 ) -> Response:
     if not get_isolation_service().delete_dataset(dataset_id):
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -183,7 +266,11 @@ async def upload_pairs(
         )
 
     try:
-        uploaded, pair_indices = get_isolation_service().add_pairs(dataset_id=dataset_id, items=items)
+        uploaded, pair_indices, rejected_duplicates = get_isolation_service().add_pairs(
+            dataset_id=dataset_id,
+            items=items,
+            uploaded_by_user_id=user.user_id,
+        )
     except KeyError:
         record_failure("Dataset not found")
         raise HTTPException(status_code=404, detail="Dataset not found") from None
@@ -200,8 +287,18 @@ async def upload_pairs(
         submitted_photos=submitted_photos,
         submitted_pairs=submitted_pairs,
         successful_pairs=uploaded,
+        error=(
+            f"Rejected {rejected_duplicates} duplicate pair(s)"
+            if rejected_duplicates and uploaded
+            else None
+        ),
     )
-    return IsolationPairUploadResult(dataset_id=dataset_id, uploaded=uploaded, pair_indices=pair_indices)
+    return IsolationPairUploadResult(
+        dataset_id=dataset_id,
+        uploaded=uploaded,
+        pair_indices=pair_indices,
+        rejected_duplicates=rejected_duplicates,
+    )
 
 
 @router.post("/isolation/train", response_model=IsolationTrainResponse, status_code=202)
@@ -220,6 +317,59 @@ def start_train(
             grow_active=body.grow_active,
             resume_from_model_id=body.resume_from_model_id,
             auto_activate=body.auto_activate,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Dataset not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return JSONResponse(status_code=202, content=resp.model_dump(mode="json"))
+
+
+@router.post(
+    "/isolation/datasets/{dataset_id}/dedupe",
+    response_model=IsolationDedupeResult,
+    operation_id="isolationDedupeDataset",
+    summary="Admin: remove duplicate couples",
+)
+def dedupe_dataset(
+    dataset_id: str,
+    user: UserPublic = Depends(require_admin),
+) -> IsolationDedupeResult:
+    """Admin: remove exact duplicate before/after couples (keeps lowest index)."""
+    del user
+    try:
+        return get_isolation_service().dedupe_dataset(dataset_id, delete_files=True)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Dataset not found") from None
+
+
+@router.post(
+    "/isolation/retrain-all",
+    response_model=IsolationRetrainAllResponse,
+    status_code=202,
+    operation_id="isolationRetrainAll",
+    summary="Admin: purge duplicates and retrain from current images",
+)
+def retrain_all(
+    body: IsolationRetrainAllRequest = Body(default=IsolationRetrainAllRequest()),
+    user: UserPublic = Depends(require_admin),
+) -> JSONResponse:
+    """Admin: purge duplicate couples then queue a full retrain of the current dataset.
+
+    UI: login as admin, then POST `{}` (or `{ "dataset_id": "..." }`).
+    Default: `purge_duplicates=true`, `grow_active=false` (rebuild, do not continue the old model).
+    """
+    try:
+        resp = get_isolation_service().retrain_all(
+            dataset_id=body.dataset_id,
+            base_model=body.base_model,
+            epochs=body.epochs,
+            val_split=body.val_split,
+            force_min_pairs=body.force_min_pairs,
+            grow_active=body.grow_active,
+            auto_activate=body.auto_activate,
+            purge_duplicates=body.purge_duplicates,
+            owner_user_id=user.user_id,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail="Dataset not found") from None
@@ -256,7 +406,7 @@ def get_active_model() -> IsolationModelSummary:
 @router.post("/isolation/models/{model_id}/activate", response_model=IsolationModelSummary)
 def activate_model(
     model_id: str,
-    user: UserPublic = Depends(get_current_user),
+    user: UserPublic = Depends(require_admin),
 ) -> IsolationModelSummary:
     del user
     try:
@@ -271,7 +421,7 @@ async def import_model(
     file: UploadFile = File(..., description="model.onnx"),
     dataset_id: str | None = Form(default=None),
     activate: bool = Form(default=False),
-    user: UserPublic = Depends(get_current_user),
+    user: UserPublic = Depends(require_admin),
 ) -> IsolationModelSummary:
     raw = await file.read()
     if len(raw) < 1024:

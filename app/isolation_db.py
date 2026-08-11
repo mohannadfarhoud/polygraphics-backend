@@ -66,6 +66,24 @@ CREATE INDEX IF NOT EXISTS idx_isolation_upload_events_dataset
 CREATE INDEX IF NOT EXISTS idx_isolation_upload_events_user
   ON isolation_upload_events(user_id);
 
+CREATE TABLE IF NOT EXISTS isolation_pairs (
+  pair_id TEXT PRIMARY KEY NOT NULL,
+  dataset_id TEXT NOT NULL,
+  pair_index INTEGER NOT NULL,
+  content_hash TEXT NOT NULL UNIQUE,
+  uploaded_by_user_id TEXT,
+  before_rel TEXT,
+  after_rel TEXT,
+  mask_rel TEXT,
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_isolation_pairs_dataset
+  ON isolation_pairs(dataset_id);
+CREATE INDEX IF NOT EXISTS idx_isolation_pairs_user
+  ON isolation_pairs(uploaded_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_isolation_pairs_created
+  ON isolation_pairs(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS isolation_migrations (
   name TEXT PRIMARY KEY NOT NULL,
   applied_at REAL NOT NULL
@@ -172,9 +190,156 @@ def update_dataset(db_path: Path, dataset_id: str, **fields: Any) -> dict[str, A
 
 def delete_dataset(db_path: Path, dataset_id: str) -> bool:
     with _connect(db_path) as conn:
+        conn.execute("DELETE FROM isolation_pairs WHERE dataset_id = ?", (dataset_id,))
         cur = conn.execute("DELETE FROM isolation_datasets WHERE dataset_id = ?", (dataset_id,))
         conn.commit()
     return cur.rowcount > 0
+
+
+def pair_content_hash_exists(db_path: Path, content_hash: str) -> dict[str, Any] | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT pair_id, dataset_id, pair_index, uploaded_by_user_id, created_at
+            FROM isolation_pairs
+            WHERE content_hash = ?
+            """,
+            (content_hash,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def insert_pair(
+    db_path: Path,
+    *,
+    dataset_id: str,
+    pair_index: int,
+    content_hash: str,
+    uploaded_by_user_id: str | None,
+    before_rel: str,
+    after_rel: str,
+    mask_rel: str,
+) -> dict[str, Any]:
+    pair_id = str(uuid.uuid4())
+    now = float(time.time())
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO isolation_pairs (
+              pair_id, dataset_id, pair_index, content_hash, uploaded_by_user_id,
+              before_rel, after_rel, mask_rel, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                pair_id,
+                dataset_id,
+                int(pair_index),
+                content_hash,
+                uploaded_by_user_id,
+                before_rel,
+                after_rel,
+                mask_rel,
+                now,
+            ),
+        )
+        conn.commit()
+    return {
+        "pair_id": pair_id,
+        "dataset_id": dataset_id,
+        "pair_index": int(pair_index),
+        "content_hash": content_hash,
+        "uploaded_by_user_id": uploaded_by_user_id,
+        "before_rel": before_rel,
+        "after_rel": after_rel,
+        "mask_rel": mask_rel,
+        "created_at": now,
+    }
+
+
+def delete_pair(db_path: Path, *, dataset_id: str, pair_index: int) -> bool:
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            "DELETE FROM isolation_pairs WHERE dataset_id = ? AND pair_index = ?",
+            (dataset_id, int(pair_index)),
+        )
+        conn.commit()
+    return cur.rowcount > 0
+
+
+def get_pair(db_path: Path, pair_id: str) -> dict[str, Any] | None:
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT
+              p.pair_id, p.dataset_id, d.name AS dataset_name, p.pair_index,
+              p.content_hash, p.before_rel, p.after_rel, p.mask_rel, p.created_at,
+              p.uploaded_by_user_id AS user_id, u.email, u.name
+            FROM isolation_pairs p
+            LEFT JOIN isolation_datasets d ON d.dataset_id = p.dataset_id
+            LEFT JOIN users u ON u.user_id = p.uploaded_by_user_id
+            WHERE p.pair_id = ?
+            """,
+            (pair_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def list_pairs(
+    db_path: Path,
+    *,
+    dataset_id: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    limit = max(1, min(500, int(limit)))
+    offset = max(0, int(offset))
+    where = "WHERE p.dataset_id = ?" if dataset_id else ""
+    params: list[Any] = [dataset_id] if dataset_id else []
+    with _connect(db_path) as conn:
+        total_row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM isolation_pairs p {where}",
+            params,
+        ).fetchone()
+        total = int(total_row["n"] if total_row else 0)
+        rows = conn.execute(
+            f"""
+            SELECT
+              p.pair_id, p.dataset_id, d.name AS dataset_name, p.pair_index,
+              p.content_hash, p.before_rel, p.after_rel, p.mask_rel, p.created_at,
+              p.uploaded_by_user_id AS user_id, u.email, u.name
+            FROM isolation_pairs p
+            LEFT JOIN isolation_datasets d ON d.dataset_id = p.dataset_id
+            LEFT JOIN users u ON u.user_id = p.uploaded_by_user_id
+            {where}
+            ORDER BY p.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            [*params, limit, offset],
+        ).fetchall()
+    return [dict(r) for r in rows], total
+
+
+def pair_counts_by_role(db_path: Path, *, admin_email: str, dataset_id: str | None = None) -> dict[str, int]:
+    where = "WHERE p.dataset_id = ?" if dataset_id else ""
+    params: list[Any] = [dataset_id] if dataset_id else []
+    with _connect(db_path) as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+              COUNT(*) AS total_pairs,
+              COALESCE(SUM(CASE WHEN LOWER(COALESCE(u.email, '')) = LOWER(?) THEN 1 ELSE 0 END), 0) AS admin_pairs,
+              COALESCE(SUM(CASE WHEN LOWER(COALESCE(u.email, '')) != LOWER(?) THEN 1 ELSE 0 END), 0) AS user_pairs
+            FROM isolation_pairs p
+            LEFT JOIN users u ON u.user_id = p.uploaded_by_user_id
+            {where}
+            """,
+            [admin_email, admin_email, *params],
+        ).fetchone()
+    return {
+        "total_pairs": int(row["total_pairs"] or 0),
+        "admin_pairs": int(row["admin_pairs"] or 0),
+        "user_pairs": int(row["user_pairs"] or 0),
+    }
 
 
 def insert_upload_event(
@@ -219,7 +384,7 @@ def insert_upload_event(
         conn.commit()
 
 
-def get_statistics(db_path: Path, *, dataset_id: str | None = None) -> dict[str, Any]:
+def get_statistics(db_path: Path, *, dataset_id: str | None = None, admin_email: str = "admin@polygraph.local") -> dict[str, Any]:
     event_where = "WHERE e.dataset_id = ?" if dataset_id else ""
     job_where = "WHERE dataset_id = ?" if dataset_id else ""
     dataset_where = "WHERE dataset_id = ?" if dataset_id else ""
@@ -268,6 +433,7 @@ def get_statistics(db_path: Path, *, dataset_id: str | None = None) -> dict[str,
                    SUM(e.submitted_photos) AS submitted_photos,
                    SUM(e.successful_photos) AS successful_photos,
                    SUM(e.unsuccessful_photos) AS unsuccessful_photos,
+                   SUM(e.successful_pairs) AS successful_pairs,
                    MAX(e.created_at) AS last_submitted_at
             FROM isolation_upload_events e
             LEFT JOIN users u ON u.user_id = e.user_id
@@ -278,10 +444,12 @@ def get_statistics(db_path: Path, *, dataset_id: str | None = None) -> dict[str,
             params,
         ).fetchall()
 
+    role_counts = pair_counts_by_role(db_path, admin_email=admin_email, dataset_id=dataset_id)
     return {
         "datasets": dict(datasets),
         "uploads": dict(upload),
         "training": dict(training),
+        "pairs": role_counts,
         "contributors": [dict(row) for row in contributors],
     }
 

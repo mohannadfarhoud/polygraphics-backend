@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -17,7 +18,17 @@ from .isolation_mask import mask_from_after_image
 log = logging.getLogger(__name__)
 
 
+def _content_hash_from_files(before: Path, after: Path | None) -> str:
+    h = hashlib.sha256()
+    h.update(before.read_bytes())
+    h.update(b"\0")
+    if after is not None and after.is_file():
+        h.update(after.read_bytes())
+    return h.hexdigest()
+
+
 def _list_pairs(dataset_dir: Path) -> list[dict]:
+    """Load training pairs, skipping exact duplicate before/after couples."""
     meta_path = dataset_dir / "meta.json"
     if not meta_path.is_file():
         raise FileNotFoundError(f"meta.json missing in {dataset_dir}")
@@ -26,16 +37,27 @@ def _list_pairs(dataset_dir: Path) -> list[dict]:
     if not pairs:
         raise ValueError("Dataset has no pairs")
     out = []
-    for p in pairs:
+    seen_hashes: set[str] = set()
+    skipped_duplicates = 0
+    for p in sorted(pairs, key=lambda x: int(x["index"])):
         idx = int(p["index"])
         pair_dir = dataset_dir / "pairs" / str(idx)
         before = next(pair_dir.glob("before.*"), None)
+        after = next(pair_dir.glob("after.*"), None)
         mask = pair_dir / "mask.png"
         if not before or not mask.is_file():
             continue
-        out.append({"index": idx, "before": before, "mask": mask})
+        content_hash = str(p.get("content_hash") or "").strip() or _content_hash_from_files(before, after)
+        if content_hash in seen_hashes:
+            skipped_duplicates += 1
+            log.info("skipping duplicate couple index=%s hash=%s…", idx, content_hash[:12])
+            continue
+        seen_hashes.add(content_hash)
+        out.append({"index": idx, "before": before, "mask": mask, "content_hash": content_hash})
+    if skipped_duplicates:
+        log.warning("skipped %s duplicate couple(s) during training load", skipped_duplicates)
     if not out:
-        raise ValueError("No valid before/mask pairs on disk")
+        raise ValueError("No valid before/mask pairs on disk (all were missing or duplicates)")
     return out
 
 

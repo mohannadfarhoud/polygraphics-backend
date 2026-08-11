@@ -91,11 +91,15 @@ def auth_frontend_callback_url() -> str:
 
 
 def user_to_public(row: dict[str, Any]) -> UserPublic:
+    from .isolation_auth import is_admin_email
+
+    email = str(row.get("email") or "")
     return UserPublic(
         user_id=row["user_id"],
-        email=row["email"],
+        email=email,
         name=row.get("name"),
         picture_url=row.get("picture_url"),
+        is_admin=is_admin_email(email),
     )
 
 

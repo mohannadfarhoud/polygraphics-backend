@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import shutil
+import sqlite3
 import threading
 import uuid
 import zipfile
@@ -18,8 +20,13 @@ from .isolation_mask import generate_and_save_mask
 from .isolation_models import (
     IsolationDatasetDetail,
     IsolationDatasetSummary,
+    IsolationDedupeResult,
     IsolationHealthResponse,
     IsolationModelSummary,
+    IsolationPairListItem,
+    IsolationPairListResponse,
+    IsolationPairRoleStatistics,
+    IsolationRetrainAllResponse,
     IsolationStatistics,
     IsolationTrainMetrics,
     IsolationTrainResponse,
@@ -115,12 +122,20 @@ class IsolationService:
         ext = Path(filename or "image.jpg").suffix.lower()
         return ext if ext in _IMAGE_EXTS else ".jpg"
 
+    def _pair_content_hash(self, before_bytes: bytes, after_bytes: bytes) -> str:
+        h = hashlib.sha256()
+        h.update(before_bytes)
+        h.update(b"\0")
+        h.update(after_bytes)
+        return h.hexdigest()
+
     def add_pairs(
         self,
         *,
         dataset_id: str,
         items: list[dict[str, Any]],
-    ) -> tuple[int, list[int]]:
+        uploaded_by_user_id: str | None = None,
+    ) -> tuple[int, list[int], int]:
         row = isolation_db.get_dataset(self.db_path, dataset_id)
         if not row:
             raise KeyError(dataset_id)
@@ -128,9 +143,18 @@ class IsolationService:
         pairs_meta: list[dict[str, Any]] = list(meta.get("pairs") or [])
         used_indices = {int(p["index"]) for p in pairs_meta}
         uploaded = 0
+        rejected_duplicates = 0
         indices: list[int] = []
+        batch_hashes: set[str] = set()
 
         for item in items:
+            before_bytes: bytes = item["before_bytes"]
+            after_bytes: bytes = item["after_bytes"]
+            content_hash = self._pair_content_hash(before_bytes, after_bytes)
+            if content_hash in batch_hashes or isolation_db.pair_content_hash_exists(self.db_path, content_hash):
+                rejected_duplicates += 1
+                continue
+
             raw_index = item.get("index")
             if raw_index is None:
                 index = 0
@@ -138,8 +162,6 @@ class IsolationService:
                     index += 1
             else:
                 index = int(raw_index)
-            before_bytes: bytes = item["before_bytes"]
-            after_bytes: bytes = item["after_bytes"]
             mask_bytes: bytes | None = item.get("mask_bytes")
             before_name = item.get("before_name") or "before.jpg"
             after_name = item.get("after_name") or "after.jpg"
@@ -164,23 +186,143 @@ class IsolationService:
                     mask_path=str(mask_path),
                 )
 
+            before_rel = f"pairs/{index}/before{before_ext}"
+            after_rel = f"pairs/{index}/after{after_ext}"
+            mask_rel = f"pairs/{index}/mask.png"
             entry = {
                 "index": index,
-                "before": f"pairs/{index}/before{before_ext}",
-                "after": f"pairs/{index}/after{after_ext}",
-                "mask": f"pairs/{index}/mask.png",
+                "before": before_rel,
+                "after": after_rel,
+                "mask": mask_rel,
+                "content_hash": content_hash,
+                "uploaded_by_user_id": uploaded_by_user_id,
             }
+            try:
+                isolation_db.insert_pair(
+                    self.db_path,
+                    dataset_id=dataset_id,
+                    pair_index=index,
+                    content_hash=content_hash,
+                    uploaded_by_user_id=uploaded_by_user_id,
+                    before_rel=before_rel,
+                    after_rel=after_rel,
+                    mask_rel=mask_rel,
+                )
+            except sqlite3.IntegrityError:
+                rejected_duplicates += 1
+                continue
+
             pairs_meta = [p for p in pairs_meta if int(p["index"]) != index]
             pairs_meta.append(entry)
             used_indices.add(index)
+            batch_hashes.add(content_hash)
             uploaded += 1
             indices.append(index)
+
+        if uploaded == 0 and rejected_duplicates > 0:
+            raise ValueError(
+                f"Rejected {rejected_duplicates} duplicate pair(s): identical before/after images were already uploaded."
+            )
 
         pairs_meta.sort(key=lambda p: int(p["index"]))
         meta["pairs"] = pairs_meta
         self._save_meta(dataset_id, meta)
         isolation_db.update_dataset(self.db_path, dataset_id, pair_count=len(pairs_meta))
-        return uploaded, sorted(indices)
+        return uploaded, sorted(indices), rejected_duplicates
+
+    def dedupe_dataset(self, dataset_id: str, *, delete_files: bool = True) -> IsolationDedupeResult:
+        """Remove exact duplicate before/after couples; keep the lowest pair index."""
+        row = isolation_db.get_dataset(self.db_path, dataset_id)
+        if not row:
+            raise KeyError(dataset_id)
+        meta = self._load_meta(dataset_id)
+        pairs_meta: list[dict[str, Any]] = list(meta.get("pairs") or [])
+        kept: list[dict[str, Any]] = []
+        removed_indices: list[int] = []
+        seen: set[str] = set()
+        ddir = self._dataset_dir(dataset_id)
+
+        for entry in sorted(pairs_meta, key=lambda p: int(p["index"])):
+            idx = int(entry["index"])
+            content_hash = str(entry.get("content_hash") or "").strip()
+            if not content_hash:
+                pair_dir = ddir / "pairs" / str(idx)
+                before = next(pair_dir.glob("before.*"), None)
+                after = next(pair_dir.glob("after.*"), None)
+                if before and before.is_file():
+                    content_hash = self._pair_content_hash(
+                        before.read_bytes(),
+                        after.read_bytes() if after and after.is_file() else b"",
+                    )
+                    entry["content_hash"] = content_hash
+            if not content_hash:
+                kept.append(entry)
+                continue
+            if content_hash in seen:
+                removed_indices.append(idx)
+                isolation_db.delete_pair(self.db_path, dataset_id=dataset_id, pair_index=idx)
+                if delete_files:
+                    pair_dir = ddir / "pairs" / str(idx)
+                    if pair_dir.is_dir():
+                        shutil.rmtree(pair_dir, ignore_errors=True)
+                continue
+            seen.add(content_hash)
+            kept.append(entry)
+
+        meta["pairs"] = kept
+        self._save_meta(dataset_id, meta)
+        isolation_db.update_dataset(self.db_path, dataset_id, pair_count=len(kept))
+        return IsolationDedupeResult(
+            dataset_id=dataset_id,
+            kept=len(kept),
+            removed=len(removed_indices),
+            removed_indices=sorted(removed_indices),
+        )
+
+    def _resolve_retrain_dataset_id(self, dataset_id: str | None) -> str:
+        if dataset_id:
+            if not isolation_db.get_dataset(self.db_path, dataset_id):
+                raise KeyError(dataset_id)
+            return dataset_id
+        active = isolation_db.get_active_model(self.db_path)
+        if active and active.get("dataset_id"):
+            if isolation_db.get_dataset(self.db_path, active["dataset_id"]):
+                return str(active["dataset_id"])
+        datasets = isolation_db.list_datasets(self.db_path)
+        if not datasets:
+            raise ValueError("No isolation datasets available to retrain.")
+        datasets.sort(key=lambda d: int(d.get("pair_count") or 0), reverse=True)
+        return str(datasets[0]["dataset_id"])
+
+    def retrain_all(
+        self,
+        *,
+        dataset_id: str | None,
+        base_model: str,
+        epochs: int,
+        val_split: float,
+        force_min_pairs: bool,
+        grow_active: bool,
+        auto_activate: bool,
+        purge_duplicates: bool,
+        owner_user_id: str | None,
+    ) -> IsolationRetrainAllResponse:
+        resolved_id = self._resolve_retrain_dataset_id(dataset_id)
+        dedupe: IsolationDedupeResult | None = None
+        if purge_duplicates:
+            dedupe = self.dedupe_dataset(resolved_id, delete_files=True)
+        train = self.start_train(
+            dataset_id=resolved_id,
+            base_model=base_model,
+            epochs=epochs,
+            val_split=val_split,
+            force_min_pairs=force_min_pairs,
+            owner_user_id=owner_user_id,
+            grow_active=grow_active,
+            resume_from_model_id=None,
+            auto_activate=auto_activate,
+        )
+        return IsolationRetrainAllResponse(dataset_id=resolved_id, dedupe=dedupe, train=train)
 
     def record_upload_event(
         self,
@@ -209,7 +351,13 @@ class IsolationService:
     def get_statistics(self, *, dataset_id: str | None = None) -> IsolationStatistics:
         if dataset_id and not isolation_db.get_dataset(self.db_path, dataset_id):
             raise KeyError(dataset_id)
-        raw = isolation_db.get_statistics(self.db_path, dataset_id=dataset_id)
+        from .isolation_auth import TRAINER_EMAIL
+
+        raw = isolation_db.get_statistics(
+            self.db_path,
+            dataset_id=dataset_id,
+            admin_email=TRAINER_EMAIL,
+        )
         from datetime import datetime, timezone
 
         for contributor in raw["contributors"]:
@@ -219,7 +367,94 @@ class IsolationService:
                 if ts is not None
                 else None
             )
+            contributor["successful_pairs"] = int(contributor.get("successful_pairs") or 0)
         return IsolationStatistics(dataset_id=dataset_id, **raw)
+
+    def list_uploaded_pairs(
+        self,
+        *,
+        dataset_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> IsolationPairListResponse:
+        if dataset_id and not isolation_db.get_dataset(self.db_path, dataset_id):
+            raise KeyError(dataset_id)
+        from datetime import datetime, timezone
+
+        from .isolation_auth import TRAINER_EMAIL, is_admin_email
+
+        rows, total = isolation_db.list_pairs(
+            self.db_path,
+            dataset_id=dataset_id,
+            limit=limit,
+            offset=offset,
+        )
+        counts = isolation_db.pair_counts_by_role(
+            self.db_path,
+            admin_email=TRAINER_EMAIL,
+            dataset_id=dataset_id,
+        )
+        items: list[IsolationPairListItem] = []
+        for row in rows:
+            ts = float(row["created_at"])
+            email = row.get("email")
+            pair_id = row["pair_id"]
+            items.append(
+                IsolationPairListItem(
+                    pair_id=pair_id,
+                    dataset_id=row["dataset_id"],
+                    dataset_name=row.get("dataset_name"),
+                    pair_index=int(row["pair_index"]),
+                    uploaded_at=datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    uploaded_by_user_id=row.get("user_id"),
+                    uploaded_by_email=email,
+                    uploaded_by_name=row.get("name"),
+                    is_admin_uploader=is_admin_email(email),
+                    before_path=row.get("before_rel"),
+                    after_path=row.get("after_rel"),
+                    mask_path=row.get("mask_rel"),
+                    before_url=self._pair_image_url(pair_id, "before"),
+                    after_url=self._pair_image_url(pair_id, "after"),
+                    mask_url=self._pair_image_url(pair_id, "mask"),
+                    content_hash=row.get("content_hash"),
+                )
+            )
+        return IsolationPairListResponse(
+            total=total,
+            limit=max(1, min(500, int(limit))),
+            offset=max(0, int(offset)),
+            pairs=items,
+            counts=IsolationPairRoleStatistics(**counts),
+        )
+
+    def _pair_image_url(self, pair_id: str, kind: str) -> str:
+        # Prefer APP_ROOT_PATH-aware asset helper when available.
+        rel = f"isolation/pairs/{pair_id}/{kind}"
+        try:
+            return self._asset_url_for(rel)
+        except Exception:
+            return f"/{rel}"
+
+    def resolve_pair_image(self, *, pair_id: str, kind: str) -> Path:
+        kind = (kind or "").strip().lower()
+        if kind not in ("before", "after", "mask"):
+            raise ValueError("kind must be before, after, or mask")
+        row = isolation_db.get_pair(self.db_path, pair_id)
+        if not row:
+            raise KeyError(pair_id)
+        rel_key = {"before": "before_rel", "after": "after_rel", "mask": "mask_rel"}[kind]
+        rel = str(row.get(rel_key) or "").strip().replace("\\", "/")
+        if not rel:
+            raise FileNotFoundError(f"No {kind} path for pair {pair_id}")
+        path = (self._dataset_dir(str(row["dataset_id"])) / rel).resolve()
+        root = self._dataset_dir(str(row["dataset_id"])).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise FileNotFoundError(f"{kind} image missing for pair {pair_id}") from exc
+        if not path.is_file():
+            raise FileNotFoundError(f"{kind} image missing for pair {pair_id}")
+        return path
 
     def export_dataset_zip(self, dataset_id: str, dest_zip: Path | None = None) -> Path:
         row = isolation_db.get_dataset(self.db_path, dataset_id)

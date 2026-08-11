@@ -370,10 +370,24 @@ PicPolish uploads **before/after** image pairs; the API learns foreground masks 
 3. **Upload pairs** — `POST /isolation/datasets/{dataset_id}/pairs` (multipart; **Bearer required**). Append more pairs to the **same** dataset over time.
 4. **Train (incremental)** — `POST /isolation/train` with `{ "dataset_id", "grow_active": true }` (**Bearer required**).  
    Defaults: resume from the active model checkpoint, reuse the same `model_id`, auto-activate. Each successful train bumps `generation` (1 → 2 → 3…).
-5. **Predict** — `POST /isolation/predict` with multipart `file` (**no auth**). Uses the active growing model. Returns RGBA PNG (or `format=json`).
-6. **See active model** — `GET /isolation/models/active` → `model_id`, `metrics.generation`, IoU (**public**).
+5. **Admin rebuild (dedupe + full retrain)** — `POST /isolation/retrain-all` (**admin Bearer**).  
+   Purges exact duplicate before/after couples, then queues a **full** retrain (`grow_active` default `false`). Body may be `{}` (uses active/largest dataset) or `{ "dataset_id": "..." }`. Poll `GET /isolation/train/{job_id}`. Optional purge-only: `POST /isolation/datasets/{dataset_id}/dedupe`.
+6. **Predict** — `POST /isolation/predict` with multipart `file` (**no auth**). Uses the active growing model. Returns RGBA PNG (or `format=json`).
+7. **See active model** — `GET /isolation/models/active` → `model_id`, `metrics.generation`, IoU (**public**).
 
-Training / dataset / model-admin routes require any authenticated user. Predict + health + model list remain public.
+Training / dataset / model-admin routes require any authenticated user for upload/train.
+Admin panel routes (statistics, **uploaded pairs table**, model activate/import, delete dataset, **dedupe**, **retrain-all**) require the **admin** account.
+Predict + health + model list remain public.
+
+Login as admin: `{ "email": "admin", "password": "devtek2026" }` → `user.is_admin: true`.
+Other users get `user.is_admin: false` and receive HTTP 403 on admin-panel APIs.
+
+Exact duplicate before/after image pairs are rejected on upload (SHA-256 of both files). Training also skips remaining duplicates. Admin pair inventory + rebuild:
+
+- `GET /isolation/pairs` — table rows (`uploaded_at`, uploader email/name, dataset, pair index)
+- `GET /isolation/statistics` → `pairs.total_pairs` / `pairs.admin_pairs` / `pairs.user_pairs`
+- `POST /isolation/datasets/{dataset_id}/dedupe` — remove duplicate couples already on disk
+- `POST /isolation/retrain-all` — purge duplicates then retrain from current images (Swagger/UI)
 
 
 Health: `GET /isolation/health` (ONNX Runtime, active model).
