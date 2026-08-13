@@ -43,7 +43,14 @@ def _python_executable() -> Path:
         found = shutil.which(raw)
         if found:
             return Path(found)
-        raise RuntimeError(f"TripoSR python executable not found: {raw}")
+        # Wrong machine path in .env.worker (common when copying env from another PC).
+        # Fall back to the interpreter that launched the worker.
+        fallback = Path(sys.executable)
+        print(
+            f"[triposr] configured python not found ({raw!r}); using {fallback}",
+            flush=True,
+        )
+        return fallback
     return Path(sys.executable)
 
 
