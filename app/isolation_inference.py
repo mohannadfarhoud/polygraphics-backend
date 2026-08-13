@@ -113,7 +113,7 @@ def _session_input_channels(session) -> int:
 
 
 def _preprocess_color_edge(image_bgr: np.ndarray, size: int = 512) -> tuple[np.ndarray, tuple[int, int]]:
-    """4-channel RGB + color-edge input (matches isolation_finetune UNet)."""
+    """5-channel RGB + color-edge + product-color prior (matches isolation_finetune UNet)."""
     from .isolation_finetune import pack_input_chw
 
     h, w = image_bgr.shape[:2]
@@ -150,10 +150,17 @@ def predict_mask(image_bgr: np.ndarray, *, model_path: Path) -> np.ndarray:
     channels = _session_input_channels(session)
 
     if channels >= 4:
-        # Growing UNet: RGB + color-edge channel
+        # Growing UNet: RGB + color-edge (+ optional product-color prior as ch5)
         if not isinstance(size, int) or size <= 0 or size > 2048:
             size = 512
         inp, hw = _preprocess_color_edge(image_bgr, size=size)
+        # Older 4-ch ONNX models cannot consume the new 5-ch pack.
+        if channels == 4 and inp.shape[1] == 5:
+            inp = inp[:, :4]
+        elif channels == 5 and inp.shape[1] == 4:
+            # Should not happen with current pack_input; pad zeros if needed.
+            pad = np.zeros((inp.shape[0], 1, inp.shape[2], inp.shape[3]), dtype=inp.dtype)
+            inp = np.concatenate([inp, pad], axis=1)
         use_isnet = False
     elif size >= 512 or os.getenv("ISOLATION_PREPROCESS", "").strip().lower() in (
         "isnet",

@@ -1,9 +1,9 @@
 """PyTorch UNet fine-tune for incremental isolation training (GPU worker).
 
-Training bias: color-edge / boundary patterns over absolute size & position.
+Training bias: shared product color pattern (e.g. gold + stones) + silhouette.
 - Strong scale/translate/crop augmentations (break position/size memorization)
-- Edge-channel input (RGB + color-edge magnitude)
-- Boundary-weighted loss so mask borders dominate the objective
+- Input: RGB + color-edge + product-color prior (gold/stone membership)
+- Boundary + color-prior losses so the model keeps catalog colors, drops beige/grey BG
 """
 
 from __future__ import annotations
@@ -21,8 +21,10 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 INPUT_SIZE = int(os.getenv("ISOLATION_INPUT_SIZE", "512") or "512")
-# Loss mix: focus on color edges / shape outline more than bulk region fill.
+IN_CHANNELS = 5  # RGB + color-edge + product-color prior
+# Loss mix: color pattern + outline over bulk region fill.
 EDGE_LOSS_WEIGHT = float(os.getenv("ISOLATION_EDGE_LOSS_WEIGHT", "4.0"))
+COLOR_PRIOR_LOSS_WEIGHT = float(os.getenv("ISOLATION_COLOR_PRIOR_LOSS_WEIGHT", "1.5"))
 BCE_WEIGHT = float(os.getenv("ISOLATION_BCE_WEIGHT", "0.25"))
 DICE_WEIGHT = float(os.getenv("ISOLATION_DICE_WEIGHT", "0.55"))
 # Sticky train/val assignment so IoU is comparable across retrain/grow runs.
@@ -65,19 +67,48 @@ def color_edge_map(rgb: np.ndarray) -> np.ndarray:
     return edge
 
 
+def product_color_prior_map(rgb: np.ndarray) -> np.ndarray:
+    """Soft membership for shared catalog colors: warm yellow gold + bright clear stones.
+
+    All PicPolish jewelry couples share this color pattern; shape varies.
+    Returns float32 HxW in [0,1].
+    """
+    rgb_u8 = np.clip(rgb, 0, 255).astype(np.uint8) if rgb.dtype != np.uint8 else rgb
+    hsv = cv2.cvtColor(rgb_u8, cv2.COLOR_RGB2HSV).astype(np.float32)
+    h, s, v = hsv[:, :, 0], hsv[:, :, 1], hsv[:, :, 2]
+    # OpenCV hue: yellow-gold ~10–35 (degrees/2).
+    gold_hue = ((h >= 8.0) & (h <= 40.0)).astype(np.float32)
+    gold_sat = np.clip((s - 40.0) / 120.0, 0.0, 1.0)
+    gold_val = np.clip((v - 70.0) / 140.0, 0.0, 1.0)
+    gold = gold_hue * gold_sat * gold_val
+
+    # Clear stones / sparkles: bright, low–mid saturation (not beige wall).
+    stone = np.clip((v - 180.0) / 60.0, 0.0, 1.0) * np.clip((90.0 - s) / 90.0, 0.0, 1.0)
+    # Suppress pure white studio (v high AND s very low over large flat areas) — stones still
+    # keep some local sparkle via residual saturation; clamp flat white:
+    flat_white = ((v >= 245.0) & (s <= 12.0)).astype(np.float32)
+    stone = stone * (1.0 - 0.85 * flat_white)
+
+    prior = np.maximum(gold, stone).astype(np.float32)
+    # Mild blur so thin shafts still get a continuous prior band.
+    prior = cv2.GaussianBlur(prior, (0, 0), 1.2)
+    return np.clip(prior, 0.0, 1.0)
+
+
 def pack_input_chw(rgb: np.ndarray) -> np.ndarray:
-    """RGB uint8/float HxWx3 -> float32 CHW with 4 channels (RGB + color-edge)."""
+    """RGB uint8/float HxWx3 -> float32 CHW with 5 channels (RGB + edge + color prior)."""
     if rgb.dtype != np.uint8:
         rgb_u8 = np.clip(rgb * 255.0 if rgb.max() <= 1.5 else rgb, 0, 255).astype(np.uint8)
     else:
         rgb_u8 = rgb
     edge = color_edge_map(rgb_u8)
+    prior = product_color_prior_map(rgb_u8)
     img = rgb_u8.astype(np.float32) / 255.0
-    stacked = np.concatenate([img, edge[:, :, None]], axis=2)  # HWC 4
+    stacked = np.concatenate([img, edge[:, :, None], prior[:, :, None]], axis=2)  # HWC 5
     return np.transpose(stacked, (2, 0, 1)).astype(np.float32)
 
 
-def _build_unet(in_ch: int = 4):
+def _build_unet(in_ch: int = IN_CHANNELS):
     import torch
     import torch.nn as nn
 
@@ -159,16 +190,11 @@ def _geom_augment(rgb: np.ndarray, mask: np.ndarray, size: int) -> tuple[np.ndar
         canvas_rgb = cv2.flip(canvas_rgb, 1)
         canvas_m = cv2.flip(canvas_m, 1)
 
-    # Mild photometric jitter — keep color relationships, avoid destroying edges.
+    # Mild brightness/contrast only — do NOT shift hue (gold color signature must stay).
     if random.random() < 0.7:
-        alpha = random.uniform(0.85, 1.15)  # contrast
-        beta = random.uniform(-12, 12)  # brightness
+        alpha = random.uniform(0.9, 1.1)  # contrast
+        beta = random.uniform(-8, 8)  # brightness
         canvas_rgb = np.clip(canvas_rgb.astype(np.float32) * alpha + beta, 0, 255).astype(np.uint8)
-    if random.random() < 0.4:
-        # Slight hue shift in HSV (color identity still mostly intact).
-        hsv = cv2.cvtColor(canvas_rgb, cv2.COLOR_RGB2HSV).astype(np.int16)
-        hsv[:, :, 0] = (hsv[:, :, 0] + random.randint(-8, 8)) % 180
-        canvas_rgb = cv2.cvtColor(np.clip(hsv, 0, 255).astype(np.uint8), cv2.COLOR_HSV2RGB)
 
     return canvas_rgb, canvas_m
 
@@ -266,6 +292,18 @@ def _edge_consistency_loss(pred, target):
     return F.l1_loss(pe, te)
 
 
+def _color_prior_loss(pred, target, color_prior):
+    """Keep catalog colors as FG; suppress FG on non-product colors (beige/grey BG).
+
+    color_prior: soft gold/stone membership from the input (B,1,H,W).
+    """
+    # Missed product-colored FG
+    miss = ((1.0 - pred) * target * color_prior).mean()
+    # False FG on low-prior background
+    false = (pred * (1.0 - target) * (1.0 - color_prior)).mean()
+    return miss + false
+
+
 def _iou_batch(pred, target, thr: float = 0.5) -> float:
     pb = pred >= thr
     tb = target >= thr
@@ -275,7 +313,7 @@ def _iou_batch(pred, target, thr: float = 0.5) -> float:
 
 
 class _PairDataset:
-    """On-the-fly geometric + color-edge packing (train) or center resize (val)."""
+    """On-the-fly geometric + color-prior packing (train) or center resize (val)."""
 
     def __init__(self, pairs: list[tuple[np.ndarray, np.ndarray]], *, augment: bool, size: int = INPUT_SIZE):
         self.pairs = pairs
@@ -308,7 +346,7 @@ def train_unet_incremental(
     resume_checkpoint: Path | None,
     progress_callback: Callable[[int], None] | None = None,
 ) -> dict:
-    """Fine-tune UNet focused on color edges; geometric aug breaks size/position bias."""
+    """Fine-tune UNet on shared product color pattern + silhouette (shape free)."""
     import torch
     import torch.nn.functional as F
     from torch.utils.data import DataLoader
@@ -331,7 +369,7 @@ def train_unet_incremental(
     train_loader = DataLoader(train_ds, batch_size=min(batch, len(train_ds)), shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=min(batch, len(val_ds)), shuffle=False, num_workers=0)
 
-    model = _build_unet(in_ch=4).to(device)
+    model = _build_unet(in_ch=IN_CHANNELS).to(device)
     generation = 1
     parent_model_id = None
     if resume_checkpoint and resume_checkpoint.is_file():
@@ -340,7 +378,7 @@ def train_unet_incremental(
         incompatible = model.load_state_dict(state, strict=False)
         if incompatible.missing_keys or incompatible.unexpected_keys:
             log.warning(
-                "checkpoint partial load (likely 3ch→4ch upgrade): missing=%s unexpected=%s",
+                "checkpoint partial load (channel upgrade): missing=%s unexpected=%s",
                 incompatible.missing_keys[:4],
                 incompatible.unexpected_keys[:4],
             )
@@ -352,11 +390,13 @@ def train_unet_incremental(
     opt = torch.optim.Adam(model.parameters(), lr=1e-3 if generation == 1 else 5e-4)
 
     log.info(
-        "isolation fine-tune edge-focus device=%s pairs=%d epochs=%d edge_w=%.2f",
+        "isolation fine-tune color-pattern device=%s pairs=%d epochs=%d in_ch=%d edge_w=%.2f color_w=%.2f",
         device,
         n,
         epochs,
+        IN_CHANNELS,
         EDGE_LOSS_WEIGHT,
+        COLOR_PRIOR_LOSS_WEIGHT,
     )
 
     model.train()
@@ -366,13 +406,21 @@ def train_unet_incremental(
         for xb, yb in train_loader:
             xb = xb.to(device)
             yb = yb.to(device)
+            # Channel 4 = product color prior (packed after RGB + edge).
+            color_prior = xb[:, 4:5]
             opt.zero_grad()
             pred = model(xb)
             weights = _mask_boundary_weight(yb, device)
             bce = F.binary_cross_entropy(pred, yb, weight=weights)
             dice = _dice_loss(pred, yb)
             edge_l = _edge_consistency_loss(pred, yb)
-            loss = BCE_WEIGHT * bce + DICE_WEIGHT * dice + EDGE_LOSS_WEIGHT * 0.65 * edge_l
+            color_l = _color_prior_loss(pred, yb, color_prior)
+            loss = (
+                BCE_WEIGHT * bce
+                + DICE_WEIGHT * dice
+                + EDGE_LOSS_WEIGHT * 0.65 * edge_l
+                + COLOR_PRIOR_LOSS_WEIGHT * color_l
+            )
             loss.backward()
             opt.step()
             total += float(loss.item())
@@ -411,14 +459,14 @@ def train_unet_incremental(
             "generation": generation,
             "model_id": parent_model_id,
             "input_size": INPUT_SIZE,
-            "in_channels": 4,
-            "focus": "color_edge",
+            "in_channels": IN_CHANNELS,
+            "focus": "product_color_pattern",
         },
         str(ckpt_path),
     )
 
     onnx_path = output_dir / "model.onnx"
-    dummy = torch.randn(1, 4, INPUT_SIZE, INPUT_SIZE, device=device)
+    dummy = torch.randn(1, IN_CHANNELS, INPUT_SIZE, INPUT_SIZE, device=device)
     model.eval()
     try:
         import onnx  # noqa: F401
@@ -447,16 +495,16 @@ def train_unet_incremental(
         "epochs": epochs,
         "generation": generation,
         "parent_model_id": parent_model_id,
-        "backend": "unet_finetune_color_shape_v2",
+        "backend": "unet_finetune_color_pattern_v3",
         "device": device,
         "input_size": INPUT_SIZE,
-        "in_channels": 4,
+        "in_channels": IN_CHANNELS,
         "edge_loss_weight": EDGE_LOSS_WEIGHT,
+        "color_prior_loss_weight": COLOR_PRIOR_LOSS_WEIGHT,
         "val_split_mode": "sticky_hash",
         "note": (
-            "IoU is mean mask overlap on a sticky holdout (same pairs stay in val across retrain). "
-            "iou_all is unaugmented score on every pair. Small datasets still move when hard "
-            "pairs enter the holdout or n_val grows."
+            "Trained on shared product color pattern (gold/stone prior) + silhouette. "
+            "IoU is sticky holdout; iou_all is all pairs unaugmented."
         ),
     }
 
