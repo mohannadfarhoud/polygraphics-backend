@@ -26,7 +26,7 @@ if ($envFile) {
 # TripoSR must use THIS machine's Python. Copied .env.worker paths from another PC often break.
 $tripoPy = [System.Environment]::GetEnvironmentVariable("POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON")
 if (-not [string]::IsNullOrWhiteSpace($tripoPy) -and -not (Test-Path $tripoPy)) {
-    Write-Host "POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON not found ($tripoPy) — using local venv: $venvPython" -ForegroundColor Yellow
+    Write-Host "POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON not found ($tripoPy) - using local venv: $venvPython" -ForegroundColor Yellow
     $env:POLYGRAPH_OVERRIDE_TRIPOSR_PYTHON = $venvPython
     $env:TRIPO_TRIPOSR_PYTHON = $venvPython
 }
